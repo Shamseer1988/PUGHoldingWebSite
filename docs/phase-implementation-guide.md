@@ -18,7 +18,7 @@ lives at the repo root in
 | ----- | ------------------------------------------------ | ----------- |
 | 1     | Project foundation                               | **Done**    |
 | 2     | Authentication, roles, separate logins           | **Done**    |
-| 3     | Public website UI foundation                     | Planned     |
+| 3     | Public website UI foundation                     | **Done**    |
 | 4     | Public pages (dummy content)                     | Planned     |
 | 5     | Website admin content management                 | Planned     |
 | 6     | Public website backend API integration           | Planned     |
@@ -37,43 +37,43 @@ lives at the repo root in
 | 19    | Security, audit, validation, and testing         | Planned     |
 | 20    | Deployment documentation and final package       | Planned     |
 
-## Phase 2 deliverables
+## Phase 3 deliverables
 
-Backend:
-- Tables: `users`, `roles`, `permissions`, `user_roles`,
-  `role_permissions`, `audit_logs`.
-- bcrypt-backed password hashing (pre-hashed with SHA-256 to sidestep
-  the 72-byte bcrypt limit).
-- JWT issuance / verification (`python-jose`) with distinct
-  `access` / `refresh` token types.
-- Two separate auth routers:
-  - `/api/v1/admin/auth/login | logout | me`
-  - `/api/v1/hr/auth/login | logout | me`
-- Scope guards (`require_website_admin`, `require_hr_admin`,
-  `require_permission(...)`).
-- Audit log entries on every login success, failed login (with reason),
-  wrong-scope login, and logout.
-- Alembic migration `20260523_0001_phase2_auth_tables`.
-- Idempotent seed CLI: `python -m app.scripts.seed_users`.
+Public layout shell (`app/(public)/layout.tsx`):
 
-Frontend:
-- New shadcn primitives: `Input`, `Label`, `Card`.
-- `lib/auth.ts` – two isolated token slots (`pug.auth.admin`,
-  `pug.auth.hr`), `login`, `logout`, `fetchMe`, error types.
-- `AuthProvider` + `useAuth` keyed per scope, `AuthGuard` for
-  client-side route protection.
-- `/admin/login` and `/hr/login` pages with shared `LoginForm`
-  component (glass card, show/hide password, seed-credentials hint
-  in dev).
-- `/admin` and `/hr` now show a protected dashboard placeholder with
-  the signed-in user, scopes, roles, permission count, and a logout
-  button.
+- Sticky transparent navbar (`components/site/navbar.tsx`) – becomes
+  glass with backdrop-blur on scroll.
+- Desktop dropdown menu (hover/focus) for Group Companies.
+- Mobile hamburger drawer (`components/site/mobile-menu.tsx`) – slide-in
+  from the right, body scroll lock, escape to close, route change
+  auto-close, expandable submenus.
+- Light/dark theme toggle (`components/site/theme-toggle.tsx`) backed
+  by `next-themes` (already wired in Phase 1's root layout).
+- Search button + collapsible search bar (UI only – wires to backend
+  in Phase 6).
+- Footer with brand column, contact details, three link columns,
+  social links.
+- Floating "Ask PUG AI" launcher (`components/site/ask-pug-ai-button.tsx`)
+  with placeholder modal – the actual Azure OpenAI chat lands in
+  Phase 17.
+- Skip-to-content link for keyboard users.
 
-Docs:
-- Auth endpoints documented in `docs/api-reference.md`.
-- Seed users walkthrough in `docs/setup-guide.md`.
-- Login instructions in `docs/admin-user-guide.md` and
-  `docs/hr-ats-user-guide.md`.
+Reusable primitives:
+
+- `GlassCard` – glassmorphism card with Framer Motion fade-in on scroll.
+- `Section` – page section wrapper with eyebrow / title / description.
+- `ComingSoon` – shared placeholder used by every Phase 4 route.
+- Stronger global CSS safety net (images cap to 100% width, body locks
+  horizontal scroll, `.bg-decor` utility for soft coloured background
+  blobs, `.break-anywhere` for long URLs/IDs).
+
+Route shells (all rendered through the public layout):
+
+- `/` – Phase 3 shell preview (hero, capabilities, live backend health
+  card, roadmap).
+- `/about`, `/companies`, `/news`, `/careers`, `/contact`, `/media` –
+  shared `ComingSoon` stub with the per-page feature list. Real
+  content lands in Phase 4.
 
 ## Definition of done for any phase
 

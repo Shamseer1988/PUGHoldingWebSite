@@ -82,8 +82,11 @@
     @apply bg-background text-foreground;
   }
 
-  /* Phase 1 mobile safety net: prevent the horizontal scroll
-   * issue called out in the design brief. */
+  /* Phase 3 mobile safety net: prevent the horizontal scroll issue
+   * called out in the design brief (tested at 360 / 390 / 430 / 768 /
+   * 1024 / 1440 px). Combined with the .container utility limits and
+   * the responsive breakpoints below, no element should overflow the
+   * viewport. */
   html,
   body {
     max-width: 100%;
@@ -94,6 +97,24 @@
     @apply antialiased min-h-screen;
     text-rendering: optimizeLegibility;
   }
+
+  /* Long media (images, video, embeds, canvases) should never push
+   * the layout wider than its parent. */
+  img,
+  video,
+  iframe,
+  canvas,
+  svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Smoother theme transitions on color/background changes (skipped
+   * for elements that animate via transform to avoid jank). */
+  html.transition * {
+    transition: background-color 200ms ease, color 200ms ease,
+      border-color 200ms ease;
+  }
 }
 
 @layer utilities {
@@ -103,5 +124,37 @@
 
   .glass-card {
     @apply glass rounded-2xl;
+  }
+
+  /* Subtle background decoration usable inside hero / section wrappers.
+   * Three soft coloured blobs, blurred, positioned absolutely. */
+  .bg-decor::before,
+  .bg-decor::after {
+    content: "";
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: -1;
+  }
+  .bg-decor::before {
+    top: -10%;
+    left: -10%;
+    width: 18rem;
+    height: 18rem;
+    background-color: hsl(var(--primary) / 0.25);
+  }
+  .bg-decor::after {
+    bottom: -10%;
+    right: -10%;
+    width: 20rem;
+    height: 20rem;
+    background-color: hsl(280 90% 60% / 0.18);
+  }
+
+  /* Helper for very-long unbroken strings (URLs, code, IDs). */
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }

@@ -48,13 +48,39 @@ Manual:
 - [ ] Sign-out button on each portal returns you to the login page and
       clears the token from `localStorage`.
 
-## Phase 3 — Public UI foundation (planned)
+## Phase 3 — Public UI foundation
+
+Automated:
+
+- [x] Frontend type-check passes (`npm run type-check`).
+- [x] Frontend production build succeeds (`npm run build`) and
+      generates `/`, `/about`, `/companies`, `/news`, `/careers`,
+      `/contact`, `/media` under the public layout.
+- [x] Backend test suite still green (20 passed).
+
+Manual (run `npm run dev` and walk through):
 
 - [ ] No horizontal overflow at 360px, 390px, 430px, 768px,
-      1024px, 1440px.
-- [ ] Theme toggle persists across reloads.
-- [ ] Hamburger menu opens/closes on mobile.
-- [ ] Floating Ask PUG AI placeholder visible.
+      1024px, 1440px (use Chrome DevTools device toolbar).
+- [ ] Navbar starts transparent and turns into a glass bar after
+      scrolling a few pixels.
+- [ ] Desktop "Group Companies" dropdown opens on hover/focus and
+      closes on outside hover.
+- [ ] Mobile hamburger drawer opens, locks body scroll, closes on
+      backdrop click / Escape / route change / X button.
+- [ ] Submenus inside the mobile drawer expand/collapse.
+- [ ] Theme toggle switches between light and dark and persists
+      across reloads.
+- [ ] Search button opens a search input bar and the X icon closes it.
+- [ ] Floating "Ask PUG AI" launcher is pinned bottom-right and the
+      modal opens / closes correctly (backdrop click, Escape, X).
+- [ ] Skip-to-content link appears on first Tab press and jumps past
+      the navbar.
+- [ ] Footer renders 4 columns on desktop and stacks on mobile.
+- [ ] All public stub pages (/about, /companies, /news, /careers,
+      /contact, /media) load and show the per-page "Coming soon" card.
+- [ ] Admin (`/admin`) and HR (`/hr`) pages still work end-to-end
+      from Phase 2.
 
 ## Phase 19 — Security and validation (planned)
 
