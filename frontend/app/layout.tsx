@@ -32,6 +32,13 @@ export const metadata: Metadata = {
     "FMCG",
     "Construction",
   ],
+  // Favicons are auto-wired from `app/icon.png` and `app/apple-icon.png`.
+  // Open Graph default image uses the full logo.
+  openGraph: {
+    type: "website",
+    siteName: env.siteName,
+    images: ["/logo.png"],
+  },
 };
 
 export const viewport: Viewport = {
@@ -39,8 +46,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b1220" },
+    { media: "(prefers-color-scheme: light)", color: "hsl(40 30% 98%)" },
+    { media: "(prefers-color-scheme: dark)", color: "hsl(145 28% 7%)" },
   ],
 };
 
