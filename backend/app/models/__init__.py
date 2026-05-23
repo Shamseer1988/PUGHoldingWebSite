@@ -1,8 +1,24 @@
 """SQLAlchemy ORM models.
 
-Phase 1 only registers the shared base mixins. Domain models for the
-website CMS and HR ATS modules are introduced in later phases.
+Models are organised by domain. Importing this package registers every
+table on ``Base.metadata`` so Alembic can autogenerate against it.
 """
 from app.models.base import TimestampMixin
+from app.models.auth import (
+    AuditLog,
+    Permission,
+    Role,
+    RolePermission,
+    User,
+    UserRole,
+)
 
-__all__ = ["TimestampMixin"]
+__all__ = [
+    "TimestampMixin",
+    "AuditLog",
+    "Permission",
+    "Role",
+    "RolePermission",
+    "User",
+    "UserRole",
+]

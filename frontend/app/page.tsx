@@ -9,16 +9,16 @@ const milestones = [
   {
     phase: "Phase 1",
     title: "Project foundation",
-    status: "current",
+    status: "done",
     summary:
       "Next.js + TypeScript + Tailwind + shadcn/ui + Framer Motion + Lucide + Recharts; FastAPI + SQLAlchemy + Alembic; health check API.",
   },
   {
     phase: "Phase 2",
     title: "Auth and separate logins",
-    status: "next",
+    status: "current",
     summary:
-      "Website Admin and HR Admin login flows, role/permission tables, route guards, and seed users.",
+      "Website Admin and HR Admin login flows, role/permission tables, route guards, audit log, and seed users.",
   },
   {
     phase: "Phase 3 – 4",
@@ -74,14 +74,14 @@ export default function HomePage() {
 
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild>
-              <Link href="/admin">
-                Website admin
+              <Link href="/admin/login">
+                Website admin login
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/hr">
-                HR ATS portal
+              <Link href="/hr/login">
+                HR ATS login
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
@@ -162,8 +162,9 @@ function FeatureCard({
 
 function StatusPill({ status }: { status: string }) {
   const map: Record<string, string> = {
-    current: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
-    next: "bg-sky-500/15 text-sky-600 dark:text-sky-300",
+    done: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+    current: "bg-sky-500/15 text-sky-600 dark:text-sky-300",
+    next: "bg-amber-500/15 text-amber-600 dark:text-amber-300",
     planned: "bg-muted text-muted-foreground",
   };
   return (
