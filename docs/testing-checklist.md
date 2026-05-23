@@ -48,6 +48,49 @@ Manual:
 - [ ] Sign-out button on each portal returns you to the login page and
       clears the token from `localStorage`.
 
+## Phase 4 — Public pages (dummy content)
+
+Automated:
+
+- [x] Frontend type-check passes (`npm run type-check`).
+- [x] Frontend production build succeeds (`npm run build`) and
+      generates all 14 company detail pages, 6 news detail pages,
+      and 8 job detail pages.
+- [x] Backend test suite still green (20 passed).
+
+Manual (run `npm run dev` and walk through):
+
+- [ ] Home: hero auto-rotates between 3 slides; pause/play button
+      works; clicking dot indicators jumps to that slide.
+- [ ] Home: animated stats counters count up when scrolled into view.
+- [ ] Home: sector cards (Retail / Distribution / Services) link to
+      filtered `/companies?category=...`.
+- [ ] Home: company cards, news cards, job cards all navigate to the
+      right detail pages.
+- [ ] Home: newsletter form shows a "Subscribing…" state and a success
+      message on submit.
+- [ ] About: vision, mission, core values, history timeline animate
+      in; leadership cards show full messages.
+- [ ] Companies: clicking a category chip filters the list and the
+      URL updates (`?category=retail`).
+- [ ] Company detail: page renders for all 14 companies (try
+      `/companies/paris-hyper-market`, `/companies/yellowtech-garage`).
+- [ ] News list: featured strip + latest grid.
+- [ ] News detail: cover, body, gallery, share buttons render.
+- [ ] Careers: search by title / skill works; department / company /
+      location / type filters narrow results; reset clears all.
+- [ ] Job detail: responsibilities, requirements, skills, quick facts
+      render. **Apply Now form** opens, file picker accepts PDF/DOC,
+      consent checkbox is required, success state appears on submit.
+- [ ] Contact: department dropdown lists 7 options. Form shows a
+      success state on submit.
+- [ ] Media: 12 tiles, category chips filter, clicking a tile opens
+      the lightbox; Esc / backdrop / X close it.
+- [ ] All pages remain responsive at 360 / 390 / 430 / 768 / 1024 /
+      1440 px with no horizontal overflow.
+- [ ] Theme toggle still flips light/dark across every new page.
+- [ ] Floating Ask PUG AI launcher visible on every public page.
+
 ## Phase 3 — Public UI foundation
 
 Automated:
