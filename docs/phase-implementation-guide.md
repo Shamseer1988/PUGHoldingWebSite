@@ -20,7 +20,7 @@ lives at the repo root in
 | 2     | Authentication, roles, separate logins           | **Done**    |
 | 3     | Public website UI foundation                     | **Done**    |
 | 4     | Public pages (dummy content)                     | **Done**    |
-| 5     | Website admin content management                 | Planned     |
+| 5     | Website admin content management                 | **Done**    |
 | 6     | Public website backend API integration           | Planned     |
 | 7     | HR ATS database and core models                  | Planned     |
 | 8     | HR ATS admin dashboard                           | Planned     |
@@ -37,66 +37,60 @@ lives at the repo root in
 | 19    | Security, audit, validation, and testing         | Planned     |
 | 20    | Deployment documentation and final package       | Planned     |
 
-## Phase 4 deliverables
+## Phase 5 deliverables
 
-Pages (all under `app/(public)/`):
+**Brand theme refresh.** The full UI now uses the Paris United Group
+brand palette — deep forest green primary, warm tan/gold accent, warm
+cream surfaces in light mode, deep emerald-charcoal in dark mode.
+The mandala logo mark is rendered inline as an SVG that adapts to both
+themes. Hero slide and sector gradients use the new `pug-green-*` /
+`pug-gold-*` Tailwind colour scales.
 
-- `/` – Home: auto-rotating hero slider with pause/play, animated
-  stats strip, sector cards, featured company grid, leadership
-  preview, latest news, careers highlight, contact CTA, newsletter.
-- `/about` – company intro, vision, mission, core values, history
-  timeline, full leadership messages.
-- `/companies` – category-filtered listing (All / Distribution /
-  Retail / Services) using URL query (`?category=...`).
-- `/companies/[slug]` – 14 generated detail pages with logo, banner
-  accent, long description, services, gallery placeholders, contact
-  panel, related companies.
-- `/news` – featured strip + latest grid.
-- `/news/[slug]` – 6 generated article pages with cover, body, gallery,
-  share buttons (UI), related stories.
-- `/careers` – client-side filtered listing (search, department,
-  company, location, employment type, reset).
-- `/careers/[slug]` – 8 generated job pages with responsibilities,
-  requirements, required + preferred skills, quick facts, **Apply Now
-  form** (UI only — Phase 10 wires it to the HR ATS).
-- `/contact` – contact form with department routing, contact details,
-  WhatsApp / phone quick actions, map placeholder.
-- `/media` – category-filtered gallery with lightbox.
+**Backend (FastAPI + SQLAlchemy + Alembic):**
 
-Data layer (`lib/dummy-data/`):
+- New tables: `hero_slides`, `companies`, `company_services`,
+  `leadership_messages`, `news_items`, `contact_messages`,
+  `newsletter_subscribers`, `site_settings` (single row).
+- Alembic migration `20260523_0002_phase5_cms_tables`.
+- 20-endpoint CMS router at `/api/v1/admin/cms/*` (CRUD for hero
+  slides, companies, leadership, news, plus contact inbox actions
+  (read/archive/reply), newsletter subscribers list/delete, site
+  settings get/patch, dashboard summary, audit log viewer).
+- Every CRUD action audit-logged with action, target_type, target_id,
+  changed keys, ip, user-agent.
+- Idempotent seed script: `python -m app.scripts.seed_cms` populates
+  the 14 companies, 4 leadership entries, 6 news items, 3 hero slides,
+  and default site settings.
+- 8 new integration tests (scope isolation, CRUD round-trips, slug
+  conflicts, dashboard summary, audit emission). 28 tests total.
 
-- `companies.ts` – 14 companies (5 distribution, 4 retail, 5 services)
-  matching the master prompt.
-- `news.ts` – 6 articles + helpers.
-- `jobs.ts` – 8 open job openings + filters.
-- `leadership.ts` – Chairman, MD, two Executive Directors.
-- `site-content.ts` – hero slides, stats, sectors, vision/mission/
-  values, history timeline.
-- `media.ts` – 12 media tiles across stores / events / team / campaigns.
+**Frontend (Next.js admin shell):**
 
-> Phase 6 will replace each `getX()` helper with an API call without
-> changing any consumer component.
-
-New shadcn primitives:
-
-- `Badge` (8 variants: default, secondary, destructive, outline,
-  soft, muted, success, warning).
-- `Textarea`.
-- `Select` (lightweight native wrapper).
-
-New site components (`components/site/`):
-
-- `hero-slider.tsx`, `stats-strip.tsx`, `sector-cards.tsx`,
-  `company-card.tsx`, `leadership-card.tsx`, `news-card.tsx`,
-  `job-card.tsx`, `timeline.tsx`, `media-gallery.tsx`,
-  `page-hero.tsx`, `contact-form.tsx`, `apply-form.tsx`,
-  `newsletter-form.tsx`, `job-filters.tsx`.
-
-Form behaviour:
-
-- Newsletter, contact, and apply-now forms validate on the client and
-  show a success state with a "Phase 6/10 will wire this to the
-  backend" note. Phase 6 and Phase 10 swap in real submission.
+- New shell components (`components/admin/*`): `AdminShell`,
+  `AdminSidebar`, `AdminTopbar`, `EmptyState`.
+- New shadcn primitive: `Table` (`TableHeader`, `TableBody`,
+  `TableRow`, `TableHead`, `TableCell`, `TableCaption`).
+- New page routes (all guarded by `AuthGuard` against the admin scope):
+  - `/admin` — dashboard with 6 KPI cards, two Recharts area charts
+    (contact messages per month, news per month), and two preview
+    tables (latest messages + latest news).
+  - `/admin/hero-slides` — list + drawer-form CRUD.
+  - `/admin/companies` — list + drawer-form CRUD with comma-separated
+    services field.
+  - `/admin/leadership` — list + drawer-form CRUD.
+  - `/admin/news` — list + drawer-form CRUD.
+  - `/admin/inbox` — message list + reading pane + reply textarea +
+    archive.
+  - `/admin/subscribers` — list + CSV export + remove.
+  - `/admin/settings` — single-form editor for brand, contact, social,
+    SEO defaults.
+  - `/admin/audit` — filterable audit log viewer (scope + action prefix).
+  - `/admin/media`, `/admin/pages`, `/admin/users` — placeholder stubs
+    (Phase 5 follow-up).
+- `lib/admin/api.ts` — typed authenticated fetch wrapper that pulls
+  the bearer token from the per-scope localStorage slot established
+  in Phase 2.
+- `lib/admin/types.ts` — TypeScript mirrors of every Phase 5 schema.
 
 ## Definition of done for any phase
 
