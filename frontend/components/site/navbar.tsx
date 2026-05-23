@@ -314,18 +314,27 @@ function NavLink({
 }
 
 function MegaWrapper({ children }: { children: React.ReactNode }) {
+  // Positioning lives on the static outer div so Tailwind's
+  // -translate-x-1/2 isn't overwritten by Framer Motion's inline
+  // transform on the animated inner div. The result: the panel
+  // is reliably centred within the viewport regardless of where
+  // its trigger sits in the nav, and is capped to the container
+  // width so it can't overflow the right edge.
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 4, scale: 0.98 }}
-      transition={{ duration: 0.18, ease: "easeOut" }}
-      className="fixed left-1/2 top-[60px] z-40 w-[min(96vw,1100px)] -translate-x-1/2 sm:top-[76px]"
-    >
-      {/* Hover bridge so the menu doesn't snap shut between trigger and panel */}
-      <div aria-hidden className="h-2" />
-      {children}
-    </motion.div>
+    <div className="pointer-events-none fixed inset-x-0 top-[60px] z-40 flex justify-center px-4 sm:top-[76px]">
+      <motion.div
+        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 4, scale: 0.98 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+        className="pointer-events-auto w-full max-w-[1100px]"
+        style={{ transformOrigin: "top center" }}
+      >
+        {/* Hover bridge so the menu doesn't snap shut between trigger and panel */}
+        <div aria-hidden className="h-2" />
+        {children}
+      </motion.div>
+    </div>
   );
 }
 
