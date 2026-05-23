@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,8 +40,13 @@ class Settings(BaseSettings):
     database_url: Optional[str] = Field(default=None)
 
     # --- CORS ---
-    cors_origins: List[str] = Field(
-        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+    # Kept as a string so a comma-separated value in .env (e.g.
+    # ``CORS_ORIGINS=http://a,http://b``) works without pydantic-settings
+    # trying to JSON-decode it. Consumers read ``cors_origins`` (property
+    # below) for the parsed list.
+    cors_origins_raw: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="CORS_ORIGINS",
     )
 
     # --- Uploads ---
@@ -63,13 +68,14 @@ class Settings(BaseSettings):
     smtp_from_email: Optional[str] = Field(default=None)
     smtp_use_tls: bool = Field(default=True)
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def split_cors_origins(cls, value: object) -> object:
-        """Allow CORS_ORIGINS to be supplied as a comma-separated string."""
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @property
+    def cors_origins(self) -> List[str]:
+        """Return CORS origins parsed from the comma-separated env value."""
+        return [
+            origin.strip()
+            for origin in self.cors_origins_raw.split(",")
+            if origin.strip()
+        ]
 
     @property
     def sqlalchemy_database_uri(self) -> str:
