@@ -46,6 +46,15 @@ alembic revision --autogenerate -m "describe change"   # author a new revision
 alembic downgrade -1                                   # revert one revision
 ```
 
+## Seed data
+
+```bash
+python -m app.scripts.seed_users
+```
+
+Creates baseline roles, permissions, and the five seed accounts
+(see [`docs/setup-guide.md`](../docs/setup-guide.md)). Idempotent.
+
 ## Tests
 
 ```bash
