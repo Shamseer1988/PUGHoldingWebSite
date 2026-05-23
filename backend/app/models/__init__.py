@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models.
 
-Models are organised by domain. Importing this package registers every
-table on ``Base.metadata`` so Alembic can autogenerate against it.
+Importing this package registers every table on ``Base.metadata`` so
+Alembic can autogenerate against it.
 """
 from app.models.base import TimestampMixin
 from app.models.auth import (
@@ -12,6 +12,16 @@ from app.models.auth import (
     User,
     UserRole,
 )
+from app.models.cms import (
+    Company,
+    CompanyService,
+    ContactMessage,
+    HeroSlide,
+    LeadershipMessage,
+    NewsItem,
+    NewsletterSubscriber,
+    SiteSetting,
+)
 
 __all__ = [
     "TimestampMixin",
@@ -21,4 +31,12 @@ __all__ = [
     "RolePermission",
     "User",
     "UserRole",
+    "Company",
+    "CompanyService",
+    "ContactMessage",
+    "HeroSlide",
+    "LeadershipMessage",
+    "NewsItem",
+    "NewsletterSubscriber",
+    "SiteSetting",
 ]

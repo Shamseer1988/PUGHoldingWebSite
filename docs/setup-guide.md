@@ -53,6 +53,9 @@ alembic upgrade head
 # Seed baseline roles, permissions, and users (idempotent).
 python -m app.scripts.seed_users
 
+# Phase 5: seed CMS content (hero slides, companies, leadership, news, settings).
+python -m app.scripts.seed_cms
+
 # Run the API
 python run.py
 ```

@@ -45,7 +45,7 @@ export const HERO_SLIDES: HeroSlide[] = [
       "Retail, distribution, FMCG, fashion, packaging, fresh food, building materials, garages, real estate, and construction — all under one trusted group.",
     cta: { label: "Explore the group", href: "/companies" },
     secondaryCta: { label: "Contact us", href: "/contact" },
-    gradient: "from-indigo-600 via-blue-500 to-cyan-400",
+    gradient: "from-pug-green-800 via-pug-green-600 to-pug-gold-500",
     order: 1,
     active: true,
   },
@@ -57,7 +57,7 @@ export const HERO_SLIDES: HeroSlide[] = [
       "Hypermarkets, minimarts, grocery shops, garages, and real estate — designed around what families and businesses actually need every day.",
     cta: { label: "Our companies", href: "/companies" },
     secondaryCta: { label: "Latest news", href: "/news" },
-    gradient: "from-rose-500 via-fuchsia-500 to-purple-500",
+    gradient: "from-pug-gold-700 via-pug-gold-500 to-pug-green-500",
     order: 2,
     active: true,
   },
@@ -69,7 +69,7 @@ export const HERO_SLIDES: HeroSlide[] = [
       "Join one of Qatar's most diversified groups. Roles open across retail operations, FMCG sales, engineering, real estate, and HR.",
     cta: { label: "View open roles", href: "/careers" },
     secondaryCta: { label: "About us", href: "/about" },
-    gradient: "from-emerald-500 via-teal-500 to-sky-500",
+    gradient: "from-pug-green-600 via-pug-green-500 to-pug-gold-600",
     order: 3,
     active: true,
   },
@@ -115,7 +115,7 @@ export const SECTORS: SectorBlock[] = [
       "Hypermarkets, minimarts, grocery shops, and fresh fish counters serving families across Qatar and KSA.",
     href: "/companies?category=retail",
     icon: ShoppingBag,
-    accent: "from-rose-500 via-red-500 to-orange-400",
+    accent: "from-pug-gold-500 via-pug-gold-600 to-pug-gold-700",
   },
   {
     id: "distribution",
@@ -124,7 +124,7 @@ export const SECTORS: SectorBlock[] = [
       "FMCG wholesale, fashion, packaging, fresh produce, and building materials moved reliably at scale.",
     href: "/companies?category=distribution",
     icon: Truck,
-    accent: "from-blue-500 via-sky-500 to-cyan-400",
+    accent: "from-pug-green-500 via-pug-green-600 to-pug-green-700",
   },
   {
     id: "services",
@@ -133,7 +133,7 @@ export const SECTORS: SectorBlock[] = [
       "Garages, real estate brokerage, and engineering & construction services for individuals and businesses.",
     href: "/companies?category=services",
     icon: Wrench,
-    accent: "from-emerald-500 via-teal-500 to-cyan-400",
+    accent: "from-pug-green-600 via-pug-green-500 to-pug-gold-500",
   },
 ];
 

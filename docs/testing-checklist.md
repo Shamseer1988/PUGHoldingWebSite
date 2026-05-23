@@ -48,6 +48,49 @@ Manual:
 - [ ] Sign-out button on each portal returns you to the login page and
       clears the token from `localStorage`.
 
+## Phase 5 — Website admin CMS
+
+Automated (pytest):
+
+- [x] 8 new integration tests pass (28 total).
+- [x] Scope isolation: HR token rejected at `/admin/cms/*` (403).
+- [x] Authentication required: no token returns 401.
+- [x] Company CRUD round-trip (create, update, delete) + audit emission.
+- [x] Company create rejects duplicate slug (409).
+- [x] News create + list.
+- [x] Hero slide create + patch + list + delete.
+- [x] Site settings auto-create on first read; update persists.
+- [x] Dashboard summary returns all stats + bucketed series.
+
+Automated (frontend):
+
+- [x] Type-check clean.
+- [x] Production build generates 11 admin pages.
+
+Manual (run the backend + frontend, log in as websiteadmin):
+
+- [ ] Theme: navbar / footer / hero / sectors / cards all use the new
+      forest green + warm gold brand palette.
+- [ ] Logo: mandala SVG renders on the navbar, the footer, the admin
+      sidebar, and the login page.
+- [ ] /admin lands on the dashboard with KPI cards + two area charts.
+- [ ] /admin/hero-slides — create / edit / delete a slide; toggling
+      `is_active` changes the badge.
+- [ ] /admin/companies — create with services, edit services list,
+      delete. Duplicate-slug attempts surface a clear error.
+- [ ] /admin/leadership — create / edit / delete entries.
+- [ ] /admin/news — create with category / featured / published
+      flags; delete works.
+- [ ] /admin/inbox — list + click a message; replying saves and
+      flags the message; archive hides it from default list.
+- [ ] /admin/subscribers — CSV export downloads correctly.
+- [ ] /admin/settings — saves and reloads with the new values.
+- [ ] /admin/audit — every CRUD action above shows up in the log
+      with action, target, actor, IP, timestamp.
+- [ ] Sidebar collapses to drawer on mobile (≤ 1024 px).
+- [ ] No horizontal overflow at 360 / 390 / 430 / 768 / 1024 / 1440 px.
+- [ ] Public site still works end-to-end with the new theme.
+
 ## Phase 4 — Public pages (dummy content)
 
 Automated:
