@@ -1,9 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Building2, ShoppingBag, Truck, Wrench } from "lucide-react";
+import {
+  ArrowRight,
+  ShoppingBag,
+  Sparkles,
+  Truck,
+  Wrench,
+} from "lucide-react";
 
-import { MandalaMark } from "@/components/site/logo";
 import type { Company } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
 
@@ -57,7 +62,7 @@ export function CompaniesMegaMenu({
         "bg-background/95 dark:bg-card/90"
       )}
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_minmax(0,220px)]">
+      <div className="grid grid-cols-1 sm:grid-cols-3">
         {SECTORS.map((sector) => (
           <SectorColumn
             key={sector.key}
@@ -66,8 +71,9 @@ export function CompaniesMegaMenu({
             onNavigate={onNavigate}
           />
         ))}
-        <FeaturedColumn total={companies.length} onNavigate={onNavigate} />
       </div>
+
+      <FooterCta total={companies.length} onNavigate={onNavigate} />
     </div>
   );
 }
@@ -83,7 +89,7 @@ function SectorColumn({
 }) {
   const Icon = sector.icon;
   return (
-    <div className="border-b border-border/40 p-5 last:border-b-0 md:border-b-0 md:border-r md:border-border/40">
+    <div className="border-b border-border/40 p-5 last:border-b-0 sm:border-b-0 sm:border-r sm:border-border/40 sm:last:border-r-0">
       <Link
         href={`/companies?category=${sector.key}`}
         onClick={onNavigate}
@@ -154,7 +160,7 @@ function SectorColumn({
   );
 }
 
-function FeaturedColumn({
+function FooterCta({
   total,
   onNavigate,
 }: {
@@ -166,33 +172,26 @@ function FeaturedColumn({
       href="/companies"
       onClick={onNavigate}
       className={cn(
-        "group relative flex flex-col justify-between overflow-hidden p-5 text-white",
-        "bg-gradient-to-br from-pug-green-700 via-pug-green-600 to-pug-gold-500"
+        "group relative flex flex-col items-center justify-between gap-3 overflow-hidden px-5 py-4 text-white",
+        "bg-gradient-to-r from-pug-green-700 via-pug-green-600 to-pug-gold-500",
+        "sm:flex-row sm:gap-6"
       )}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-6 -top-6 opacity-30 transition-opacity group-hover:opacity-50"
-      >
-        <div className="h-32 w-32">
-          <MandalaMark size={128} className="h-32 w-32" />
+      <div className="relative flex items-center gap-3">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 backdrop-blur">
+          <Sparkles className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold leading-tight">
+            One group, {total} companies, three sectors.
+          </p>
+          <p className="text-[11px] text-white/85">
+            A diversified portfolio operating across the GCC.
+          </p>
         </div>
       </div>
 
-      <div className="relative">
-        <span className="inline-flex items-center rounded-full border border-white/30 bg-white/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] backdrop-blur">
-          <Building2 className="mr-1 h-3 w-3" />
-          Explore
-        </span>
-        <h3 className="mt-3 text-balance text-lg font-semibold leading-tight">
-          One group, {total} companies, three sectors.
-        </h3>
-        <p className="mt-2 text-xs text-white/85">
-          A diversified portfolio operating across the GCC.
-        </p>
-      </div>
-
-      <span className="relative mt-6 inline-flex items-center gap-1.5 text-sm font-medium">
+      <span className="relative inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-sm font-medium backdrop-blur transition-colors group-hover:bg-white/25">
         View all companies
         <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
       </span>

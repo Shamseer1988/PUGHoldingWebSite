@@ -314,12 +314,10 @@ function NavLink({
 }
 
 function MegaWrapper({ children }: { children: React.ReactNode }) {
-  // Positioning lives on the static outer div so Tailwind's
-  // -translate-x-1/2 isn't overwritten by Framer Motion's inline
-  // transform on the animated inner div. The result: the panel
-  // is reliably centred within the viewport regardless of where
-  // its trigger sits in the nav, and is capped to the container
-  // width so it can't overflow the right edge.
+  // Positioning lives on the static outer div so Tailwind's translate
+  // isn't overwritten by Framer Motion's inline transform on the
+  // animated child. Width capped via inline style so it's not subject
+  // to Tailwind JIT picking up arbitrary-value classes.
   return (
     <div className="pointer-events-none fixed inset-x-0 top-[60px] z-40 flex justify-center px-4 sm:top-[76px]">
       <motion.div
@@ -327,8 +325,8 @@ function MegaWrapper({ children }: { children: React.ReactNode }) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 4, scale: 0.98 }}
         transition={{ duration: 0.18, ease: "easeOut" }}
-        className="pointer-events-auto w-full max-w-[1100px]"
-        style={{ transformOrigin: "top center" }}
+        className="pointer-events-auto w-full"
+        style={{ maxWidth: "1024px", transformOrigin: "top center" }}
       >
         {/* Hover bridge so the menu doesn't snap shut between trigger and panel */}
         <div aria-hidden className="h-2" />
