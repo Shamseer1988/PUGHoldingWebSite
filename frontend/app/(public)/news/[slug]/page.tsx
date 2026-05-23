@@ -11,36 +11,39 @@ import {
 } from "lucide-react";
 
 import { GlassCard } from "@/components/site/glass-card";
-import { NewsCard } from "@/components/site/news-card";
+import { NEWS_CATEGORY_LABELS, NewsCard } from "@/components/site/news-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  NEWS_CATEGORY_LABELS,
-  getNews,
-  getNewsBySlug,
-} from "@/lib/dummy-data/news";
+import { getNews, getNewsBySlug } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
-export function generateStaticParams() {
-  return getNews().map((n) => ({ slug: n.slug }));
+export const revalidate = 60;
+
+export async function generateStaticParams() {
+  const news = await getNews();
+  return news.map((n) => ({ slug: n.slug }));
 }
 
 interface NewsDetailPageProps {
   params: { slug: string };
 }
 
-export function generateMetadata({ params }: NewsDetailPageProps) {
-  const item = getNewsBySlug(params.slug);
-  return { title: item ? item.title : "News not found" };
+export async function generateMetadata({ params }: NewsDetailPageProps) {
+  const item = await getNewsBySlug(params.slug);
+  return {
+    title: item ? item.title : "News not found",
+    description: item?.summary ?? undefined,
+  };
 }
 
-export default function NewsDetailPage({ params }: NewsDetailPageProps) {
-  const item = getNewsBySlug(params.slug);
+export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
+  const item = await getNewsBySlug(params.slug);
   if (!item) notFound();
 
-  const related = getNews()
+  const all = await getNews();
+  const related = all
     .filter((n) => n.slug !== item.slug && n.category === item.category)
     .slice(0, 3);
 
@@ -49,25 +52,29 @@ export default function NewsDetailPage({ params }: NewsDetailPageProps) {
       <PageHero
         eyebrow={NEWS_CATEGORY_LABELS[item.category]}
         title={item.title}
-        description={item.summary}
+        description={item.summary ?? undefined}
         accent={item.cover}
       >
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <CalendarDays className="h-4 w-4" />
-            <time dateTime={item.publishedAt}>
-              {new Date(item.publishedAt).toLocaleDateString(undefined, {
+            <time dateTime={item.published_at}>
+              {new Date(item.published_at).toLocaleDateString(undefined, {
                 year: "numeric",
                 month: "long",
                 day: "numeric",
               })}
             </time>
           </span>
-          <span aria-hidden>·</span>
-          <span className="inline-flex items-center gap-1">
-            <User className="h-4 w-4" />
-            {item.author}
-          </span>
+          {item.author && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="inline-flex items-center gap-1">
+                <User className="h-4 w-4" />
+                {item.author}
+              </span>
+            </>
+          )}
         </div>
       </PageHero>
 
@@ -84,26 +91,10 @@ export default function NewsDetailPage({ params }: NewsDetailPageProps) {
               />
               <div className="p-6 sm:p-8">
                 <Badge variant="muted">{NEWS_CATEGORY_LABELS[item.category]}</Badge>
-                <p className="mt-4 text-base text-foreground/90 sm:text-lg">
-                  {item.body}
-                </p>
-
-                {item.gallery && item.gallery.length > 0 && (
-                  <>
-                    <h3 className="mt-8 text-base font-semibold">Gallery</h3>
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                      {item.gallery.map((g, i) => (
-                        <span
-                          key={i}
-                          aria-hidden
-                          className={cn(
-                            "block aspect-[4/3] rounded-lg bg-gradient-to-br opacity-90",
-                            g
-                          )}
-                        />
-                      ))}
-                    </div>
-                  </>
+                {item.body && (
+                  <p className="mt-4 whitespace-pre-wrap text-base text-foreground/90 sm:text-lg">
+                    {item.body}
+                  </p>
                 )}
               </div>
             </GlassCard>
@@ -121,9 +112,6 @@ export default function NewsDetailPage({ params }: NewsDetailPageProps) {
                 <ShareButton icon={<Mail className="h-4 w-4" />} label="Email" />
                 <ShareButton icon={<Share2 className="h-4 w-4" />} label="Copy link" />
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Share targets are wired in Phase 6.
-              </p>
             </GlassCard>
 
             <GlassCard className="p-6">

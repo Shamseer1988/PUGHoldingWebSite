@@ -3,11 +3,15 @@ import { ArrowUpRight, CalendarDays } from "lucide-react";
 
 import { GlassCard } from "@/components/site/glass-card";
 import { Badge } from "@/components/ui/badge";
-import {
-  NEWS_CATEGORY_LABELS,
-  type NewsItem,
-} from "@/lib/dummy-data/news";
+import type { NewsItem } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
+
+const NEWS_CATEGORY_LABELS: Record<NewsItem["category"], string> = {
+  company: "Company",
+  event: "Event",
+  press: "Press",
+  csr: "CSR",
+};
 
 interface NewsCardProps {
   item: NewsItem;
@@ -48,11 +52,15 @@ export function NewsCard({ item, variant = "default" }: NewsCardProps) {
         >
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CalendarDays className="h-3.5 w-3.5" />
-            <time dateTime={item.publishedAt}>
-              {formatDate(item.publishedAt)}
+            <time dateTime={item.published_at}>
+              {formatDate(item.published_at)}
             </time>
-            <span aria-hidden>·</span>
-            <span>{item.author}</span>
+            {item.author && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{item.author}</span>
+              </>
+            )}
           </div>
           <h3
             className={cn(
@@ -62,9 +70,11 @@ export function NewsCard({ item, variant = "default" }: NewsCardProps) {
           >
             {item.title}
           </h3>
-          <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
-            {item.summary}
-          </p>
+          {item.summary && (
+            <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
+              {item.summary}
+            </p>
+          )}
           <span className="mt-auto inline-flex items-center gap-1 pt-4 text-sm font-medium text-primary">
             Read more
             <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
@@ -86,3 +96,5 @@ function formatDate(iso: string): string {
     return iso;
   }
 }
+
+export { NEWS_CATEGORY_LABELS };

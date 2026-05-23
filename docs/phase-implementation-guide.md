@@ -21,7 +21,7 @@ lives at the repo root in
 | 3     | Public website UI foundation                     | **Done**    |
 | 4     | Public pages (dummy content)                     | **Done**    |
 | 5     | Website admin content management                 | **Done**    |
-| 6     | Public website backend API integration           | Planned     |
+| 6     | Public website backend API integration           | **Done**    |
 | 7     | HR ATS database and core models                  | Planned     |
 | 8     | HR ATS admin dashboard                           | Planned     |
 | 9     | Job opening management                           | Planned     |
@@ -37,60 +37,66 @@ lives at the repo root in
 | 19    | Security, audit, validation, and testing         | Planned     |
 | 20    | Deployment documentation and final package       | Planned     |
 
-## Phase 5 deliverables
+## Phase 6 deliverables
 
-**Brand theme refresh.** The full UI now uses the Paris United Group
-brand palette — deep forest green primary, warm tan/gold accent, warm
-cream surfaces in light mode, deep emerald-charcoal in dark mode.
-The mandala logo mark is rendered inline as an SVG that adapts to both
-themes. Hero slide and sector gradients use the new `pug-green-*` /
-`pug-gold-*` Tailwind colour scales.
+**Backend (new public router).** A 10-endpoint unauthenticated router
+at `/api/v1/public/*`:
 
-**Backend (FastAPI + SQLAlchemy + Alembic):**
+- `GET  /public/hero-slides`           active only, ordered.
+- `GET  /public/companies`             active only, optional `?category=`.
+- `GET  /public/companies/{slug}`      active only, 404 for hidden.
+- `GET  /public/leadership`            active only, ordered.
+- `GET  /public/news`                  published only, optional `?featured=` and `?limit=`.
+- `GET  /public/news/{slug}`           published only, 404 for drafts.
+- `GET  /public/site-settings`         falls back to defaults if not configured.
+- `POST /public/contact`               persists to `contact_messages`, audit-logged.
+- `POST /public/newsletter`            idempotent subscribe (re-activates inactive emails).
 
-- New tables: `hero_slides`, `companies`, `company_services`,
-  `leadership_messages`, `news_items`, `contact_messages`,
-  `newsletter_subscribers`, `site_settings` (single row).
-- Alembic migration `20260523_0002_phase5_cms_tables`.
-- 20-endpoint CMS router at `/api/v1/admin/cms/*` (CRUD for hero
-  slides, companies, leadership, news, plus contact inbox actions
-  (read/archive/reply), newsletter subscribers list/delete, site
-  settings get/patch, dashboard summary, audit log viewer).
-- Every CRUD action audit-logged with action, target_type, target_id,
-  changed keys, ip, user-agent.
-- Idempotent seed script: `python -m app.scripts.seed_cms` populates
-  the 14 companies, 4 leadership entries, 6 news items, 3 hero slides,
-  and default site settings.
-- 8 new integration tests (scope isolation, CRUD round-trips, slug
-  conflicts, dashboard summary, audit emission). 28 tests total.
+13 new integration tests (41 total) covering active/published filters,
+404 behaviour, featured filter, idempotent newsletter, email validation.
 
-**Frontend (Next.js admin shell):**
+**Frontend (everything swapped from dummy data to API).**
 
-- New shell components (`components/admin/*`): `AdminShell`,
-  `AdminSidebar`, `AdminTopbar`, `EmptyState`.
-- New shadcn primitive: `Table` (`TableHeader`, `TableBody`,
-  `TableRow`, `TableHead`, `TableCell`, `TableCaption`).
-- New page routes (all guarded by `AuthGuard` against the admin scope):
-  - `/admin` — dashboard with 6 KPI cards, two Recharts area charts
-    (contact messages per month, news per month), and two preview
-    tables (latest messages + latest news).
-  - `/admin/hero-slides` — list + drawer-form CRUD.
-  - `/admin/companies` — list + drawer-form CRUD with comma-separated
-    services field.
-  - `/admin/leadership` — list + drawer-form CRUD.
-  - `/admin/news` — list + drawer-form CRUD.
-  - `/admin/inbox` — message list + reading pane + reply textarea +
-    archive.
-  - `/admin/subscribers` — list + CSV export + remove.
-  - `/admin/settings` — single-form editor for brand, contact, social,
-    SEO defaults.
-  - `/admin/audit` — filterable audit log viewer (scope + action prefix).
-  - `/admin/media`, `/admin/pages`, `/admin/users` — placeholder stubs
-    (Phase 5 follow-up).
-- `lib/admin/api.ts` — typed authenticated fetch wrapper that pulls
-  the bearer token from the per-scope localStorage slot established
-  in Phase 2.
-- `lib/admin/types.ts` — TypeScript mirrors of every Phase 5 schema.
+- `lib/public-api.ts` — typed server-side fetch helpers with 60-second
+  revalidation, graceful fallbacks (returns `null` / `[]` instead of
+  crashing if the backend is unreachable).
+- `lib/public-api-client.ts` — client-side helpers for newsletter and
+  contact submissions with typed errors.
+- All public pages now use `async` Server Components fetching from
+  `/api/v1/public/*`:
+  - Home: hero slides, featured companies, leadership preview, latest
+    news, contact phone/whatsapp from site settings.
+  - About: leadership messages.
+  - Companies list: filtered/grouped from API.
+  - Company detail: 404 for hidden/missing, related companies from API.
+  - News list: featured strip + others from API.
+  - News detail: 404 for drafts, related news from API.
+  - Contact: contact rows, phone, WhatsApp from site settings.
+  - Public layout: site settings flow down to the footer (tagline,
+    contact, dynamic social links).
+- Newsletter form: POSTs to `/public/newsletter` with error surface.
+- Contact form: POSTs to `/public/contact` with error surface.
+- `generateMetadata` on company + news detail pages pulls title and
+  description from the actual record.
+
+**Cleanup:**
+
+- Removed `lib/dummy-data/companies.ts`, `news.ts`, `leadership.ts`
+  (no longer used).
+- Trimmed `lib/dummy-data/site-content.ts` to only the bits that
+  still come from config (stats, sectors, vision/mission/values,
+  timeline). A Phase 5 follow-up CMS module can move those too.
+- Card components (`CompanyCard`, `NewsCard`, `LeadershipCard`,
+  `HeroSlider`) updated to use the API schema (snake_case fields,
+  `services: {id, name}[]`, etc.).
+
+**Still on dummy data (intentional):**
+
+- Careers list + job detail (`lib/dummy-data/jobs.ts`) — wires to
+  the HR ATS in Phase 9.
+- Media gallery (`lib/dummy-data/media.ts`) — needs the media CMS
+  module + file upload, deferred Phase 5 follow-up.
+- Apply Now form — wires to ATS candidate intake in Phase 10.
 
 ## Definition of done for any phase
 
@@ -98,7 +104,6 @@ themes. Hero slide and sector gradients use the new `pug-green-*` /
 - Backend tests pass: `pytest -q`.
 - Frontend type-check passes: `npm run type-check`.
 - Frontend production build succeeds: `npm run build`.
-- Documentation updated (this guide, setup guide, api reference,
-  testing checklist).
+- Documentation updated.
 - Summary message lists added files, migrations, run commands, and
   any open questions.

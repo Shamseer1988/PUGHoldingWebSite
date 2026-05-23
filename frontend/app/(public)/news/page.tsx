@@ -1,15 +1,15 @@
 import { NewsCard } from "@/components/site/news-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
-import { getFeaturedNews, getNews } from "@/lib/dummy-data/news";
+import { getNews } from "@/lib/public-api";
 
 export const metadata = { title: "News & Events" };
+export const revalidate = 60;
 
-export default function NewsPage() {
-  const featured = getFeaturedNews();
-  const others = getNews().filter(
-    (n) => !featured.some((f) => f.slug === n.slug)
-  );
+export default async function NewsPage() {
+  const allNews = await getNews();
+  const featured = allNews.filter((n) => n.is_featured);
+  const others = allNews.filter((n) => !n.is_featured);
 
   return (
     <>
@@ -17,7 +17,7 @@ export default function NewsPage() {
         eyebrow="News & events"
         title="What's happening at Paris United Group"
         description="Store launches, partnerships, CSR initiatives, and updates from across the group."
-        accent="from-amber-500 via-orange-500 to-rose-500"
+        accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
       />
 
       {featured.length > 0 && (
@@ -31,11 +31,15 @@ export default function NewsPage() {
       )}
 
       <Section eyebrow="Latest" title="More from the group">
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {others.map((item) => (
-            <NewsCard key={item.slug} item={item} />
-          ))}
-        </div>
+        {others.length === 0 ? (
+          <p className="text-muted-foreground">No articles yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {others.map((item) => (
+              <NewsCard key={item.slug} item={item} />
+            ))}
+          </div>
+        )}
       </Section>
     </>
   );

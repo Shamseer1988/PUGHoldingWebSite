@@ -1,0 +1,310 @@
+"""Public read-only + form-submission endpoints.
+
+These endpoints are unauthenticated and consumed directly by the public
+website. All read endpoints filter to active / published rows only.
+Form submission endpoints write to the same tables the admin manages.
+"""
+from __future__ import annotations
+
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.auth.dependencies import get_request_context
+from app.core.database import get_db
+from app.models.cms import (
+    Company,
+    HeroSlide,
+    LeadershipMessage,
+    NewsItem,
+    NewsletterSubscriber,
+    SiteSetting,
+)
+from app.schemas.cms import (
+    CompanyRead,
+    ContactMessageRead,
+    ContactSubmit,
+    HeroSlideRead,
+    LeadershipRead,
+    NewsRead,
+    NewsletterSubscribe,
+    NewsletterSubscriberRead,
+    SiteSettingRead,
+)
+from app.services.audit_log import record_audit
+
+
+router = APIRouter(prefix="/public", tags=["Public"])
+
+
+# ---------------------------------------------------------------------------
+# Read: hero slides
+# ---------------------------------------------------------------------------
+
+
+@router.get("/hero-slides", response_model=List[HeroSlideRead])
+def list_active_hero_slides(db: Session = Depends(get_db)) -> List[HeroSlide]:
+    return (
+        db.execute(
+            select(HeroSlide)
+            .where(HeroSlide.is_active.is_(True))
+            .order_by(HeroSlide.display_order, HeroSlide.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Read: companies
+# ---------------------------------------------------------------------------
+
+
+@router.get("/companies", response_model=List[CompanyRead])
+def list_active_companies(
+    db: Session = Depends(get_db),
+    category: Optional[str] = Query(
+        default=None, pattern=r"^(distribution|retail|services)$"
+    ),
+) -> List[Company]:
+    stmt = (
+        select(Company)
+        .where(Company.is_active.is_(True))
+        .order_by(Company.display_order, Company.id)
+    )
+    if category:
+        stmt = stmt.where(Company.category == category)
+    return db.execute(stmt).scalars().all()
+
+
+@router.get("/companies/{slug}", response_model=CompanyRead)
+def get_active_company(slug: str, db: Session = Depends(get_db)) -> Company:
+    company = (
+        db.execute(
+            select(Company).where(Company.slug == slug, Company.is_active.is_(True))
+        )
+        .scalars()
+        .first()
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return company
+
+
+# ---------------------------------------------------------------------------
+# Read: leadership
+# ---------------------------------------------------------------------------
+
+
+@router.get("/leadership", response_model=List[LeadershipRead])
+def list_active_leadership(db: Session = Depends(get_db)) -> List[LeadershipMessage]:
+    return (
+        db.execute(
+            select(LeadershipMessage)
+            .where(LeadershipMessage.is_active.is_(True))
+            .order_by(LeadershipMessage.display_order, LeadershipMessage.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Read: news
+# ---------------------------------------------------------------------------
+
+
+@router.get("/news", response_model=List[NewsRead])
+def list_published_news(
+    db: Session = Depends(get_db),
+    featured: Optional[bool] = Query(default=None),
+    limit: Optional[int] = Query(default=None, ge=1, le=100),
+) -> List[NewsItem]:
+    stmt = (
+        select(NewsItem)
+        .where(NewsItem.is_published.is_(True))
+        .order_by(desc(NewsItem.published_at), desc(NewsItem.id))
+    )
+    if featured is True:
+        stmt = stmt.where(NewsItem.is_featured.is_(True))
+    elif featured is False:
+        stmt = stmt.where(NewsItem.is_featured.is_(False))
+    if limit:
+        stmt = stmt.limit(limit)
+    return db.execute(stmt).scalars().all()
+
+
+@router.get("/news/{slug}", response_model=NewsRead)
+def get_published_news(slug: str, db: Session = Depends(get_db)) -> NewsItem:
+    item = (
+        db.execute(
+            select(NewsItem).where(
+                NewsItem.slug == slug, NewsItem.is_published.is_(True)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="News item not found")
+    return item
+
+
+# ---------------------------------------------------------------------------
+# Read: site settings
+# ---------------------------------------------------------------------------
+
+
+@router.get("/site-settings", response_model=SiteSettingRead)
+def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
+    settings = db.get(SiteSetting, 1)
+    if settings is None:
+        # Return a transient default so the frontend always has values
+        # to render — admin's first save creates the row.
+        return SiteSetting(id=1, site_name="Paris United Group Holding")
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# Write: contact form
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/contact",
+    response_model=ContactMessageRead,
+    status_code=201,
+)
+def submit_contact_message(
+    payload: ContactSubmit,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> ContactMessageRead:
+    """Persist a contact form submission and audit it."""
+    message = create_contact_message(db, payload, request=request)
+    return ContactMessageRead.model_validate(message)
+
+
+def create_contact_message(
+    db: Session,
+    payload: ContactSubmit,
+    *,
+    request: Request,
+):
+    from app.models.cms import ContactMessage
+
+    ctx = get_request_context(request)
+    msg = ContactMessage(
+        name=payload.name.strip(),
+        email=str(payload.email).strip().lower(),
+        phone=payload.phone,
+        department=payload.department,
+        subject=payload.subject,
+        message=payload.message,
+    )
+    db.add(msg)
+    db.flush()
+
+    record_audit(
+        db,
+        action="public.contact.submit",
+        actor_email=msg.email,
+        scope="website",
+        target_type="contact_message",
+        target_id=str(msg.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"department": payload.department},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(msg)
+    return msg
+
+
+# ---------------------------------------------------------------------------
+# Write: newsletter subscription
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/newsletter",
+    response_model=NewsletterSubscriberRead,
+    status_code=201,
+)
+def subscribe_to_newsletter(
+    payload: NewsletterSubscribe,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> NewsletterSubscriberRead:
+    """Add an email to the newsletter list.
+
+    Re-subscribing an existing (but inactive) email re-activates it.
+    Returns 200-equivalent payload either way so the frontend doesn't
+    leak whether an email was already subscribed.
+    """
+    email = str(payload.email).strip().lower()
+    ctx = get_request_context(request)
+
+    existing = (
+        db.execute(
+            select(NewsletterSubscriber).where(NewsletterSubscriber.email == email)
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        if not existing.is_active:
+            existing.is_active = True
+            db.flush()
+        record_audit(
+            db,
+            action="public.newsletter.resubscribe",
+            actor_email=email,
+            scope="website",
+            target_type="subscriber",
+            target_id=str(existing.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            commit=False,
+        )
+        db.commit()
+        db.refresh(existing)
+        return NewsletterSubscriberRead.model_validate(existing)
+
+    subscriber = NewsletterSubscriber(email=email, is_active=True)
+    db.add(subscriber)
+    try:
+        db.flush()
+    except IntegrityError:
+        # Race condition: another request inserted same email between
+        # the SELECT and the INSERT. Fall back to fetching the row.
+        db.rollback()
+        existing = (
+            db.execute(
+                select(NewsletterSubscriber).where(
+                    NewsletterSubscriber.email == email
+                )
+            )
+            .scalars()
+            .one()
+        )
+        return NewsletterSubscriberRead.model_validate(existing)
+
+    record_audit(
+        db,
+        action="public.newsletter.subscribe",
+        actor_email=email,
+        scope="website",
+        target_type="subscriber",
+        target_id=str(subscriber.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        commit=False,
+    )
+    db.commit()
+    db.refresh(subscriber)
+    return NewsletterSubscriberRead.model_validate(subscriber)

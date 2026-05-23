@@ -1,23 +1,65 @@
 import Link from "next/link";
-import { ArrowRight, MessageCircle, Phone } from "lucide-react";
+import {
+  ArrowRight,
+  Mail,
+  MapPin,
+  MessageCircle,
+  Phone,
+} from "lucide-react";
 
 import { ContactForm } from "@/components/site/contact-form";
 import { GlassCard } from "@/components/site/glass-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
-import { CONTACT_DETAILS } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/public-api";
 
 export const metadata = { title: "Contact Us" };
+export const revalidate = 60;
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const settings = await getSiteSettings();
+
+  const contactRows = [
+    settings.contact_address && {
+      icon: <MapPin className="h-4 w-4" />,
+      label: "Address",
+      value: settings.contact_address,
+      href: undefined,
+    },
+    settings.contact_phone && {
+      icon: <Phone className="h-4 w-4" />,
+      label: "Phone",
+      value: settings.contact_phone,
+      href: `tel:${settings.contact_phone.replace(/\s/g, "")}`,
+    },
+    settings.contact_email && {
+      icon: <Mail className="h-4 w-4" />,
+      label: "Email",
+      value: settings.contact_email,
+      href: `mailto:${settings.contact_email}`,
+    },
+  ].filter(Boolean) as Array<{
+    icon: React.ReactNode;
+    label: string;
+    value: string;
+    href?: string;
+  }>;
+
+  const phoneHref = settings.contact_phone
+    ? `tel:${settings.contact_phone.replace(/\s/g, "")}`
+    : "tel:+9740000000000";
+  const whatsappHref = settings.whatsapp_number
+    ? `https://wa.me/${settings.whatsapp_number.replace(/[^0-9]/g, "")}`
+    : "https://wa.me/97400000000";
+
   return (
     <>
       <PageHero
         eyebrow="Contact"
         title="Talk to Paris United Group"
         description="Reach the right department fast. Use the form below or any of the quick actions on the right."
-        accent="from-violet-600 via-fuchsia-500 to-rose-500"
+        accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
       />
 
       <Section className="pt-12">
@@ -37,48 +79,56 @@ export default function ContactPage() {
           <aside className="space-y-4">
             <GlassCard className="p-6">
               <h3 className="text-base font-semibold">Reach us directly</h3>
-              <ul className="mt-4 space-y-3 text-sm">
-                {CONTACT_DETAILS.map((detail) => {
-                  const Icon = detail.icon;
-                  const inner = (
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          {detail.label}
-                        </p>
-                        <p className="break-words font-medium">{detail.value}</p>
+              {contactRows.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Contact details will appear here once site settings are
+                  configured in the admin panel.
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3 text-sm">
+                  {contactRows.map((row) => {
+                    const inner = (
+                      <div className="flex items-start gap-3">
+                        <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          {row.icon}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            {row.label}
+                          </p>
+                          <p className="break-words font-medium">
+                            {row.value}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  );
-                  return (
-                    <li key={detail.label}>
-                      {detail.href ? (
-                        <Link href={detail.href} className="hover:text-foreground">
-                          {inner}
-                        </Link>
-                      ) : (
-                        inner
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                    );
+                    return (
+                      <li key={row.label}>
+                        {row.href ? (
+                          <Link href={row.href} className="hover:text-foreground">
+                            {inner}
+                          </Link>
+                        ) : (
+                          inner
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </GlassCard>
 
             <GlassCard className="p-6">
               <h3 className="text-base font-semibold">Quick actions</h3>
               <div className="mt-4 flex flex-col gap-2">
                 <Button asChild>
-                  <Link href="tel:+9740000000000">
+                  <Link href={phoneHref}>
                     <Phone className="h-4 w-4" />
                     Call us
                   </Link>
                 </Button>
                 <Button asChild variant="outline">
-                  <Link href="https://wa.me/97400000000" target="_blank">
+                  <Link href={whatsappHref} target="_blank">
                     <MessageCircle className="h-4 w-4" />
                     WhatsApp
                     <ArrowRight className="h-4 w-4" />
@@ -90,10 +140,10 @@ export default function ContactPage() {
             <GlassCard className="overflow-hidden p-0">
               <div
                 aria-hidden
-                className="aspect-[4/3] w-full bg-gradient-to-br from-emerald-500/30 via-teal-500/30 to-sky-500/30"
+                className="aspect-[4/3] w-full bg-gradient-to-br from-pug-green-500/30 via-pug-gold-500/30 to-pug-green-700/30"
               >
                 <div className="flex h-full w-full items-center justify-center text-sm font-medium text-muted-foreground">
-                  Map placeholder · embed in Phase 5
+                  Map placeholder · embed in admin Site Settings
                 </div>
               </div>
             </GlassCard>

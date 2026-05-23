@@ -48,6 +48,48 @@ Manual:
 - [ ] Sign-out button on each portal returns you to the login page and
       clears the token from `localStorage`.
 
+## Phase 6 — Public website API integration
+
+Automated (pytest):
+
+- [x] 13 new public-endpoint tests pass (41 total).
+- [x] Hero slides only return `is_active=true`.
+- [x] Companies filter on `is_active=true` and optional `?category=`.
+- [x] Company detail returns 404 for hidden slugs.
+- [x] News only returns `is_published=true`; drafts → 404 on detail.
+- [x] News `?featured=true` filter works.
+- [x] Leadership only returns `is_active=true`.
+- [x] Site settings returns defaults when no row exists.
+- [x] Contact form persists + writes `public.contact.submit` audit.
+- [x] Contact form rejects malformed email (422).
+- [x] Newsletter subscribe creates row, is idempotent, reactivates
+      inactive emails.
+
+Automated (frontend):
+
+- [x] Type-check clean.
+- [x] Production build clean; public pages now ƒ (dynamic) or ●
+      (SSG with revalidate).
+
+Manual (start backend + frontend, log in as websiteadmin):
+
+- [ ] Public home page renders hero slides, companies, news, leadership
+      from the API (verify by editing one in `/admin` and refreshing
+      after ~60s).
+- [ ] Edit a company in `/admin/companies`, set `is_active=false`,
+      refresh public site — company disappears.
+- [ ] Add a new news item, set `is_published=false` — does NOT appear
+      on the public news list.
+- [ ] Visit `/companies/<hidden-slug>` → 404.
+- [ ] Submit the newsletter form on the home page — `/admin/subscribers`
+      shows the new entry.
+- [ ] Submit the contact form on `/contact` — `/admin/inbox` shows the
+      new message (with the department badge).
+- [ ] Edit site settings (phone, email, social URLs) — public footer
+      and contact page pick them up after revalidate.
+- [ ] Stop the backend; reload public pages — they still render with
+      empty arrays + the "fallback" site settings (no crash).
+
 ## Phase 5 — Website admin CMS
 
 Automated (pytest):

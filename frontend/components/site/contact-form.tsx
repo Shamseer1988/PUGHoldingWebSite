@@ -8,6 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  PublicApiError,
+  submitContactMessage,
+} from "@/lib/public-api-client";
 
 const DEPARTMENTS = [
   "General Inquiry",
@@ -29,12 +33,32 @@ export function ContactForm() {
   const [state, setState] = React.useState<
     "idle" | "submitting" | "success" | "error"
   >("idle");
+  const [error, setError] = React.useState<string | null>(null);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError(null);
     setState("submitting");
-    await new Promise((r) => setTimeout(r, 800));
-    setState("success");
+    try {
+      await submitContactMessage({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        department,
+        subject: subject.trim() || undefined,
+        message: message.trim(),
+      });
+      setState("success");
+    } catch (err) {
+      setState("error");
+      setError(
+        err instanceof PublicApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : "Unable to send message. Please try again."
+      );
+    }
   }
 
   if (state === "success") {
@@ -48,10 +72,6 @@ export function ContactForm() {
           <p className="font-medium">Thanks — we received your message.</p>
           <p className="mt-1">
             The {department} team will get back to you shortly.
-          </p>
-          <p className="mt-2 text-xs opacity-70">
-            (Phase 6 will write this to the contact_messages table and email
-            the right department.)
           </p>
         </div>
       </div>
@@ -137,7 +157,17 @@ export function ContactForm() {
         />
       </div>
 
-      <Button type="submit" disabled={state === "submitting"} className="w-full sm:w-auto">
+      {error && (
+        <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">
+          {error}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        disabled={state === "submitting"}
+        className="w-full sm:w-auto"
+      >
         {state === "submitting" && <Loader2 className="h-4 w-4 animate-spin" />}
         {state === "submitting" ? "Sending…" : "Send message"}
       </Button>

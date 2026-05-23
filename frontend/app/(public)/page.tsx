@@ -12,22 +12,36 @@ import { SectorCards } from "@/components/site/sector-cards";
 import { StatsStrip } from "@/components/site/stats-strip";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/site/glass-card";
-import { getCompanies } from "@/lib/dummy-data/companies";
 import { getJobs } from "@/lib/dummy-data/jobs";
-import { getLeadership } from "@/lib/dummy-data/leadership";
-import { getLatestNews } from "@/lib/dummy-data/news";
+import {
+  getCompanies,
+  getHeroSlides,
+  getLeadership,
+  getNews,
+  getSiteSettings,
+} from "@/lib/public-api";
 
-export default function HomePage() {
-  const featuredCompanies = getCompanies().slice(0, 6);
-  const latestNews = getLatestNews(3);
-  const openJobs = getJobs();
-  const leadership = getLeadership().slice(0, 3);
+export const revalidate = 60;
+
+export default async function HomePage() {
+  const [hero, companies, leadership, news, settings] = await Promise.all([
+    getHeroSlides(),
+    getCompanies(),
+    getLeadership(),
+    getNews({ limit: 3 }),
+    getSiteSettings(),
+  ]);
+
+  const featuredCompanies = companies.slice(0, 6);
+  const openJobs = getJobs(); // Phase 9 will wire jobs to the ATS API.
+
+  const phone = settings.contact_phone ?? "+974 0000 0000";
+  const whatsapp = settings.whatsapp_number ?? "+97400000000";
 
   return (
     <>
-      <HeroSlider />
+      {hero.length > 0 && <HeroSlider slides={hero} />}
 
-      {/* Business overview / statistics */}
       <Section
         eyebrow="Business overview"
         title="A snapshot of Paris United Group"
@@ -37,7 +51,6 @@ export default function HomePage() {
         <StatsStrip />
       </Section>
 
-      {/* Business sectors */}
       <Section
         eyebrow="Our business sectors"
         title="Three pillars, one group"
@@ -47,69 +60,71 @@ export default function HomePage() {
         <SectorCards />
       </Section>
 
-      {/* Featured group companies */}
-      <Section
-        eyebrow="Group companies"
-        title="Featured companies"
-        description="Hover or tap a card to explore the company. Use the link below to see every business in the group."
-      >
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {featuredCompanies.map((company) => (
-            <CompanyCard key={company.slug} company={company} />
-          ))}
-        </div>
-        <div className="mt-8 text-center">
-          <Button asChild variant="outline">
-            <Link href="/companies">
-              View all group companies
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      </Section>
+      {featuredCompanies.length > 0 && (
+        <Section
+          eyebrow="Group companies"
+          title="Featured companies"
+          description="Hover or tap a card to explore the company. Use the link below to see every business in the group."
+        >
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredCompanies.map((company) => (
+              <CompanyCard key={company.slug} company={company} />
+            ))}
+          </div>
+          <div className="mt-8 text-center">
+            <Button asChild variant="outline">
+              <Link href="/companies">
+                View all group companies
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </Section>
+      )}
 
-      {/* Leadership messages */}
-      <Section
-        eyebrow="Leadership"
-        title="A message from our leadership"
-        description="Excerpts from the Chairman, Managing Director, and Executive Directors."
-      >
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {leadership.map((leader) => (
-            <LeadershipCard key={leader.id} leader={leader} />
-          ))}
-        </div>
-        <div className="mt-6 text-center">
-          <Button asChild variant="ghost">
-            <Link href="/about#leadership">
-              Read full messages
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      </Section>
+      {leadership.length > 0 && (
+        <Section
+          eyebrow="Leadership"
+          title="A message from our leadership"
+          description="Excerpts from the Chairman, Managing Director, and Executive Directors."
+        >
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {leadership.slice(0, 3).map((leader) => (
+              <LeadershipCard key={leader.id} leader={leader} />
+            ))}
+          </div>
+          <div className="mt-6 text-center">
+            <Button asChild variant="ghost">
+              <Link href="/about#leadership">
+                Read full messages
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </Section>
+      )}
 
-      {/* Latest news */}
-      <Section
-        eyebrow="Latest news"
-        title="What's happening at Paris United Group"
-      >
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {latestNews.map((item) => (
-            <NewsCard key={item.slug} item={item} />
-          ))}
-        </div>
-        <div className="mt-8 text-center">
-          <Button asChild variant="outline">
-            <Link href="/news">
-              All news and events
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      </Section>
+      {news.length > 0 && (
+        <Section
+          eyebrow="Latest news"
+          title="What's happening at Paris United Group"
+        >
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {news.map((item) => (
+              <NewsCard key={item.slug} item={item} />
+            ))}
+          </div>
+          <div className="mt-8 text-center">
+            <Button asChild variant="outline">
+              <Link href="/news">
+                All news and events
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </Section>
+      )}
 
-      {/* Careers highlight */}
       <Section className="py-16 sm:py-20">
         <GlassCard className="relative overflow-hidden p-8 sm:p-10 lg:p-12">
           <div
@@ -153,7 +168,6 @@ export default function HomePage() {
         </GlassCard>
       </Section>
 
-      {/* Contact CTA + newsletter */}
       <Section
         eyebrow="Stay in touch"
         title="Reach out or sign up for updates"
@@ -171,7 +185,7 @@ export default function HomePage() {
                   <Phone className="h-4 w-4" />
                 </span>
                 <div>
-                  <p className="font-medium">+974 0000 0000</p>
+                  <p className="font-medium">{phone}</p>
                   <p className="text-xs text-muted-foreground">Sun – Thu · 8am – 6pm</p>
                 </div>
               </li>
@@ -181,7 +195,7 @@ export default function HomePage() {
                 </span>
                 <div>
                   <p className="font-medium">WhatsApp business</p>
-                  <p className="text-xs text-muted-foreground">Quick replies during working hours</p>
+                  <p className="text-xs text-muted-foreground">{whatsapp}</p>
                 </div>
               </li>
             </ul>

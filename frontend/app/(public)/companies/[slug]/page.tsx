@@ -2,47 +2,47 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Building2, Mail, MapPin, Phone } from "lucide-react";
 
-import { CompanyCard } from "@/components/site/company-card";
+import { CATEGORY_LABELS, CompanyCard } from "@/components/site/company-card";
 import { GlassCard } from "@/components/site/glass-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  CATEGORY_LABELS,
-  getCompanies,
-  getCompaniesByCategory,
-  getCompanyBySlug,
-} from "@/lib/dummy-data/companies";
+import { getCompanies, getCompanyBySlug } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
-export function generateStaticParams() {
-  return getCompanies().map((c) => ({ slug: c.slug }));
+export const revalidate = 60;
+
+export async function generateStaticParams() {
+  const companies = await getCompanies();
+  return companies.map((c) => ({ slug: c.slug }));
 }
 
 interface CompanyDetailPageProps {
   params: { slug: string };
 }
 
-export function generateMetadata({ params }: CompanyDetailPageProps) {
-  const company = getCompanyBySlug(params.slug);
-  return { title: company ? company.name : "Company not found" };
+export async function generateMetadata({ params }: CompanyDetailPageProps) {
+  const company = await getCompanyBySlug(params.slug);
+  return {
+    title: company ? company.name : "Company not found",
+    description: company?.short_description ?? undefined,
+  };
 }
 
-export default function CompanyDetailPage({ params }: CompanyDetailPageProps) {
-  const company = getCompanyBySlug(params.slug);
+export default async function CompanyDetailPage({ params }: CompanyDetailPageProps) {
+  const company = await getCompanyBySlug(params.slug);
   if (!company) notFound();
 
-  const related = getCompaniesByCategory(company.category)
-    .filter((c) => c.slug !== company.slug)
-    .slice(0, 3);
+  const all = await getCompanies({ category: company.category });
+  const related = all.filter((c) => c.slug !== company.slug).slice(0, 3);
 
   return (
     <>
       <PageHero
         eyebrow={CATEGORY_LABELS[company.category]}
         title={company.name}
-        description={company.shortDescription}
+        description={company.short_description ?? undefined}
         accent={company.accent}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -81,20 +81,28 @@ export default function CompanyDetailPage({ params }: CompanyDetailPageProps) {
               </div>
             </div>
 
-            <p className="mt-6 text-base text-foreground/90 sm:text-lg">
-              {company.longDescription}
-            </p>
+            {company.long_description && (
+              <p className="mt-6 text-base text-foreground/90 sm:text-lg">
+                {company.long_description}
+              </p>
+            )}
 
-            <h3 className="mt-8 text-base font-semibold">Products and services</h3>
-            <ul className="mt-3 flex flex-wrap gap-2">
-              {company.services.map((service) => (
-                <li key={service}>
-                  <Badge variant="soft" className="font-normal">
-                    {service}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
+            {company.services.length > 0 && (
+              <>
+                <h3 className="mt-8 text-base font-semibold">
+                  Products and services
+                </h3>
+                <ul className="mt-3 flex flex-wrap gap-2">
+                  {company.services.map((service) => (
+                    <li key={service.id}>
+                      <Badge variant="soft" className="font-normal">
+                        {service.name}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
 
             <h3 className="mt-8 text-base font-semibold">Gallery</h3>
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -110,7 +118,8 @@ export default function CompanyDetailPage({ params }: CompanyDetailPageProps) {
               ))}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Gallery placeholders — Phase 5 lets admin upload real images.
+              Gallery placeholders — media uploads land in the Phase 5
+              follow-up CMS module.
             </p>
           </GlassCard>
 
@@ -121,22 +130,22 @@ export default function CompanyDetailPage({ params }: CompanyDetailPageProps) {
                 <ContactRow
                   icon={<MapPin className="h-4 w-4" />}
                   label="Address"
-                  value={company.contact?.address ?? "Doha, Qatar"}
+                  value={company.address ?? "Doha, Qatar"}
                 />
-                {company.contact?.phone && (
+                {company.phone && (
                   <ContactRow
                     icon={<Phone className="h-4 w-4" />}
                     label="Phone"
-                    value={company.contact.phone}
-                    href={`tel:${company.contact.phone.replace(/\s/g, "")}`}
+                    value={company.phone}
+                    href={`tel:${company.phone.replace(/\s/g, "")}`}
                   />
                 )}
-                {company.contact?.email && (
+                {company.email && (
                   <ContactRow
                     icon={<Mail className="h-4 w-4" />}
                     label="Email"
-                    value={company.contact.email}
-                    href={`mailto:${company.contact.email}`}
+                    value={company.email}
+                    href={`mailto:${company.email}`}
                   />
                 )}
               </ul>

@@ -6,18 +6,15 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ChevronDown, Pause, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { HERO_SLIDES, type HeroSlide } from "@/lib/dummy-data/site-content";
+import type { HeroSlide } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
 
 interface HeroSliderProps {
-  slides?: HeroSlide[];
+  slides: HeroSlide[];
   intervalMs?: number;
 }
 
-export function HeroSlider({
-  slides = HERO_SLIDES.filter((s) => s.active).sort((a, b) => a.order - b.order),
-  intervalMs = 6500,
-}: HeroSliderProps) {
+export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
   const [index, setIndex] = React.useState(0);
   const [paused, setPaused] = React.useState(false);
 
@@ -30,7 +27,7 @@ export function HeroSlider({
   }, [index, paused, intervalMs, slides.length]);
 
   if (slides.length === 0) return null;
-  const slide = slides[index];
+  const slide = slides[Math.min(index, slides.length - 1)];
 
   return (
     <section
@@ -83,27 +80,27 @@ export function HeroSlider({
             </p>
 
             <div className="mt-7 flex flex-wrap gap-3">
-              {slide.cta && (
+              {slide.cta_label && slide.cta_href && (
                 <Button
                   asChild
                   size="lg"
                   className="bg-white text-foreground hover:bg-white/90"
                 >
-                  <Link href={slide.cta.href}>
-                    {slide.cta.label}
+                  <Link href={slide.cta_href}>
+                    {slide.cta_label}
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
               )}
-              {slide.secondaryCta && (
+              {slide.secondary_cta_label && slide.secondary_cta_href && (
                 <Button
                   asChild
                   size="lg"
                   variant="outline"
                   className="border-white/40 bg-white/0 text-white hover:bg-white/10 hover:text-white"
                 >
-                  <Link href={slide.secondaryCta.href}>
-                    {slide.secondaryCta.label}
+                  <Link href={slide.secondary_cta_href}>
+                    {slide.secondary_cta_label}
                   </Link>
                 </Button>
               )}

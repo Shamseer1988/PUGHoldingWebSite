@@ -1,9 +1,10 @@
 /**
- * Site-wide editorial content used by Phase 4 pages (hero, stats,
- * sectors, vision, mission, values, history timeline).
+ * Static editorial content that doesn't (yet) live in the database.
  *
- * Phase 5 will let the website admin edit each block from the CMS,
- * keeping the same shape.
+ * Hero slides, companies, news, leadership, and site settings are now
+ * fetched from the backend via lib/public-api.ts. Stats, sectors,
+ * vision/mission/values, and the history timeline remain here as
+ * static config — a Phase 5 follow-up CMS module can move them too.
  */
 import type { LucideIcon } from "lucide-react";
 import {
@@ -18,62 +19,6 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-
-// ---------------------------------------------------------------------------
-// Hero slides
-// ---------------------------------------------------------------------------
-
-export interface HeroSlide {
-  id: string;
-  eyebrow: string;
-  title: string;
-  description: string;
-  cta?: { label: string; href: string };
-  secondaryCta?: { label: string; href: string };
-  /** Tailwind gradient classes used for the background. */
-  gradient: string;
-  order: number;
-  active: boolean;
-}
-
-export const HERO_SLIDES: HeroSlide[] = [
-  {
-    id: "slide-1",
-    eyebrow: "Paris United Group Holding",
-    title: "Powering everyday life across the GCC.",
-    description:
-      "Retail, distribution, FMCG, fashion, packaging, fresh food, building materials, garages, real estate, and construction — all under one trusted group.",
-    cta: { label: "Explore the group", href: "/companies" },
-    secondaryCta: { label: "Contact us", href: "/contact" },
-    gradient: "from-pug-green-800 via-pug-green-600 to-pug-gold-500",
-    order: 1,
-    active: true,
-  },
-  {
-    id: "slide-2",
-    eyebrow: "Retail · Distribution · Services",
-    title: "Customer experience is the product.",
-    description:
-      "Hypermarkets, minimarts, grocery shops, garages, and real estate — designed around what families and businesses actually need every day.",
-    cta: { label: "Our companies", href: "/companies" },
-    secondaryCta: { label: "Latest news", href: "/news" },
-    gradient: "from-pug-gold-700 via-pug-gold-500 to-pug-green-500",
-    order: 2,
-    active: true,
-  },
-  {
-    id: "slide-3",
-    eyebrow: "Build your career",
-    title: "Talented teams, real impact.",
-    description:
-      "Join one of Qatar's most diversified groups. Roles open across retail operations, FMCG sales, engineering, real estate, and HR.",
-    cta: { label: "View open roles", href: "/careers" },
-    secondaryCta: { label: "About us", href: "/about" },
-    gradient: "from-pug-green-600 via-pug-green-500 to-pug-gold-600",
-    order: 3,
-    active: true,
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Statistics

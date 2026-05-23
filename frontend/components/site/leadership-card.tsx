@@ -1,7 +1,7 @@
 import { Quote } from "lucide-react";
 
 import { GlassCard } from "@/components/site/glass-card";
-import { type LeadershipMessage } from "@/lib/dummy-data/leadership";
+import type { LeadershipMessage } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
 
 interface LeadershipCardProps {
@@ -11,6 +11,10 @@ interface LeadershipCardProps {
 }
 
 export function LeadershipCard({ leader, full = false }: LeadershipCardProps) {
+  const body = full
+    ? leader.full_message ?? leader.short_message ?? ""
+    : leader.short_message ?? "";
+
   return (
     <GlassCard className="flex h-full flex-col gap-5 p-6">
       <div className="flex items-center gap-4">
@@ -23,13 +27,15 @@ export function LeadershipCard({ leader, full = false }: LeadershipCardProps) {
         </div>
       </div>
 
-      <div className="relative pl-6 text-sm text-foreground/90">
-        <Quote
-          aria-hidden
-          className="absolute left-0 top-0 h-4 w-4 text-primary"
-        />
-        {full ? leader.fullMessage : leader.shortMessage}
-      </div>
+      {body && (
+        <div className="relative pl-6 text-sm text-foreground/90">
+          <Quote
+            aria-hidden
+            className="absolute left-0 top-0 h-4 w-4 text-primary"
+          />
+          {body}
+        </div>
+      )}
 
       {leader.signature && (
         <p className="font-signature mt-auto text-sm italic text-muted-foreground">

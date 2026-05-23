@@ -39,6 +39,42 @@ Lightweight liveness probe (no database call).
 
 ---
 
+## Public — `/api/v1/public`
+
+Unauthenticated read + form-submission endpoints consumed directly by
+the public website. Read endpoints filter to `is_active = true` /
+`is_published = true` rows. All endpoints are safe for any client.
+
+### Read
+
+- `GET /public/hero-slides` — active slides, ordered by `display_order`.
+- `GET /public/companies` — active companies. Optional `?category=distribution|retail|services`.
+- `GET /public/companies/{slug}` — single active company. 404 if missing / hidden.
+- `GET /public/leadership` — active leadership messages, ordered.
+- `GET /public/news` — published news, newest first. Optional `?featured=true|false`, `?limit=N`.
+- `GET /public/news/{slug}` — single published news item. 404 if missing / draft.
+- `GET /public/site-settings` — site name, tagline, contact, socials, SEO defaults. Falls back to defaults if no row exists yet.
+
+### Write
+
+- `POST /public/contact`
+  ```json
+  { "name": "…", "email": "…", "phone": "…", "department": "Sales",
+    "subject": "…", "message": "…" }
+  ```
+  Persists to `contact_messages` (visible in the admin inbox) and
+  writes a `public.contact.submit` audit entry.
+
+- `POST /public/newsletter`
+  ```json
+  { "email": "you@example.com" }
+  ```
+  Idempotent: re-subscribing an existing inactive email reactivates it.
+  Existing active emails return their current row. Writes a
+  `public.newsletter.subscribe` (or `.resubscribe`) audit entry.
+
+---
+
 ## Website Admin Auth — `/api/v1/admin/auth`
 
 ### `POST /api/v1/admin/auth/login`

@@ -3,11 +3,14 @@ import { ArrowUpRight, Building2 } from "lucide-react";
 
 import { GlassCard } from "@/components/site/glass-card";
 import { Badge } from "@/components/ui/badge";
-import {
-  CATEGORY_LABELS,
-  type Company,
-} from "@/lib/dummy-data/companies";
+import type { Company } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
+
+const CATEGORY_LABELS: Record<Company["category"], string> = {
+  distribution: "Distribution",
+  retail: "Retail",
+  services: "Services",
+};
 
 interface CompanyCardProps {
   company: Company;
@@ -17,10 +20,7 @@ interface CompanyCardProps {
 
 export function CompanyCard({ company, compact = false }: CompanyCardProps) {
   return (
-    <Link
-      href={`/companies/${company.slug}`}
-      className="group block h-full"
-    >
+    <Link href={`/companies/${company.slug}`} className="group block h-full">
       <GlassCard className="flex h-full flex-col p-5 transition-transform group-hover:-translate-y-1">
         <div className="flex items-start justify-between gap-3">
           <LogoTile accent={company.accent} initials={company.initials} />
@@ -33,18 +33,18 @@ export function CompanyCard({ company, compact = false }: CompanyCardProps) {
           {company.name}
         </h3>
 
-        {!compact && (
+        {!compact && company.short_description && (
           <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
-            {company.shortDescription}
+            {company.short_description}
           </p>
         )}
 
         {!compact && company.services.length > 0 && (
           <ul className="mt-4 flex flex-wrap gap-1.5">
             {company.services.slice(0, 3).map((service) => (
-              <li key={service}>
+              <li key={service.id}>
                 <Badge variant="soft" className="font-normal">
-                  {service}
+                  {service.name}
                 </Badge>
               </li>
             ))}
@@ -83,3 +83,5 @@ function LogoTile({ accent, initials }: { accent: string; initials: string }) {
     </span>
   );
 }
+
+export { CATEGORY_LABELS };

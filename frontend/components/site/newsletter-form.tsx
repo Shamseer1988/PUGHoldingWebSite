@@ -6,12 +6,11 @@ import { CheckCircle2, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  PublicApiError,
+  subscribeToNewsletter,
+} from "@/lib/public-api-client";
 
-/**
- * Phase 4 ships the UI only. Phase 6 wires the submit handler to
- * `POST /api/v1/newsletter`. We simulate a small delay so the
- * loading state is visible.
- */
 export function NewsletterForm() {
   const [email, setEmail] = React.useState("");
   const [state, setState] = React.useState<
@@ -22,13 +21,24 @@ export function NewsletterForm() {
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    if (!email) {
+    if (!email.trim()) {
       setError("Please enter your email address.");
       return;
     }
     setState("submitting");
-    await new Promise((r) => setTimeout(r, 700));
-    setState("success");
+    try {
+      await subscribeToNewsletter(email.trim());
+      setState("success");
+    } catch (err) {
+      setState("error");
+      setError(
+        err instanceof PublicApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : "Unable to subscribe. Please try again."
+      );
+    }
   }
 
   if (state === "success") {
@@ -40,12 +50,9 @@ export function NewsletterForm() {
         <CheckCircle2 className="mt-0.5 h-5 w-5" />
         <div>
           <p className="font-medium">You're on the list.</p>
-          <p className="mt-1 text-emerald-700/90 dark:text-emerald-200/90">
+          <p className="mt-1">
             We'll send updates from Paris United Group when there's
             something worth sharing.
-          </p>
-          <p className="mt-2 text-xs text-emerald-700/70 dark:text-emerald-200/70">
-            (Phase 6 will wire this to the backend subscribers table.)
           </p>
         </div>
       </div>

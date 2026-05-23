@@ -9,12 +9,13 @@ import {
   MISSION,
   VISION,
 } from "@/lib/dummy-data/site-content";
-import { getLeadership } from "@/lib/dummy-data/leadership";
+import { getLeadership } from "@/lib/public-api";
 
 export const metadata = { title: "About Us" };
+export const revalidate = 60;
 
-export default function AboutPage() {
-  const leadership = getLeadership();
+export default async function AboutPage() {
+  const leadership = await getLeadership();
 
   return (
     <>
@@ -22,10 +23,9 @@ export default function AboutPage() {
         eyebrow={ABOUT_INTRO.eyebrow}
         title={ABOUT_INTRO.title}
         description={ABOUT_INTRO.description}
-        accent="from-indigo-600 via-blue-500 to-cyan-400"
+        accent="from-pug-green-700 via-pug-green-500 to-pug-gold-500"
       />
 
-      {/* Vision and mission */}
       <Section
         eyebrow="Our purpose"
         title="Vision and mission"
@@ -43,7 +43,6 @@ export default function AboutPage() {
         </div>
       </Section>
 
-      {/* Core values */}
       <Section
         eyebrow="What we believe"
         title="Our core values"
@@ -68,7 +67,6 @@ export default function AboutPage() {
         </div>
       </Section>
 
-      {/* History timeline */}
       <Section
         eyebrow="Our history"
         title="From a single division to a diversified group"
@@ -86,19 +84,20 @@ export default function AboutPage() {
         </div>
       </Section>
 
-      {/* Leadership messages */}
-      <Section
-        id="leadership"
-        eyebrow="Leadership"
-        title="Messages from our leadership"
-        description="The Chairman, Managing Director, and Executive Directors."
-      >
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {leadership.map((leader) => (
-            <LeadershipCard key={leader.id} leader={leader} full />
-          ))}
-        </div>
-      </Section>
+      {leadership.length > 0 && (
+        <Section
+          id="leadership"
+          eyebrow="Leadership"
+          title="Messages from our leadership"
+          description="The Chairman, Managing Director, and Executive Directors."
+        >
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {leadership.map((leader) => (
+              <LeadershipCard key={leader.id} leader={leader} full />
+            ))}
+          </div>
+        </Section>
+      )}
     </>
   );
 }
