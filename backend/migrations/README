@@ -1,0 +1,12 @@
+Alembic migrations for the Paris United Group Holding backend.
+
+Common commands (run from /backend):
+
+    alembic revision --autogenerate -m "add users table"
+    alembic upgrade head
+    alembic downgrade -1
+    alembic history --verbose
+    alembic current
+
+Phase 1 ships without any concrete migrations; later phases add tables
+under app/models/ which Alembic will autogenerate against.
