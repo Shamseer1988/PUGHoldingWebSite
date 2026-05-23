@@ -17,24 +17,50 @@ import {
   Youtube,
 } from "lucide-react";
 
+export type NavMega = "companies";
+
+export interface NavChild {
+  label: string;
+  href: string;
+  /** Optional one-line description rendered under the label in dropdowns. */
+  description?: string;
+}
+
 export interface NavItem {
   label: string;
   href: string;
-  children?: NavItem[];
+  children?: NavChild[];
+  /** When set, render a custom mega-menu instead of the standard dropdown. */
+  mega?: NavMega;
 }
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Home", href: "/" },
-  { label: "About Us", href: "/about" },
+  {
+    label: "About Us",
+    href: "/about",
+    children: [
+      {
+        label: "Our story",
+        href: "/about",
+        description: "Vision, mission, and core values",
+      },
+      {
+        label: "Leadership",
+        href: "/about#leadership",
+        description: "Chairman, MD, and Executive Directors",
+      },
+      {
+        label: "Our history",
+        href: "/about",
+        description: "Two decades of growth across the GCC",
+      },
+    ],
+  },
   {
     label: "Group Companies",
     href: "/companies",
-    children: [
-      { label: "All Companies", href: "/companies" },
-      { label: "Distribution", href: "/companies?category=distribution" },
-      { label: "Retail", href: "/companies?category=retail" },
-      { label: "Services", href: "/companies?category=services" },
-    ],
+    mega: "companies",
   },
   { label: "News & Events", href: "/news" },
   { label: "Careers", href: "/careers" },

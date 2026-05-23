@@ -4,9 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, X } from "lucide-react";
+import { ArrowRight, ChevronDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { Company } from "@/lib/admin/types";
 import { type NavItem } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
@@ -14,12 +15,12 @@ interface MobileMenuProps {
   open: boolean;
   onClose: () => void;
   items: NavItem[];
+  companies: Company[];
 }
 
-export function MobileMenu({ open, onClose, items }: MobileMenuProps) {
+export function MobileMenu({ open, onClose, items, companies }: MobileMenuProps) {
   const pathname = usePathname();
 
-  // Lock body scroll while the drawer is open and close on Escape.
   React.useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
@@ -35,7 +36,6 @@ export function MobileMenu({ open, onClose, items }: MobileMenuProps) {
     };
   }, [open, onClose]);
 
-  // Close the drawer whenever the route changes (link click).
   React.useEffect(() => {
     if (open) onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,6 +91,7 @@ export function MobileMenu({ open, onClose, items }: MobileMenuProps) {
                     item={item}
                     onClose={onClose}
                     isActive={isActive(pathname, item)}
+                    companies={companies}
                   />
                 ))}
               </ul>
@@ -112,13 +113,16 @@ function MobileMenuItem({
   item,
   onClose,
   isActive,
+  companies,
 }: {
   item: NavItem;
   onClose: () => void;
   isActive: boolean;
+  companies: Company[];
 }) {
+  const isCompaniesMega = item.mega === "companies";
+  const hasChildren = (item.children?.length ?? 0) > 0 || isCompaniesMega;
   const [expanded, setExpanded] = React.useState(isActive);
-  const hasChildren = (item.children?.length ?? 0) > 0;
 
   if (!hasChildren) {
     return (
@@ -162,29 +166,103 @@ function MobileMenuItem({
       </button>
       <AnimatePresence initial={false}>
         {expanded && (
-          <motion.ul
+          <motion.div
             key="children"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden pl-3"
+            className="overflow-hidden"
           >
-            {item.children!.map((child) => (
-              <li key={child.href}>
-                <Link
-                  href={child.href}
-                  onClick={onClose}
-                  className="block rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  {child.label}
-                </Link>
-              </li>
-            ))}
-          </motion.ul>
+            {isCompaniesMega ? (
+              <MobileCompaniesGroup companies={companies} onClose={onClose} />
+            ) : (
+              <ul className="pl-3">
+                {item.children!.map((child) => (
+                  <li key={child.href}>
+                    <Link
+                      href={child.href}
+                      onClick={onClose}
+                      className="block rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <span className="block font-medium text-foreground">
+                        {child.label}
+                      </span>
+                      {child.description && (
+                        <span className="block text-xs">
+                          {child.description}
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
     </li>
+  );
+}
+
+function MobileCompaniesGroup({
+  companies,
+  onClose,
+}: {
+  companies: Company[];
+  onClose: () => void;
+}) {
+  const groups: Array<{ key: Company["category"]; label: string }> = [
+    { key: "distribution", label: "Distribution" },
+    { key: "retail", label: "Retail" },
+    { key: "services", label: "Services" },
+  ];
+
+  return (
+    <div className="pl-3">
+      {groups.map((g) => {
+        const list = companies.filter((c) => c.category === g.key);
+        if (list.length === 0) return null;
+        return (
+          <section key={g.key} className="mb-3 last:mb-0">
+            <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {g.label}
+            </p>
+            <ul>
+              {list.map((c) => (
+                <li key={c.slug}>
+                  <Link
+                    href={`/companies/${c.slug}`}
+                    onClick={onClose}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm text-foreground hover:bg-muted"
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-5 w-5 shrink-0 rounded-md bg-gradient-to-br text-[9px] font-bold leading-5 text-white shadow-sm",
+                        "text-center",
+                        c.accent
+                      )}
+                      aria-hidden
+                    >
+                      {c.initials}
+                    </span>
+                    <span className="truncate">{c.name}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+      <Link
+        href="/companies"
+        onClick={onClose}
+        className="mx-3 mt-2 inline-flex items-center gap-1 rounded-md bg-pug-gold-500/15 px-3 py-1.5 text-xs font-medium text-pug-gold-700 dark:text-pug-gold-300"
+      >
+        View all companies
+        <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
   );
 }
 
