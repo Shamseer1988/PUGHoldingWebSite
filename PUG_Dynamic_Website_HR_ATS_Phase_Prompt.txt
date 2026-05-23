@@ -1,0 +1,1940 @@
+PARIS UNITED GROUP HOLDING
+DYNAMIC CORPORATE WEBSITE + SEPARATE HR ATS PORTAL
+MASTER IMPLEMENTATION PROMPT FOR ANTIGRAVITY / CLAUDE SONNET 4.6 HIGH
+
+================================================================================
+PROJECT OBJECTIVE
+================================================================================
+
+You are a senior full-stack architect, premium UI/UX designer, backend engineer,
+HR ATS system designer, DevOps engineer, and security-focused production developer.
+
+Build a fully dynamic, premium, modern, cute, glassmorphism corporate website for
+Paris United Group Holding with a separate HR Admin / ATS portal.
+
+The project must include:
+
+1. Public corporate website
+2. Website Admin Panel
+3. Separate HR Admin Login
+4. Advanced ATS / Recruitment Management System
+5. Candidate career application frontend
+6. Azure OpenAI-based Ask PUG AI assistant
+7. PostgreSQL database
+8. Production-ready AWS Ubuntu deployment setup
+9. Cloudflare SSL-ready configuration
+10. Full responsive support for desktop, tablet, and small smartphones
+
+Important:
+This must not be a static website. All content must be dynamic and manageable
+from backend panels.
+
+Use dummy content, dummy images, and dummy logos at first. The final system must
+allow admin users to update all content, images, jobs, media, menus, companies,
+leadership messages, contact details, and SEO settings from backend.
+
+================================================================================
+TECHNOLOGY STACK
+================================================================================
+
+Frontend:
+- Next.js with App Router
+- TypeScript
+- Tailwind CSS
+- shadcn/ui components
+- Framer Motion animations
+- Lucide React icons
+- Recharts for dashboard charts
+- Responsive mobile-first layout
+- Light and dark mode
+
+Backend:
+- Python Flask or FastAPI
+- PostgreSQL
+- SQLAlchemy ORM
+- Alembic migrations
+- JWT or secure session authentication
+- REST API structure
+- Role-based access control
+- File upload support
+- Audit logging
+
+AI:
+- Azure OpenAI integration
+- Floating “Ask PUG AI” assistant button
+- Admin AI configuration page
+- AI should only answer company/profile/service/contact/job-related public queries
+- AI must not modify database records without explicit admin confirmation
+- AI must not make final HR hiring decisions
+- AI must not reject candidates automatically
+
+Deployment:
+- AWS Ubuntu / Debian Linux
+- Nginx reverse proxy
+- Gunicorn/Uvicorn backend service
+- PM2 or systemd for frontend service
+- PostgreSQL
+- Cloudflare SSL-ready setup
+- .env-based production configuration
+
+================================================================================
+COMPANY PROFILE
+================================================================================
+
+Company Name:
+Paris United Group Holding
+
+Short Description:
+Paris United Group Holding is a diversified business group operating across
+retail, wholesale distribution, FMCG, fashion, packaging, fresh food, groceries,
+building materials, garages, real estate, and construction sectors. The group
+manages multiple companies and divisions with a strong commitment to quality,
+service, innovation, operational excellence, and customer satisfaction.
+
+Business Divisions:
+
+A. Distribution
+1. Paris Food International
+   - FMCG wholesale
+   - Department store supply
+   - HORECA supply
+
+2. Doha Fashion
+   - Cosmetics
+   - Stationery
+
+3. Paris Packing
+   - Packing items
+   - Pulses
+   - Spices
+
+4. Maharib Fresh Trading
+   - Vegetable supply
+   - Fresh produce
+
+5. YellowTech Trading and Contracting
+   - Building materials supply
+
+B. Retail
+1. Paris Hyper Market
+   - 4 branches in Qatar
+   - 1 branch in KSA
+
+2. Paris Express
+   - Minimarts
+   - Above 6 branches
+
+3. Al Mihrab Groceries
+   - Chain of grocery shops
+   - Above 45 shops
+
+4. Maharib Fish
+   - Fresh fish supply
+
+C. Services
+1. YellowTech Garage
+   - Light vehicle garage
+
+2. Express Diesel Turbo
+   - Diesel and hydraulic garage
+
+3. Auto Plux Car Service
+   - Quick fix car garage
+
+4. Greentech Real Estate Broker
+   - Real estate services
+
+5. Core Engineering and Construction
+   - Construction services
+
+================================================================================
+PUBLIC WEBSITE MENU
+================================================================================
+
+Create the following public website menu:
+
+- Home
+- About Us
+- Group Companies
+- News and Events
+- Careers
+- Contact Us
+- Media
+
+Menu requirements:
+- Fully dynamic from backend
+- Website admin can add, edit, hide, delete, reorder menu items
+- Support dropdown menu for Group Companies
+- Sticky transparent navbar
+- Mobile hamburger menu
+- Smooth open/close animation
+- Light and dark theme toggle button
+- Search option
+- Modern glassmorphism navbar design
+- No horizontal overflow on mobile
+
+================================================================================
+PUBLIC WEBSITE PAGE REQUIREMENTS
+================================================================================
+
+1. HOME PAGE
+
+Create a premium home page with:
+
+A. Hero Section
+- Full-width modern gradient hero
+- Supports video background
+- Supports image background
+- Supports multiple auto-scrolling hero slides
+- Admin can manage hero slides
+- Hero slide fields:
+  - Title
+  - Subtitle
+  - Description
+  - Background image or video
+  - CTA button text
+  - CTA button link
+  - Display order
+  - Active/inactive status
+- Smooth fade/slide animation
+- Glassmorphism overlay card
+- Animated CTA buttons
+- Scroll indicator
+- Fully responsive on small smartphone screens
+
+B. Business Overview / Statistics
+- Animated dashboard-style statistics:
+  - Number of companies
+  - Number of branches
+  - Number of employees
+  - Number of sectors
+  - Number of customers served
+- Editable from backend
+- Use Recharts where useful
+
+C. Group Companies Logo Section
+- Beautiful logo carousel/grid
+- Grouped by Retail, Distribution, Services
+- Logo cards with glass effect
+- Hover animation
+- Click logo to open detailed company page
+
+D. Leadership Message Preview
+- Chairman Message with photo
+- Managing Director Message with photo
+- Executive Directors Message with photos
+- Modern card layout
+- Signature style
+- Editable from backend
+
+E. Business Sectors Section
+- Retail
+- Distribution
+- Services
+Each card should have:
+- Icon
+- Image
+- Short description
+- CTA button
+- Animated division card design
+- Glassmorphism style
+
+F. Latest News and Events
+- Show latest 3 or 6 news items
+- Image, title, date, short summary
+- Link to full news page
+- Managed from backend
+
+G. Careers Highlight
+- “Join Our Team”
+- Show current open jobs count
+- Button to Careers page
+
+H. Media Gallery Preview
+- Image/video thumbnails
+- Link to Media page
+
+I. Contact CTA
+Include quick actions:
+- WhatsApp
+- Email
+- Location
+- Contact form button
+
+J. Newsletter Subscription
+- Email subscribe box
+- Save subscriber in database
+- Admin can view/export subscribers
+
+2. ABOUT US PAGE
+
+Create a detailed About Us page:
+- Company introduction
+- Vision
+- Mission
+- Core values
+- Group history/timeline
+- Business philosophy
+- Quality commitment
+- Corporate governance message
+- Chairman full message
+- MD full message
+- Executive directors section
+- Dynamic page banner
+- Premium timeline design
+- Cute modern glass cards
+- All content editable from backend
+
+3. GROUP COMPANIES PAGE
+
+Main Group Companies page:
+- Category filters:
+  - All
+  - Distribution
+  - Retail
+  - Services
+
+Company card fields:
+- Company logo
+- Company name
+- Category
+- Short description
+- Key services
+- Branch count if applicable
+- Button: View Details
+
+Company detail page fields:
+- Company logo
+- Company banner
+- Company name
+- Category
+- About company
+- Products/services
+- Branches/locations
+- Gallery
+- Contact details
+- Website/social links
+- Related companies
+- CTA button
+
+Admin must be able to:
+- Add company
+- Edit company
+- Upload logo
+- Upload banner
+- Assign category
+- Add services
+- Add gallery images
+- Activate/deactivate company
+- Control display order
+
+4. NEWS AND EVENTS PAGE
+
+Frontend:
+- News listing page
+- Search and category filter
+- Event category filter
+- Featured news
+- Latest news
+- Individual news detail page
+- Image gallery inside news
+- Video support
+- Social share buttons
+
+Backend:
+- Add news/event
+- Edit news/event
+- Upload featured image
+- Add gallery images
+- Add event date
+- Add category
+- Publish/draft status
+- SEO title
+- SEO meta description
+- Auto slug generation
+
+5. CAREERS PAGE
+
+Frontend:
+- Hero section: “Build Your Career With Paris United Group Holding”
+- Job search
+- Job category filter
+- Department filter
+- Company/division filter
+- Location filter
+- Employment type filter
+- Job cards
+- Job detail page
+- Apply Now form
+- CV upload option
+- Download CV template option
+- Candidate can apply for selected job category/job vacancy
+
+Application form fields:
+- Full name
+- Email
+- Phone
+- Nationality
+- Current location
+- Position applied for
+- Job opening
+- Years of experience
+- Expected salary
+- Notice period
+- Upload CV
+- Cover letter/message
+- Consent checkbox
+
+On submission:
+- Save candidate application in ATS database
+- Attach CV securely
+- Prevent duplicate application using email/mobile/file hash
+- Show success message
+- Notify HR admin if email config enabled
+
+6. CONTACT US PAGE
+
+Frontend:
+- Contact form
+- Company address
+- Phone
+- Email
+- Google Map embed placeholder
+- Department selection:
+  - General Inquiry
+  - HR Department
+  - Sales
+  - Distribution
+  - Retail
+  - Services
+  - Management Office
+
+Contact form fields:
+- Name
+- Email
+- Phone
+- Subject
+- Department
+- Message
+
+Backend:
+- Save all contact messages in database
+- Website admin can view inbox
+- Website admin can reply to user through backend
+- Email configuration must be available from backend
+- Reply history must be stored
+- Mark as read/unread
+- Mark as replied
+- Delete/archive messages
+
+7. MEDIA PAGE
+
+Frontend:
+- Photo gallery
+- Video gallery
+- Category filters
+- Lightbox view
+- Responsive masonry/grid layout
+- Smooth hover animation
+
+Backend:
+- Upload images
+- Upload videos or add video links
+- Add title
+- Add description
+- Assign category
+- Active/inactive status
+- Display order
+
+================================================================================
+SEPARATE ADMIN LOGIN ARCHITECTURE
+================================================================================
+
+The project must have TWO separate backend login areas:
+
+1. Website Admin Login
+URL example:
+- /admin/login
+
+Purpose:
+- Manage corporate website content
+- Manage menus
+- Manage pages
+- Manage companies
+- Manage hero slider
+- Manage media
+- Manage news/events
+- Manage contact inbox
+- Manage subscribers
+- Manage SEO
+- Manage site settings
+- Manage AI configuration
+- Manage website admin users
+
+2. HR Admin / ATS Login
+URL example:
+- /hr/login
+
+Purpose:
+- Manage recruitment
+- Manage job openings
+- Track candidates
+- Review CVs
+- Manage ATS pipeline
+- Schedule interviews
+- Give feedback
+- Export HR reports
+- Use AI candidate review if enabled
+- Manage HR users and permissions
+
+Important:
+Website Admin and HR Admin must be separate in UI, routing, dashboard, permissions,
+and navigation. They may share the same users table with roles, or use separate
+admin user types, but permissions must strictly isolate website content access
+from HR recruitment access.
+
+================================================================================
+WEBSITE ADMIN PANEL REQUIREMENTS
+================================================================================
+
+Website Admin modules:
+1. Dashboard
+2. Menu Management
+3. Hero Slider Management
+4. Page Content Management
+5. Group Companies Management
+6. Leadership Message Management
+7. News and Events Management
+8. Contact Inbox
+9. Media Gallery Management
+10. Newsletter Subscribers
+11. Website User Management
+12. Role and Permission Management
+13. Email Configuration
+14. AI Configuration
+15. Site Settings
+16. Theme Settings
+17. SEO Settings
+18. Sitemap Management
+19. Backup/Export
+20. Audit Log
+
+Website Admin dashboard should show:
+- Total companies
+- Total pages
+- Total news/events
+- New contact messages
+- Newsletter subscribers
+- Latest contact messages
+- Latest news
+- Quick action buttons
+- Chart widgets using Recharts
+
+================================================================================
+HR ADMIN / ATS MODULE REQUIREMENTS
+================================================================================
+
+Build an advanced Applicant Tracking System.
+
+HR Admin modules:
+1. HR Dashboard
+2. Job Opening Master
+3. Candidate Applications
+4. CV Upload and Parsing
+5. Candidate Scoring Engine
+6. AI Candidate Review
+7. Candidate Workflow Pipeline
+8. Interview Management
+9. Offer Tracking
+10. Candidate Profile
+11. Advanced Search and Filters
+12. HR Reports and Export
+13. HR User Management
+14. HR Role and Permission Management
+15. HR Audit Log
+16. HR Settings
+
+-------------------------------------------------------------------------------
+1. JOB OPENING MASTER
+-------------------------------------------------------------------------------
+
+Create job opening setup with:
+
+- Job title
+- Department
+- Division
+- Company
+- Location
+- Minimum experience
+- Maximum experience
+- Required education
+- Required skills
+- Preferred skills
+- Salary range minimum
+- Salary range maximum
+- Visa requirement
+- Nationality preference, optional
+- Language requirement
+- Notice period preference
+- Job description
+- Responsibilities
+- Requirements
+- Job status:
+  - Open
+  - On Hold
+  - Closed
+- Created by
+- Created date
+- Updated date
+
+-------------------------------------------------------------------------------
+2. CV UPLOAD MODULE
+-------------------------------------------------------------------------------
+
+Allow HR users to upload CVs:
+- PDF
+- DOCX
+- Image
+- Bulk ZIP format
+
+Requirements:
+- Store uploaded documents securely
+- Create candidate profile automatically from CV
+- Link CV to job opening if selected
+- Prevent duplicate CV uploads using:
+  - Email
+  - Mobile number
+  - File hash
+  - Similar name matching
+
+-------------------------------------------------------------------------------
+3. CV DATA EXTRACTION
+-------------------------------------------------------------------------------
+
+Extract the following candidate details:
+- Candidate name
+- Email
+- Mobile number
+- Nationality
+- Current location
+- Total experience
+- GCC experience
+- Qatar experience
+- Current designation
+- Previous companies
+- Education
+- Skills
+- Certifications
+- Languages
+- Expected salary
+- Notice period
+- Visa status
+- Availability
+- Full extracted text
+
+Use Python libraries:
+- PDF parser for text PDFs
+- DOCX parser for Word documents
+- OCR only for image-based/scanned CVs
+
+OCR should be optional and used only when needed.
+
+-------------------------------------------------------------------------------
+4. CANDIDATE SCORING ENGINE
+-------------------------------------------------------------------------------
+
+Create scoring engine out of 100:
+
+- Relevant experience: 25 marks
+- Required skills match: 20 marks
+- Education match: 10 marks
+- Industry/company experience: 10 marks
+- GCC/Qatar experience: 10 marks
+- Salary fit: 10 marks
+- Notice period: 5 marks
+- Visa status: 5 marks
+- Language match: 5 marks
+
+Requirements:
+- Store score breakdown separately
+- Show score badge in candidate list
+- Show detailed score explanation in candidate profile
+- Allow HR Manager/Admin to manually override score
+- Manual score override requires mandatory reason
+- All overrides must be audit logged
+
+-------------------------------------------------------------------------------
+5. AI CANDIDATE REVIEW
+-------------------------------------------------------------------------------
+
+If AI is enabled, generate:
+- Candidate summary
+- Strengths
+- Weaknesses
+- Missing information
+- Risk points
+- Suggested interview questions
+- Final recommendation
+
+Rules:
+- AI must not automatically reject a candidate
+- AI must not automatically select a candidate
+- AI can only recommend
+- Final decision must be taken manually by authorized HR user
+- AI review must be stored in database
+- AI prompt and response must be audit logged where appropriate
+
+-------------------------------------------------------------------------------
+6. CANDIDATE STATUS WORKFLOW
+-------------------------------------------------------------------------------
+
+Workflow statuses:
+- CV Received
+- AI Reviewed
+- HR Review Pending
+- Shortlisted
+- First Interview
+- Technical Interview
+- Final Interview
+- Selected
+- Offer Sent
+- Joined
+- Rejected
+- Blacklisted
+
+Every status change must log:
+- Old status
+- New status
+- Changed by
+- Changed date/time
+- Remarks
+- Mandatory rejection reason if rejected
+- Mandatory approval reason if blacklisted
+
+Rules:
+- Rejected candidate requires rejection reason
+- Blacklisted candidate requires HR Manager/Admin approval
+- Normal HR Executive cannot blacklist without approval
+- All workflow actions must be audit logged
+
+-------------------------------------------------------------------------------
+7. INTERVIEW MANAGEMENT
+-------------------------------------------------------------------------------
+
+Allow HR to schedule interviews.
+
+Fields:
+- Candidate
+- Job opening
+- Interview round
+- Interview date/time
+- Interviewer
+- Mode:
+  - Online
+  - Phone
+  - In Person
+- Location or meeting link
+- Feedback
+- Rating
+- Recommendation
+- Interview status:
+  - Scheduled
+  - Completed
+  - Cancelled
+  - Rescheduled
+  - No Show
+
+Interviewer access:
+- Interviewer can only view assigned interviews
+- Interviewer can submit feedback
+- Interviewer cannot view salary unless permission allowed
+- Interviewer cannot change final candidate status unless permission allowed
+
+-------------------------------------------------------------------------------
+8. HR DASHBOARD
+-------------------------------------------------------------------------------
+
+Create HR dashboard with Recharts:
+
+- Total CVs received
+- CVs received this month
+- AI reviewed CVs
+- Highly recommended candidates
+- Shortlisted candidates
+- Rejected candidates
+- Pending HR review
+- Candidates by job opening
+- Candidates by department
+- Average expected salary by position
+- Interview pending list
+- Offer pending list
+- Pipeline funnel chart
+- Monthly application trend
+- Source-wise applications if source field is available
+
+-------------------------------------------------------------------------------
+9. ADVANCED SEARCH AND FILTER
+-------------------------------------------------------------------------------
+
+Create server-side search and filters:
+
+- Candidate name
+- Mobile
+- Email
+- Job opening
+- Department
+- Status
+- Score range
+- Experience range
+- Skills
+- Nationality
+- Location
+- Salary expectation
+- Visa status
+- Notice period
+- Education
+- Language
+- Uploaded date range
+- AI recommendation
+- Interview status
+
+Candidate list UI:
+- Desktop: responsive table with sticky header
+- Tablet: compact table/card hybrid
+- Mobile: candidate cards instead of wide table
+- No horizontal overflow on mobile
+
+-------------------------------------------------------------------------------
+10. REPORTS AND EXPORT
+-------------------------------------------------------------------------------
+
+Provide HR reports:
+- Candidate shortlist report
+- Job-wise CV summary
+- Interview status report
+- Selected candidate report
+- Rejected candidate report
+- Salary expectation report
+- Skill availability report
+- Offer pending report
+- Joined candidate report
+
+Export options:
+- Excel
+- CSV
+- PDF
+
+-------------------------------------------------------------------------------
+11. HR ROLE-BASED SECURITY
+-------------------------------------------------------------------------------
+
+HR roles:
+- HR Super Admin
+- HR Manager
+- HR Executive
+- Department Manager
+- Interviewer
+- Viewer
+
+Permissions:
+- HR Super Admin: full HR access
+- HR Manager: full recruitment access
+- HR Executive: upload, edit, shortlist, schedule interview
+- Department Manager: view assigned job candidates and give feedback
+- Interviewer: view assigned interviews only
+- Viewer: read-only access
+
+Sensitive data:
+- Salary visibility must be permission-controlled
+- CV document download must be permission-controlled
+- Candidate delete/archive must be permission-controlled
+- Blacklist action must be restricted
+- Score override must be restricted
+
+-------------------------------------------------------------------------------
+12. HR AUDIT AND COMPLIANCE
+-------------------------------------------------------------------------------
+
+Create full audit log for:
+- CV upload
+- CV view
+- CV download
+- Candidate edit
+- Score override
+- Status change
+- Interview scheduling
+- Interview feedback
+- Rejection
+- Blacklist
+- Document delete/archive
+- AI candidate review
+- HR report export
+
+Do not allow permanent delete for normal users.
+Use soft delete with reason and timestamp.
+
+================================================================================
+AI ASSISTANT REQUIREMENTS
+================================================================================
+
+Create a floating “Ask PUG AI” button on the public website.
+
+Public AI Assistant:
+- Can answer company profile questions
+- Can answer group company questions
+- Can answer services questions
+- Can answer contact/location questions
+- Can answer career/job listing questions using public job data
+- Must not expose private candidate data
+- Must not expose admin data
+- Must not modify database records
+- Must provide safe, company-approved style answers
+
+Admin AI Configuration page:
+- Azure OpenAI endpoint
+- Azure OpenAI API key
+- Deployment name
+- API version
+- AI enabled/disabled toggle
+- Public website assistant toggle
+- HR AI review toggle
+- Test connection button
+- AI safety instruction field
+- AI usage log
+
+HR AI:
+- Used only inside HR ATS portal
+- Can summarize CV
+- Can compare candidate to job opening
+- Can generate interview questions
+- Can recommend but not decide
+- Must not reject/select automatically
+
+================================================================================
+DATABASE TABLES
+================================================================================
+
+Create PostgreSQL schema with Alembic migrations.
+
+Suggested tables:
+
+Website/Core:
+- users
+- roles
+- permissions
+- role_permissions
+- user_roles
+- menus
+- pages
+- page_sections
+- hero_slides
+- companies
+- company_categories
+- company_services
+- company_gallery
+- leadership_messages
+- news_events
+- news_categories
+- media_items
+- media_categories
+- contact_messages
+- contact_replies
+- newsletter_subscribers
+- site_settings
+- email_settings
+- ai_settings
+- seo_settings
+- audit_logs
+- backup_logs
+
+HR/ATS:
+- hr_job_openings
+- hr_candidates
+- hr_candidate_documents
+- hr_candidate_extracted_data
+- hr_candidate_scores
+- hr_candidate_score_breakdowns
+- hr_candidate_ai_reviews
+- hr_candidate_status_history
+- hr_interviews
+- hr_interview_feedback
+- hr_candidate_notes
+- hr_candidate_tags
+- hr_candidate_job_applications
+- hr_offer_tracking
+- hr_audit_logs
+
+File metadata:
+- uploaded_files
+- file_usage_links
+
+Security:
+- login_sessions or refresh_tokens if JWT/session tracking is needed
+- password_reset_tokens if forgot password is implemented
+
+================================================================================
+API REQUIREMENTS
+================================================================================
+
+Public APIs:
+- Get site settings
+- Get menus
+- Get hero slides
+- Get page content
+- Get companies
+- Get company details
+- Get leadership messages
+- Get news/events
+- Get job posts
+- Submit job application
+- Upload CV
+- Submit contact message
+- Submit newsletter subscription
+- Get media gallery
+- Ask public AI assistant
+
+Website Admin APIs:
+- Login/logout
+- CRUD menus
+- CRUD pages
+- CRUD hero slides
+- CRUD companies
+- CRUD leadership messages
+- CRUD news/events
+- CRUD media
+- Contact inbox/reply
+- Newsletter subscribers
+- Website users/roles
+- Site settings
+- Email settings
+- AI settings
+- SEO settings
+- Backup/export
+- Audit log
+
+HR Admin APIs:
+- HR login/logout
+- HR dashboard stats
+- CRUD job openings
+- Candidate application list
+- Candidate profile
+- CV upload
+- CV parsing
+- Duplicate detection
+- Candidate scoring
+- AI candidate review
+- Candidate workflow status update
+- Interview scheduling
+- Interview feedback
+- Offer tracking
+- HR reports
+- HR export
+- HR users/roles
+- HR audit log
+
+================================================================================
+SECURITY REQUIREMENTS
+================================================================================
+
+Implement:
+- Password hashing
+- JWT or secure server-side session authentication
+- Separate route guards for Website Admin and HR Admin
+- Role-based access control
+- Permission-based UI visibility
+- CSRF protection where applicable
+- Input validation
+- File upload validation
+- Allowed file types only
+- File size limit
+- Secure file storage
+- SQL injection protection through ORM
+- XSS protection
+- Rate limiting for public forms
+- Admin route protection
+- Environment variables for secrets
+- Audit log for all sensitive actions
+- Soft delete for sensitive data
+- No public access to uploaded CV files
+- No candidate private data exposed to public AI assistant
+
+================================================================================
+FILE UPLOAD REQUIREMENTS
+================================================================================
+
+Support upload for:
+- Company logos
+- Company banners
+- Hero images/videos
+- Leadership photos
+- News images
+- Media gallery images/videos
+- Career CV files
+- ATS CV bulk ZIP files
+
+Allowed image types:
+- jpg
+- jpeg
+- png
+- webp
+- safe svg if supported
+
+Allowed video types:
+- mp4
+- webm
+
+Allowed CV types:
+- pdf
+- doc
+- docx
+
+Allowed ATS bulk upload:
+- zip containing CV files
+
+Requirements:
+- Configurable upload path
+- Store file metadata in database
+- Generate unique file names
+- Use file hash for duplicate detection
+- Protect private candidate CV files from public access
+
+================================================================================
+DESIGN REQUIREMENTS
+================================================================================
+
+Public website design:
+1. Premium corporate look
+2. Glassmorphism cards
+3. Light and dark mode
+4. Mobile-first responsive design
+5. Sticky transparent navbar
+6. Smooth scroll animation
+7. Modern gradient hero section
+8. Clean typography
+9. Animated division cards
+10. Dashboard-style statistics section
+11. Company logo support
+12. Fully responsive on desktop, tablet, and small smartphone screens
+13. No horizontal overflow on mobile
+14. Proper spacing, alignment, and touch-friendly buttons
+15. AI assistant floating button
+16. Contact CTA:
+    - WhatsApp
+    - Email
+    - Location
+    - Contact form button
+
+Admin design:
+- Clean dashboard layout
+- Sidebar navigation
+- Responsive admin interface
+- Mobile-friendly admin pages
+- Cards, charts, tables, filters
+- shadcn/ui components
+- Clear permission-based menu visibility
+
+HR ATS design:
+- Professional recruitment dashboard
+- Candidate pipeline view
+- Candidate profile drawer/modal
+- Score badges
+- Status badges
+- Sticky table header
+- Advanced filter panel
+- Mobile candidate cards
+- Touch-friendly buttons
+- No horizontal overflow
+
+Responsive rules:
+- Desktop: wide grid layout
+- Tablet: 2-column layout
+- Mobile: single-column layout
+- Navbar collapses into hamburger menu
+- All cards fit inside viewport
+- No input or button should overflow
+- Use max-width and padding properly
+- Test at:
+  - 360px
+  - 390px
+  - 430px
+  - 768px
+  - 1024px
+  - 1440px
+
+================================================================================
+SEO AND PERFORMANCE REQUIREMENTS
+================================================================================
+
+Implement:
+- SEO-friendly URLs
+- Dynamic meta title
+- Dynamic meta description
+- Open Graph tags
+- Dynamic sitemap generation
+- Robots.txt
+- Image optimization
+- Lazy loading
+- Code splitting
+- Accessible markup
+- Proper heading hierarchy
+- Mobile performance optimization
+- Cache headers where appropriate
+- Cloudflare-friendly static asset handling
+
+================================================================================
+BACKUP / EXPORT REQUIREMENTS
+================================================================================
+
+Admin backup/export option:
+- Export website settings/content
+- Export subscribers
+- Export contact messages
+- Export HR candidate reports
+- Export job applications
+- PostgreSQL backup command documentation
+- Restore command documentation
+
+Backend should include backup log table if backup is implemented from admin.
+
+================================================================================
+PROJECT STRUCTURE
+================================================================================
+
+Use clean project structure:
+
+/backend
+  /app
+    /api
+    /auth
+    /models
+    /schemas
+    /services
+    /utils
+    /uploads
+    /website_admin
+    /hr_ats
+    /ai
+  /migrations
+  requirements.txt
+  .env.example
+  run.py
+
+/frontend
+  /app
+    /(public)
+    /admin
+    /hr
+  /components
+  /components/ui
+  /lib
+  /hooks
+  /styles
+  /public
+  package.json
+  .env.example
+
+/docs
+  phase-implementation-guide.md
+  setup-guide.md
+  deployment-guide.md
+  admin-user-guide.md
+  hr-ats-user-guide.md
+  api-reference.md
+  testing-checklist.md
+
+================================================================================
+PHASE-BY-PHASE IMPLEMENTATION PLAN
+================================================================================
+
+IMPORTANT WORKFLOW:
+Complete one phase at a time.
+After each phase:
+1. Provide a summary of completed work.
+2. List created/modified files.
+3. List database migrations added.
+4. List test commands.
+5. List any pending issues.
+6. Stop and wait for next instruction before starting the next phase.
+
+-------------------------------------------------------------------------------
+PHASE 1 - PROJECT FOUNDATION
+-------------------------------------------------------------------------------
+
+Goal:
+Create the complete project skeleton for frontend, backend, database, config,
+routing, and documentation.
+
+Tasks:
+- Create backend Flask/FastAPI structure
+- Create frontend Next.js App Router structure
+- Configure TypeScript
+- Configure Tailwind CSS
+- Configure shadcn/ui
+- Configure Framer Motion
+- Configure Lucide React
+- Configure Recharts
+- Create .env.example files
+- Create PostgreSQL connection
+- Create SQLAlchemy setup
+- Create Alembic setup
+- Create base models
+- Create health check API
+- Create initial documentation
+- Create local run instructions
+
+Deliverables:
+- Backend app runs
+- Frontend app runs
+- Database connection works
+- Alembic migration works
+- Health check endpoint works
+
+-------------------------------------------------------------------------------
+PHASE 2 - AUTHENTICATION, ROLES, AND SEPARATE LOGIN SYSTEM
+-------------------------------------------------------------------------------
+
+Goal:
+Create secure login system with separate Website Admin and HR Admin access.
+
+Tasks:
+- Create users, roles, permissions tables
+- Create password hashing
+- Create login/logout APIs
+- Create Website Admin login page at /admin/login
+- Create HR Admin login page at /hr/login
+- Create route guards
+- Create permission middleware
+- Create role-based sidebar menu rendering
+- Create seed users:
+  - Super Admin
+  - Website Admin
+  - HR Manager
+  - HR Executive
+  - Interviewer
+- Create audit log for login/logout
+
+Deliverables:
+- Website admin can login separately
+- HR admin can login separately
+- HR user cannot access website admin modules unless permission exists
+- Website admin cannot access HR modules unless permission exists
+
+-------------------------------------------------------------------------------
+PHASE 3 - PUBLIC WEBSITE UI FOUNDATION
+-------------------------------------------------------------------------------
+
+Goal:
+Create premium public website layout and base UI system.
+
+Tasks:
+- Create public layout
+- Create sticky transparent navbar
+- Create dynamic hamburger mobile menu
+- Create light/dark mode
+- Create footer
+- Create reusable glassmorphism components
+- Create animated cards
+- Create responsive grid components
+- Add no-horizontal-overflow global CSS rules
+- Add responsive testing CSS safeguards
+- Create floating Ask PUG AI button placeholder
+
+Deliverables:
+- Public layout works on all screen sizes
+- Mobile navbar works
+- Theme toggle works
+- No horizontal overflow at 360px, 390px, 430px
+
+-------------------------------------------------------------------------------
+PHASE 4 - WEBSITE PUBLIC PAGES
+-------------------------------------------------------------------------------
+
+Goal:
+Create public pages using dummy data first.
+
+Tasks:
+- Home page
+- About Us page
+- Group Companies page
+- Company detail page
+- News and Events page
+- News detail page
+- Careers page
+- Job detail page
+- Contact Us page
+- Media page
+
+Design:
+- Premium corporate look
+- Cute modern style
+- Glassmorphism
+- Framer Motion animations
+- Responsive from 360px to 1440px
+
+Deliverables:
+- All public pages available
+- Dummy content visible
+- Mobile responsive tested
+
+-------------------------------------------------------------------------------
+PHASE 5 - WEBSITE ADMIN CONTENT MANAGEMENT
+-------------------------------------------------------------------------------
+
+Goal:
+Create Website Admin dashboard and CRUD modules.
+
+Tasks:
+- Website Admin dashboard with Recharts
+- Menu management
+- Hero slider management
+- Page content management
+- Group companies management
+- Leadership messages management
+- News/events management
+- Media gallery management
+- Contact inbox
+- Newsletter subscribers
+- Site settings
+- Theme settings
+- SEO settings
+- Sitemap management
+- Website audit log
+
+Deliverables:
+- Admin can manage public website content
+- Public website fetches dynamic content from backend
+- CRUD actions audit logged
+
+-------------------------------------------------------------------------------
+PHASE 6 - PUBLIC WEBSITE BACKEND API INTEGRATION
+-------------------------------------------------------------------------------
+
+Goal:
+Connect all public website pages to backend APIs.
+
+Tasks:
+- Replace dummy frontend data with API calls
+- Implement loading states
+- Implement error states
+- Implement empty states
+- Implement contact form submission
+- Implement newsletter subscription
+- Implement career application submission
+- Implement file upload for CV
+- Implement dynamic SEO metadata
+
+Deliverables:
+- Public website fully dynamic
+- Contact form saves to database
+- Newsletter saves to database
+- Job application saves to ATS database
+
+-------------------------------------------------------------------------------
+PHASE 7 - HR ATS DATABASE AND CORE MODELS
+-------------------------------------------------------------------------------
+
+Goal:
+Create ATS database models and migrations.
+
+Tasks:
+- Create job opening model
+- Create candidate model
+- Create candidate documents model
+- Create extracted data model
+- Create candidate score model
+- Create score breakdown model
+- Create AI review model
+- Create status history model
+- Create interview model
+- Create interview feedback model
+- Create offer tracking model
+- Create HR audit log model
+- Create seed HR data
+
+Deliverables:
+- Alembic migrations complete
+- HR tables created
+- Seed HR job openings created
+
+-------------------------------------------------------------------------------
+PHASE 8 - HR ATS ADMIN DASHBOARD
+-------------------------------------------------------------------------------
+
+Goal:
+Create HR dashboard and ATS layout.
+
+Tasks:
+- HR dashboard page
+- HR sidebar navigation
+- HR KPI cards
+- HR charts using Recharts
+- Pipeline funnel
+- Monthly application trend
+- Pending interviews
+- Offer pending list
+- Candidate status summary
+- Mobile responsive HR dashboard
+
+Deliverables:
+- HR dashboard works
+- HR stats pulled from backend
+- Responsive layout works
+
+-------------------------------------------------------------------------------
+PHASE 9 - JOB OPENING MANAGEMENT
+-------------------------------------------------------------------------------
+
+Goal:
+Create job opening CRUD.
+
+Tasks:
+- Job opening list
+- Create job opening
+- Edit job opening
+- Close/reopen job opening
+- Job status control
+- Required/preferred skills input
+- Salary range
+- Experience range
+- Department/division/company fields
+- Public careers page should show only open jobs
+
+Deliverables:
+- HR can manage jobs
+- Careers page displays open jobs dynamically
+
+-------------------------------------------------------------------------------
+PHASE 10 - CANDIDATE APPLICATION AND CV UPLOAD
+-------------------------------------------------------------------------------
+
+Goal:
+Create candidate application flow from career page and HR backend upload.
+
+Tasks:
+- Candidate applies from public career page
+- CV upload from public form
+- HR manual CV upload
+- Bulk ZIP upload
+- Secure file storage
+- File metadata storage
+- File hash generation
+- Duplicate detection:
+  - Email
+  - Mobile
+  - File hash
+  - Similar name
+- Candidate profile auto-create
+
+Deliverables:
+- Candidate application saved
+- CV stored securely
+- HR can upload CV manually
+- Duplicate detection works
+
+-------------------------------------------------------------------------------
+PHASE 11 - CV PARSING AND DATA EXTRACTION
+-------------------------------------------------------------------------------
+
+Goal:
+Extract structured candidate data from CVs.
+
+Tasks:
+- PDF text extraction
+- DOCX text extraction
+- Optional OCR for scanned/image CVs
+- Extract:
+  - Name
+  - Email
+  - Mobile
+  - Nationality
+  - Location
+  - Experience
+  - Skills
+  - Education
+  - Certifications
+  - Languages
+  - Expected salary
+  - Notice period
+  - Visa status
+- Store full extracted text
+- Allow HR to edit extracted data manually
+
+Deliverables:
+- CV parser service created
+- Candidate extracted data visible in HR profile
+- Manual correction supported
+
+-------------------------------------------------------------------------------
+PHASE 12 - CANDIDATE SCORING ENGINE
+-------------------------------------------------------------------------------
+
+Goal:
+Create rule-based score out of 100.
+
+Tasks:
+- Compare candidate to job opening
+- Score:
+  - Relevant experience: 25
+  - Required skills: 20
+  - Education: 10
+  - Industry/company experience: 10
+  - GCC/Qatar experience: 10
+  - Salary fit: 10
+  - Notice period: 5
+  - Visa status: 5
+  - Language match: 5
+- Store breakdown
+- Show score badge
+- Show detailed score explanation
+- Allow manual override with mandatory reason
+- Audit log score override
+
+Deliverables:
+- Candidate score generated
+- Score breakdown visible
+- Override requires reason
+
+-------------------------------------------------------------------------------
+PHASE 13 - HR AI CANDIDATE REVIEW
+-------------------------------------------------------------------------------
+
+Goal:
+Integrate Azure OpenAI for candidate review.
+
+Tasks:
+- Use AI settings from admin configuration
+- Create HR AI review service
+- Generate:
+  - Candidate summary
+  - Strengths
+  - Weaknesses
+  - Missing information
+  - Risk points
+  - Suggested interview questions
+  - Final recommendation
+- Store AI response
+- Show AI review in candidate profile
+- Add AI disabled mode
+- Add mock test mode
+
+Rules:
+- AI must not select candidate
+- AI must not reject candidate
+- AI only recommends
+- Final decision by HR user only
+
+Deliverables:
+- HR AI review works if enabled
+- Safe disabled mode works
+- AI recommendation is clearly marked as advisory
+
+-------------------------------------------------------------------------------
+PHASE 14 - CANDIDATE WORKFLOW PIPELINE
+-------------------------------------------------------------------------------
+
+Goal:
+Create full recruitment workflow.
+
+Tasks:
+- Candidate statuses:
+  - CV Received
+  - AI Reviewed
+  - HR Review Pending
+  - Shortlisted
+  - First Interview
+  - Technical Interview
+  - Final Interview
+  - Selected
+  - Offer Sent
+  - Joined
+  - Rejected
+  - Blacklisted
+- Status update UI
+- Status history timeline
+- Mandatory rejection reason
+- Mandatory blacklist approval reason
+- Permission rules
+- Audit log every change
+
+Deliverables:
+- Candidate pipeline works
+- Status history visible
+- Rejection/blacklist rules enforced
+
+-------------------------------------------------------------------------------
+PHASE 15 - INTERVIEW MANAGEMENT
+-------------------------------------------------------------------------------
+
+Goal:
+Create interview scheduling and feedback system.
+
+Tasks:
+- Schedule interview
+- Assign interviewer
+- Online/phone/in-person mode
+- Location or meeting link
+- Interview calendar/list
+- Interviewer login access
+- Interview feedback form
+- Rating and recommendation
+- Interview status tracking
+- Candidate profile interview timeline
+
+Deliverables:
+- HR can schedule interviews
+- Interviewer can submit feedback
+- Interview feedback visible to permitted HR users
+
+-------------------------------------------------------------------------------
+PHASE 16 - HR ADVANCED SEARCH, FILTERS, REPORTS, EXPORT
+-------------------------------------------------------------------------------
+
+Goal:
+Create advanced HR search and reporting.
+
+Tasks:
+- Server-side candidate search
+- Advanced filter panel
+- Filter by:
+  - Name
+  - Email
+  - Mobile
+  - Job
+  - Department
+  - Status
+  - Score
+  - Experience
+  - Skills
+  - Nationality
+  - Location
+  - Salary
+  - Visa
+  - Notice period
+  - Education
+  - Language
+  - Uploaded date
+- Reports:
+  - Shortlist report
+  - Job-wise CV summary
+  - Interview status report
+  - Selected candidate report
+  - Rejected candidate report
+  - Salary expectation report
+  - Skill availability report
+- Export:
+  - Excel
+  - CSV
+  - PDF
+
+Deliverables:
+- HR search works
+- Reports generated
+- Export works
+
+-------------------------------------------------------------------------------
+PHASE 17 - PUBLIC AI ASSISTANT
+-------------------------------------------------------------------------------
+
+Goal:
+Create floating Ask PUG AI assistant for public website.
+
+Tasks:
+- Floating AI button
+- Chat modal
+- Company/profile/service/contact-focused assistant
+- Use website content as context
+- Use public job data only
+- Do not expose private admin or candidate data
+- Admin AI config page
+- AI usage logs
+- Safe fallback if AI disabled
+
+Deliverables:
+- Public AI assistant works
+- Safe restrictions enforced
+- AI disabled mode works
+
+-------------------------------------------------------------------------------
+PHASE 18 - RESPONSIVE UI POLISH AND MOBILE TESTING
+-------------------------------------------------------------------------------
+
+Goal:
+Make full system beautiful and mobile perfect.
+
+Tasks:
+- Test public website at:
+  - 360px
+  - 390px
+  - 430px
+  - 768px
+  - 1024px
+  - 1440px
+- Test admin pages
+- Test HR ATS pages
+- Fix overflow
+- Fix input alignment
+- Fix card spacing
+- Fix table/card responsive behavior
+- Ensure buttons are touch-friendly
+- Ensure navbar/hamburger works
+- Ensure dark mode works
+
+Deliverables:
+- No horizontal overflow
+- Mobile-friendly public pages
+- Mobile-friendly admin pages
+- Mobile-friendly HR candidate cards
+
+-------------------------------------------------------------------------------
+PHASE 19 - SECURITY, AUDIT, VALIDATION, AND TESTING
+-------------------------------------------------------------------------------
+
+Goal:
+Harden system for production.
+
+Tasks:
+- Input validation
+- File validation
+- Permission tests
+- Authentication tests
+- Role access tests
+- Candidate privacy tests
+- Public AI safety tests
+- HR AI safety tests
+- Contact form rate limiting
+- Audit log tests
+- Soft delete rules
+- Backup/export permissions
+- CV upload tests
+- Duplicate detection tests
+- Scoring engine tests
+- Workflow tests
+- Interview tests
+- Admin CRUD tests
+
+Deliverables:
+- Test suite added
+- Security rules implemented
+- Audit logging complete
+
+-------------------------------------------------------------------------------
+PHASE 20 - DEPLOYMENT DOCUMENTATION AND FINAL PACKAGE
+-------------------------------------------------------------------------------
+
+Goal:
+Prepare production-ready deployment instructions.
+
+Tasks:
+Create documentation for:
+- Local development setup
+- PostgreSQL setup
+- Backend setup
+- Frontend setup
+- Environment variables
+- Alembic migrations
+- Seed data
+- AWS Ubuntu deployment
+- Nginx reverse proxy
+- Gunicorn/Uvicorn systemd service
+- Next.js production service
+- Cloudflare DNS/SSL setup
+- PostgreSQL backup
+- PostgreSQL restore
+- Log checking
+- Restart commands
+- Troubleshooting guide
+
+Deliverables:
+- Complete docs
+- Production deployment guide
+- Final testing checklist
+- Environment examples
+- Ready-to-run project
+
+================================================================================
+FINAL QUALITY CHECKLIST
+================================================================================
+
+Before final delivery, verify:
+
+Public Website:
+- Home page works
+- About page works
+- Group companies page works
+- Company detail pages work
+- News/events work
+- Careers page works
+- Job application works
+- Contact form works
+- Media gallery works
+- Newsletter works
+- AI assistant works or disabled fallback works
+- Light/dark mode works
+- No mobile overflow
+
+Website Admin:
+- Separate website admin login works
+- Dashboard works
+- CRUD modules work
+- File uploads work
+- Contact reply works
+- SEO settings work
+- Sitemap generation works
+- Audit logs work
+- Backup/export works
+
+HR ATS:
+- Separate HR login works
+- HR dashboard works
+- Job opening CRUD works
+- Candidate apply from career page works
+- HR manual CV upload works
+- Bulk CV upload works
+- Duplicate detection works
+- CV parsing works
+- Candidate scoring works
+- Manual score override requires reason
+- AI review works if enabled
+- AI disabled mode works
+- Workflow status updates work
+- Rejection reason required
+- Blacklist approval required
+- Interview scheduling works
+- Interview feedback works
+- HR reports work
+- Export works
+- HR role permissions work
+- Candidate private data protected
+
+Deployment:
+- Backend production run works
+- Frontend production build works
+- PostgreSQL migrations work
+- Nginx reverse proxy works
+- Cloudflare SSL-ready
+- Environment variables documented
+- Backup/restore documented
+
+================================================================================
+FINAL OUTPUT EXPECTED
+================================================================================
+
+Provide:
+1. Complete source code
+2. Next.js App Router frontend
+3. Python Flask/FastAPI backend
+4. PostgreSQL models and Alembic migrations
+5. Website Admin panel
+6. Separate HR Admin / ATS portal
+7. Azure OpenAI configuration and safe AI assistant
+8. Dummy seed data
+9. Local setup guide
+10. AWS Ubuntu deployment guide
+11. Cloudflare SSL-ready notes
+12. Nginx reverse proxy instructions
+13. Test suite
+14. Final testing checklist
+
+Design reminder:
+The final output must feel like an advanced, cute, premium, modern corporate
+holding company website with a separate professional ATS system for HR.
