@@ -191,4 +191,74 @@
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+
+  /* ---------- Hero slider — cute + modern accents ---------------------- */
+
+  /* Brand-gold to ivory gradient text used on the last 1–2 headline
+     words. Wider gradient size so the slow shift below feels organic. */
+  .hero-gradient-text {
+    background: linear-gradient(
+      100deg,
+      #f5e8c3 0%,
+      #e6c270 30%,
+      #ffffff 55%,
+      #e6c270 80%,
+      #f5e8c3 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-gradient-shift 9s ease-in-out infinite;
+  }
+
+  @keyframes hero-gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+  }
+
+  /* Floating accent blobs that bob softly behind the hero. Two
+     variants with slightly different rhythms so they never sync up. */
+  .hero-orb {
+    animation: hero-orb-float 8s ease-in-out infinite;
+  }
+  .hero-orb--gold {
+    animation-duration: 9s;
+  }
+  .hero-orb--green {
+    animation-duration: 11s;
+    animation-delay: -3s;
+  }
+  @keyframes hero-orb-float {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50%      { transform: translate3d(0, -22px, 0); }
+  }
+
+  /* Scroll-hint mouse outline with a dropping dot. */
+  .hero-scroll-mouse {
+    animation: hero-mouse-pulse 2.6s ease-in-out infinite;
+  }
+  .hero-scroll-dot {
+    animation: hero-scroll-dot 1.8s ease-in-out infinite;
+  }
+  @keyframes hero-scroll-dot {
+    0%   { transform: translateY(0); opacity: 0; }
+    35%  { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(10px); opacity: 0; }
+  }
+  @keyframes hero-mouse-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.18); }
+    50%      { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
+  }
+
+  /* Honour the user's motion preference — kill every hero CSS animation. */
+  @media (prefers-reduced-motion: reduce) {
+    .hero-gradient-text,
+    .hero-orb,
+    .hero-scroll-mouse,
+    .hero-scroll-dot {
+      animation: none !important;
+    }
+  }
 }
