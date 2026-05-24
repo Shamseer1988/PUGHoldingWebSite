@@ -275,7 +275,10 @@ class Candidate(Base, TimestampMixin):
         order_by="CandidateDocument.id",
     )
     extracted_data: Mapped[Optional["CandidateExtractedData"]] = relationship(
-        back_populates="candidate", uselist=False, cascade="all, delete-orphan"
+        back_populates="candidate",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
     applications: Mapped[List["CandidateJobApplication"]] = relationship(
         back_populates="candidate",

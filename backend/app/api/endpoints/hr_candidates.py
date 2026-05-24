@@ -1,9 +1,13 @@
-"""HR ATS candidate endpoints (Phase 10).
+"""HR ATS candidate endpoints (Phase 10 + Phase 11 parsing).
 
-- POST /hr/candidates/upload       single-CV manual upload by HR
-- POST /hr/candidates/bulk-upload  ZIP containing many CVs
-- GET  /hr/candidates              list with simple filters
-- GET  /hr/candidates/{id}         single candidate (incl. documents)
+- POST  /hr/candidates/upload                   single-CV manual upload by HR
+- POST  /hr/candidates/bulk-upload              ZIP containing many CVs
+- GET   /hr/candidates                          list with simple filters
+- GET   /hr/candidates/{id}                     single candidate
+- PATCH /hr/candidates/{id}                     HR manual edit of candidate fields
+- GET   /hr/candidates/{id}/extracted-data      structured CV data
+- PATCH /hr/candidates/{id}/extracted-data      HR manual edit of extracted fields
+- POST  /hr/candidates/{id}/parse-cv            re-run the parser on the primary CV
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ from app.models.hr_ats import (
     SOURCE_BULK_UPLOAD,
     SOURCE_MANUAL_UPLOAD,
     Candidate,
+    CandidateExtractedData,
     CandidateJobApplication,
     JobOpening,
 )
@@ -36,14 +41,19 @@ from app.schemas.hr_ats import (
     ApplicationSubmissionResponse,
     BulkUploadResult,
     BulkUploadSkip,
+    CandidateExtractedDataRead,
+    CandidateExtractedDataUpdate,
     CandidateListItem,
     CandidateRead,
+    CandidateUpdate,
+    CvReparseResult,
 )
 from app.services.audit_log import record_audit
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
     ingest_candidate_application,
+    reparse_candidate_cv,
 )
 from app.services.cv_storage import (
     CvUploadError,
@@ -298,4 +308,177 @@ async def bulk_upload_candidates(
         duplicate_applications_skipped=duplicate_app_count,
         skipped_files=skipped,
         candidate_ids=candidate_ids,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — Manual edits + CV parser
+# ---------------------------------------------------------------------------
+
+
+def _get_candidate_or_404(db: Session, candidate_id: int) -> Candidate:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return candidate
+
+
+@router.patch("/{candidate_id}", response_model=CandidateRead)
+def update_candidate(
+    candidate_id: int,
+    payload: CandidateUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> Candidate:
+    candidate = _get_candidate_or_404(db, candidate_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return candidate
+
+    changed: list[str] = []
+    for field_name, value in updates.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        if getattr(candidate, field_name) != value:
+            setattr(candidate, field_name, value)
+            changed.append(field_name)
+
+    if changed:
+        ctx = get_request_context(request)
+        record_audit(
+            db,
+            action="hr.candidate.update",
+            actor_id=user.id,
+            actor_email=user.email,
+            scope="hr",
+            target_type="candidate",
+            target_id=str(candidate.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={"fields": changed},
+            commit=False,
+        )
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
+@router.get(
+    "/{candidate_id}/extracted-data",
+    response_model=CandidateExtractedDataRead,
+)
+def get_extracted_data(
+    candidate_id: int, db: Session = Depends(get_db)
+) -> CandidateExtractedData:
+    candidate = _get_candidate_or_404(db, candidate_id)
+    data = candidate.extracted_data
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No extracted data for this candidate yet. Re-run the CV "
+                "parser from the candidate profile to populate it."
+            ),
+        )
+    return data
+
+
+@router.patch(
+    "/{candidate_id}/extracted-data",
+    response_model=CandidateExtractedDataRead,
+)
+def update_extracted_data(
+    candidate_id: int,
+    payload: CandidateExtractedDataUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateExtractedData:
+    candidate = _get_candidate_or_404(db, candidate_id)
+    data = candidate.extracted_data
+    if data is None:
+        data = CandidateExtractedData(candidate_id=candidate.id)
+        db.add(data)
+
+    updates = payload.model_dump(exclude_unset=True)
+    changed: list[str] = []
+    for field_name, value in updates.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        if getattr(data, field_name) != value:
+            setattr(data, field_name, value)
+            changed.append(field_name)
+
+    if changed:
+        ctx = get_request_context(request)
+        record_audit(
+            db,
+            action="hr.candidate.extracted_data.update",
+            actor_id=user.id,
+            actor_email=user.email,
+            scope="hr",
+            target_type="candidate_extracted_data",
+            target_id=str(candidate.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={"fields": changed},
+            commit=False,
+        )
+    db.commit()
+    db.refresh(data)
+    return data
+
+
+@router.post("/{candidate_id}/parse-cv", response_model=CvReparseResult)
+def reparse_candidate_cv_endpoint(
+    candidate_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CvReparseResult:
+    """Re-run the CV parser on the candidate's primary document.
+
+    Existing manual edits to the Candidate row are preserved — the
+    parser only fills fields that are currently empty.
+    """
+    candidate = _get_candidate_or_404(db, candidate_id)
+    if not candidate.documents:
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate has no uploaded CV to parse.",
+        )
+
+    parsed = reparse_candidate_cv(db, candidate)
+    if parsed is None:
+        db.rollback()
+        return CvReparseResult(
+            candidate=CandidateRead.model_validate(candidate),
+            parsed=False,
+            detail=(
+                "CV could not be parsed. Confirm the file is a valid PDF, "
+                "DOCX, or image; legacy .doc files must be re-saved as DOCX."
+            ),
+        )
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.cv_parse",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate",
+        target_id=str(candidate.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"parser_version": parsed.parser_version},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(candidate)
+    return CvReparseResult(
+        candidate=CandidateRead.model_validate(candidate),
+        parsed=True,
+        parser_version=parsed.parser_version,
     )

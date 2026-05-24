@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   CheckCircle2,
   ExternalLink,
@@ -14,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 
+import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
@@ -29,10 +29,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { hrApi, HrApiError } from "@/lib/hr/api";
-import { env } from "@/lib/env";
 import type {
   BulkUploadResult,
-  Candidate,
   CandidateListItem,
   ApplicationSubmissionResponse,
   JobOpening,
@@ -53,6 +51,7 @@ export default function HrCandidatesPage() {
   const [singleOpen, setSingleOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [jobs, setJobs] = React.useState<JobOpening[]>([]);
+  const [detailId, setDetailId] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     refresh();
@@ -160,7 +159,11 @@ export default function HrCandidatesPage() {
             </TableHeader>
             <TableBody>
               {items.map((c) => (
-                <CandidateRow key={c.id} c={c} />
+                <CandidateRow
+                  key={c.id}
+                  c={c}
+                  onOpenDetail={() => setDetailId(c.id)}
+                />
               ))}
             </TableBody>
           </Table>
@@ -194,40 +197,30 @@ export default function HrCandidatesPage() {
           await refresh();
         }}
       />
+
+      <CandidateDetailDrawer
+        candidateId={detailId}
+        onClose={() => setDetailId(null)}
+        onSaved={() => {
+          void refresh();
+        }}
+      />
     </HrShell>
   );
 }
 
-function CandidateRow({ c }: { c: CandidateListItem }) {
-  const [detail, setDetail] = React.useState<Candidate | null>(null);
-  const [loading, setLoading] = React.useState(false);
-
-  async function loadDetail() {
-    if (detail) return;
-    setLoading(true);
-    try {
-      setDetail(await hrApi.get<Candidate>(`/hr/candidates/${c.id}`));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Resolve uploads against the backend host (uploads are served by FastAPI,
-  // not by Next.js).
-  function resolveCvUrl(path: string): string {
-    if (/^https?:\/\//i.test(path)) return path;
-    if (path.startsWith("/api/")) {
-      try {
-        return `${new URL(env.apiBaseUrl).origin}${path}`;
-      } catch {
-        return path;
-      }
-    }
-    return path;
-  }
-
+function CandidateRow({
+  c,
+  onOpenDetail,
+}: {
+  c: CandidateListItem;
+  onOpenDetail: () => void;
+}) {
   return (
-    <TableRow>
+    <TableRow
+      onClick={onOpenDetail}
+      className="cursor-pointer transition-colors hover:bg-muted/40"
+    >
       <TableCell>
         <p className="font-medium leading-tight">{c.full_name}</p>
         {c.current_designation && (
@@ -258,32 +251,18 @@ function CandidateRow({ c }: { c: CandidateListItem }) {
         {new Date(c.created_at).toLocaleDateString()}
       </TableCell>
       <TableCell className="text-right">
-        {loading ? (
-          <Loader2 className="ml-auto inline h-4 w-4 animate-spin" />
-        ) : detail ? (
-          detail.documents[0] ? (
-            <Link
-              href={resolveCvUrl(detail.documents[0].file_path)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary"
-            >
-              Open
-              <ExternalLink className="h-3 w-3" />
-            </Link>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )
-        ) : (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={loadDetail}
-            className="px-2 text-xs"
-          >
-            View
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenDetail();
+          }}
+          className="px-2 text-xs"
+        >
+          Open
+          <ExternalLink className="ml-1 h-3 w-3" />
+        </Button>
       </TableCell>
     </TableRow>
   );

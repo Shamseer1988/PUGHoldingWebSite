@@ -126,6 +126,30 @@ export interface CandidateDocument {
   created_at: string;
 }
 
+export interface ParsedEducationEntry {
+  raw: string;
+  degree: string | null;
+  institution: string | null;
+  year: number | null;
+}
+
+export interface ParsedCompanyEntry {
+  name: string;
+  title: string | null;
+  duration: string | null;
+}
+
+export interface CandidateExtractedData {
+  skills: string | null;
+  education: ParsedEducationEntry[] | null;
+  certifications: string[] | null;
+  languages: string[] | null;
+  previous_companies: ParsedCompanyEntry[] | null;
+  full_text: string | null;
+  parser_version: string | null;
+  updated_at: string | null;
+}
+
 export interface Candidate {
   id: number;
   full_name: string;
@@ -148,6 +172,14 @@ export interface Candidate {
   created_at: string;
   updated_at: string;
   documents: CandidateDocument[];
+  extracted_data: CandidateExtractedData | null;
+}
+
+export interface CvReparseResult {
+  candidate: Candidate;
+  parsed: boolean;
+  parser_version: string | null;
+  detail: string | null;
 }
 
 export interface ApplicationSubmissionResponse {
