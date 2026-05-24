@@ -163,6 +163,28 @@ class CandidateAIReviewPreview(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class InterviewSummaryForApplication(BaseModel):
+    """Compact interview row embedded inside the application summary."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    round_name: str
+    round_number: int
+    scheduled_at: datetime
+    duration_minutes: int
+    mode: str
+    mode_label: str
+    location_or_link: Optional[str] = None
+    status: str
+    status_label: str
+    interviewer_id: Optional[int] = None
+    interviewer_email: Optional[str] = None
+    interviewer_name: Optional[str] = None
+    has_feedback: bool = False
+    latest_recommendation: Optional[str] = None
+
+
 class CandidateApplicationSummary(BaseModel):
     """Application row shown alongside the candidate (e.g. in lists)."""
 
@@ -180,6 +202,9 @@ class CandidateApplicationSummary(BaseModel):
     ai_review: Optional[CandidateAIReviewPreview] = None
     history_count: int = 0
     allowed_next_statuses: List[str] = Field(default_factory=list)
+    interviews: List[InterviewSummaryForApplication] = Field(default_factory=list)
+    interview_count: int = 0
+    next_interview_at: Optional[datetime] = None
 
 
 class CandidateExtractedDataRead(BaseModel):
@@ -422,3 +447,109 @@ class AISettingsUpdate(BaseModel):
     max_output_tokens: Optional[int] = Field(default=None, ge=64, le=8000)
     request_timeout_seconds: Optional[int] = Field(default=None, ge=5, le=300)
     extra_system_prompt: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Interview management (Phase 15)
+# ---------------------------------------------------------------------------
+
+
+INTERVIEW_MODE_PATTERN = r"^(online|phone|in_person)$"
+INTERVIEW_STATUS_PATTERN = r"^(scheduled|completed|cancelled|rescheduled|no_show)$"
+INTERVIEW_RECOMMENDATION_PATTERN = r"^(hire|no_hire|maybe)$"
+
+
+class InterviewFeedbackBase(BaseModel):
+    rating: Optional[int] = Field(default=None, ge=1, le=5)
+    recommendation: Optional[str] = Field(
+        default=None, pattern=INTERVIEW_RECOMMENDATION_PATTERN
+    )
+    feedback: Optional[str] = Field(default=None, max_length=4000)
+    technical_score: Optional[int] = Field(default=None, ge=0, le=10)
+    communication_score: Optional[int] = Field(default=None, ge=0, le=10)
+    cultural_fit_score: Optional[int] = Field(default=None, ge=0, le=10)
+
+
+class InterviewFeedbackCreate(InterviewFeedbackBase):
+    pass
+
+
+class InterviewFeedbackRead(InterviewFeedbackBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    interview_id: int
+    submitted_by_id: Optional[int] = None
+    submitted_by_email: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InterviewBase(BaseModel):
+    round_name: str = Field(min_length=1, max_length=120)
+    round_number: int = Field(default=1, ge=1, le=20)
+    scheduled_at: datetime
+    duration_minutes: int = Field(default=60, ge=5, le=480)
+    mode: str = Field(pattern=INTERVIEW_MODE_PATTERN)
+    location_or_link: Optional[str] = Field(default=None, max_length=500)
+    interviewer_id: Optional[int] = None
+
+
+class InterviewCreate(InterviewBase):
+    application_id: int
+
+
+class InterviewUpdate(BaseModel):
+    round_name: Optional[str] = Field(default=None, max_length=120)
+    round_number: Optional[int] = Field(default=None, ge=1, le=20)
+    scheduled_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = Field(default=None, ge=5, le=480)
+    mode: Optional[str] = Field(default=None, pattern=INTERVIEW_MODE_PATTERN)
+    location_or_link: Optional[str] = Field(default=None, max_length=500)
+    interviewer_id: Optional[int] = None
+
+
+class InterviewStatusChange(BaseModel):
+    new_status: str = Field(pattern=INTERVIEW_STATUS_PATTERN)
+
+
+class InterviewRead(InterviewBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    status: str
+    status_label: Optional[str] = None
+    mode_label: Optional[str] = None
+    interviewer_email: Optional[str] = None
+    interviewer_name: Optional[str] = None
+    created_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    feedback: List[InterviewFeedbackRead] = Field(default_factory=list)
+
+
+class InterviewListItem(BaseModel):
+    """Row used by the calendar/list page and the candidate timeline."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    candidate_id: int
+    candidate_name: str
+    job_title: Optional[str] = None
+    round_name: str
+    round_number: int
+    scheduled_at: datetime
+    duration_minutes: int
+    mode: str
+    mode_label: str
+    location_or_link: Optional[str] = None
+    interviewer_id: Optional[int] = None
+    interviewer_email: Optional[str] = None
+    interviewer_name: Optional[str] = None
+    status: str
+    status_label: str
+    has_feedback: bool = False
+    latest_recommendation: Optional[str] = None

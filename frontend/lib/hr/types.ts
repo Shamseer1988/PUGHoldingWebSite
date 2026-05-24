@@ -209,6 +209,9 @@ export interface CandidateApplicationSummary {
   ai_review: CandidateAIReviewPreview | null;
   history_count: number;
   allowed_next_statuses: string[];
+  interviews: InterviewSummaryForApplication[];
+  interview_count: number;
+  next_interview_at: string | null;
 }
 
 export interface CandidateStatusHistoryEntry {
@@ -240,6 +243,113 @@ export interface CandidateStatusChangePayload {
   remarks?: string | null;
   rejection_reason?: string | null;
   blacklist_approval?: string | null;
+}
+
+// Interview management ---------------------------------------------------
+
+export type InterviewStatus =
+  | "scheduled"
+  | "completed"
+  | "cancelled"
+  | "rescheduled"
+  | "no_show";
+
+export type InterviewRecommendation = "hire" | "no_hire" | "maybe";
+
+export interface InterviewFeedback {
+  id: number;
+  interview_id: number;
+  submitted_by_id: number | null;
+  submitted_by_email: string | null;
+  rating: number | null;
+  recommendation: InterviewRecommendation | string | null;
+  feedback: string | null;
+  technical_score: number | null;
+  communication_score: number | null;
+  cultural_fit_score: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InterviewSummaryForApplication {
+  id: number;
+  round_name: string;
+  round_number: number;
+  scheduled_at: string;
+  duration_minutes: number;
+  mode: InterviewMode | string;
+  mode_label: string;
+  location_or_link: string | null;
+  status: InterviewStatus | string;
+  status_label: string;
+  interviewer_id: number | null;
+  interviewer_email: string | null;
+  interviewer_name: string | null;
+  has_feedback: boolean;
+  latest_recommendation: InterviewRecommendation | string | null;
+}
+
+export interface Interview {
+  id: number;
+  application_id: number;
+  round_name: string;
+  round_number: number;
+  scheduled_at: string;
+  duration_minutes: number;
+  mode: InterviewMode | string;
+  mode_label: string;
+  location_or_link: string | null;
+  interviewer_id: number | null;
+  interviewer_email: string | null;
+  interviewer_name: string | null;
+  status: InterviewStatus | string;
+  status_label: string;
+  created_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+  feedback: InterviewFeedback[];
+}
+
+export interface InterviewListRow {
+  id: number;
+  application_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_title: string | null;
+  round_name: string;
+  round_number: number;
+  scheduled_at: string;
+  duration_minutes: number;
+  mode: string;
+  mode_label: string;
+  location_or_link: string | null;
+  interviewer_id: number | null;
+  interviewer_email: string | null;
+  interviewer_name: string | null;
+  status: string;
+  status_label: string;
+  has_feedback: boolean;
+  latest_recommendation: string | null;
+}
+
+export interface InterviewCreatePayload {
+  application_id: number;
+  round_name: string;
+  round_number: number;
+  scheduled_at: string;
+  duration_minutes: number;
+  mode: InterviewMode | string;
+  location_or_link?: string | null;
+  interviewer_id?: number | null;
+}
+
+export interface InterviewFeedbackPayload {
+  rating?: number | null;
+  recommendation?: InterviewRecommendation | string | null;
+  feedback?: string | null;
+  technical_score?: number | null;
+  communication_score?: number | null;
+  cultural_fit_score?: number | null;
 }
 
 export interface CandidateDocument {

@@ -435,6 +435,7 @@ class CandidateJobApplication(Base, TimestampMixin):
         back_populates="application",
         cascade="all, delete-orphan",
         order_by="Interview.scheduled_at",
+        lazy="selectin",
     )
     offer: Mapped[Optional["OfferTracking"]] = relationship(
         back_populates="application", uselist=False, cascade="all, delete-orphan"
@@ -627,6 +628,7 @@ class Interview(Base, TimestampMixin):
         back_populates="interview",
         cascade="all, delete-orphan",
         order_by="InterviewFeedback.created_at.desc()",
+        lazy="selectin",
     )
 
 
