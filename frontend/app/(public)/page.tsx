@@ -9,6 +9,7 @@ import { JobCard } from "@/components/site/job-card";
 import { LeadershipMessagesSection } from "@/components/site/leadership-messages-section";
 import { NewsCard } from "@/components/site/news-card";
 import { NewsletterForm } from "@/components/site/newsletter-form";
+import { Reveal, RevealGroup } from "@/components/site/reveal";
 import { Section } from "@/components/site/section";
 import { SectorCards } from "@/components/site/sector-cards";
 import { StatsStrip } from "@/components/site/stats-strip";
@@ -89,27 +90,33 @@ export default async function HomePage() {
           eyebrow="Latest news"
           title="What's happening at Paris United Group"
         >
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <RevealGroup
+            className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3"
+            stagger={0.1}
+            direction="up"
+            distance={32}
+          >
             {news.map((item) => (
               <NewsCard key={item.slug} item={item} />
             ))}
-          </div>
-          <div className="mt-8 text-center">
+          </RevealGroup>
+          <Reveal direction="up" delay={0.15} className="mt-8 text-center">
             <Button asChild variant="outline">
               <Link href="/news">
                 All news and events
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
-          </div>
+          </Reveal>
         </Section>
       )}
 
       <Section className="py-16 sm:py-20">
+       <Reveal direction="zoom" distance={0}>
         <GlassCard className="relative overflow-hidden p-8 sm:p-10 lg:p-12">
           <div
             aria-hidden
-            className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-primary/20 blur-3xl"
+            className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 animate-pulse rounded-full bg-primary/20 blur-3xl"
           />
           <div className="grid items-center gap-8 lg:grid-cols-[1.5fr_2fr]">
             <div>
@@ -139,13 +146,20 @@ export default async function HomePage() {
                 </Button>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <RevealGroup
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+              stagger={0.1}
+              delay={0.1}
+              direction="up"
+              distance={20}
+            >
               {openJobs.slice(0, 2).map((job) => (
                 <JobCard key={job.slug} job={job} />
               ))}
-            </div>
+            </RevealGroup>
           </div>
         </GlassCard>
+       </Reveal>
       </Section>
 
       <Section
@@ -153,7 +167,8 @@ export default async function HomePage() {
         title="Reach out or sign up for updates"
       >
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <GlassCard className="p-6">
+         <Reveal direction="left">
+          <GlassCard className="h-full p-6 transition-shadow duration-300 hover:shadow-xl hover:shadow-primary/5">
             <h3 className="text-lg font-semibold">Contact our team</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Use any of the channels below or send us a message directly
@@ -188,8 +203,10 @@ export default async function HomePage() {
               </Button>
             </div>
           </GlassCard>
+         </Reveal>
 
-          <GlassCard className="p-6">
+         <Reveal direction="right" delay={0.1}>
+          <GlassCard className="h-full p-6 transition-shadow duration-300 hover:shadow-xl hover:shadow-primary/5">
             <h3 className="text-lg font-semibold">Newsletter</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Occasional updates from Paris United Group — new openings,
@@ -199,6 +216,7 @@ export default async function HomePage() {
               <NewsletterForm />
             </div>
           </GlassCard>
+         </Reveal>
         </div>
       </Section>
     </>

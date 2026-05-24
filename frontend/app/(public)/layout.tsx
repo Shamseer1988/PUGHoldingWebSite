@@ -1,6 +1,7 @@
 import { AskPugAiButton } from "@/components/site/ask-pug-ai-button";
 import { Footer } from "@/components/site/footer";
 import { Navbar } from "@/components/site/navbar";
+import { ScrollProgressBar } from "@/components/site/scroll-progress";
 import { SkipToContent } from "@/components/site/skip-to-content";
 import {
   getCompanies,
@@ -32,6 +33,7 @@ export default async function PublicLayout({
   return (
     <div className="relative flex min-h-screen flex-col">
       <SkipToContent />
+      <ScrollProgressBar />
       <Navbar companies={companies} items={navItems} />
       <main id="main-content" className="flex-1">
         {children}
