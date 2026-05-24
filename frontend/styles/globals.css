@@ -192,6 +192,17 @@
     word-break: break-word;
   }
 
+  /* Subtle dot-grid overlay used by the homepage bento hero stats
+     tile. Sits on top of the dark-green gradient at ~6% opacity. */
+  .pug-dotgrid {
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      rgba(255, 255, 255, 0.08) 1px,
+      transparent 0
+    );
+    background-size: 16px 16px;
+  }
+
   /* ---------- Hero slider — cute + modern accents ---------------------- */
 
   /* Brand-gold to ivory gradient text used on the last 1–2 headline
