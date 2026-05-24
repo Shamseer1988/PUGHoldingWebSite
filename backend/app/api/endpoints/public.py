@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -37,7 +37,17 @@ from app.schemas.cms import (
     NewsletterSubscriberRead,
     SiteSettingRead,
 )
-from app.schemas.hr_ats import JobOpeningRead
+from app.schemas.hr_ats import (
+    ApplicationSubmissionResponse,
+    JobOpeningRead,
+)
+from app.services.candidate_intake import (
+    DuplicateApplicationError,
+    IntakeForm,
+    ingest_candidate_application,
+)
+from app.services.cv_storage import CvUploadError, store_cv_bytes
+from app.models.hr_ats import SOURCE_PUBLIC_FORM
 from app.services.audit_log import record_audit
 
 
@@ -445,3 +455,104 @@ def subscribe_to_newsletter(
     db.commit()
     db.refresh(subscriber)
     return NewsletterSubscriberRead.model_validate(subscriber)
+
+
+# ---------------------------------------------------------------------------
+# Write: candidate application from the public Apply form
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/candidate-applications",
+    response_model=ApplicationSubmissionResponse,
+    status_code=201,
+)
+async def submit_candidate_application(
+    request: Request,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(..., description="CV file (PDF / DOC / DOCX / image)"),
+    full_name: str = Form(..., min_length=1, max_length=255),
+    email: str = Form(..., min_length=3, max_length=255),
+    mobile: str = Form(..., min_length=4, max_length=40),
+    job_slug: Optional[str] = Form(default=None, max_length=200),
+    nationality: Optional[str] = Form(default=None, max_length=120),
+    current_location: Optional[str] = Form(default=None, max_length=255),
+    total_experience_years: Optional[float] = Form(default=None, ge=0, le=70),
+    expected_salary: Optional[int] = Form(default=None, ge=0),
+    notice_period: Optional[str] = Form(default=None, max_length=120),
+    cover_letter: Optional[str] = Form(default=None, max_length=5000),
+    consent: bool = Form(...),
+) -> ApplicationSubmissionResponse:
+    """Public candidate application: stores CV, dedupes, creates intake."""
+    if not consent:
+        raise HTTPException(
+            status_code=400, detail="Consent is required to submit an application."
+        )
+
+    payload = await file.read()
+    try:
+        meta = store_cv_bytes(payload, file.filename or "cv", file.content_type)
+    except CvUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    form = IntakeForm(
+        full_name=full_name,
+        email=email,
+        mobile=mobile,
+        nationality=nationality,
+        current_location=current_location,
+        total_experience_years=total_experience_years,
+        expected_salary=expected_salary,
+        notice_period=notice_period,
+        cover_letter=cover_letter,
+        job_slug=job_slug,
+        source=SOURCE_PUBLIC_FORM,
+    )
+
+    try:
+        result = ingest_candidate_application(db, form=form, file_meta=meta)
+    except DuplicateApplicationError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "You've already applied to this position. We'll get back to "
+                "you on your existing application."
+            ),
+        ) from exc
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="public.candidate.apply",
+        actor_email=email.strip().lower(),
+        scope="hr",
+        target_type="candidate_application",
+        target_id=str(result.application.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": result.candidate.id,
+            "job_slug": job_slug,
+            "was_existing_candidate": result.was_existing_candidate,
+            "file_hash": meta.file_hash,
+        },
+        commit=False,
+    )
+    db.commit()
+
+    return ApplicationSubmissionResponse(
+        candidate_id=result.candidate.id,
+        application_id=result.application.id,
+        was_existing_candidate=result.was_existing_candidate,
+        job_title=(
+            result.application.job_opening.title
+            if result.application.job_opening is not None
+            else None
+        ),
+        job_slug=(
+            result.application.job_opening.slug
+            if result.application.job_opening is not None
+            else None
+        ),
+    )

@@ -8,6 +8,7 @@ from app.api.endpoints import (
     admin_cms,
     health,
     hr_auth,
+    hr_candidates,
     hr_dashboard,
     hr_jobs,
     public,
@@ -21,3 +22,4 @@ api_router.include_router(admin_cms.router)
 api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)
 api_router.include_router(hr_jobs.router)
+api_router.include_router(hr_candidates.router)
