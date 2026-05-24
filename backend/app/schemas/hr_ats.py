@@ -170,12 +170,16 @@ class CandidateApplicationSummary(BaseModel):
 
     id: int
     status: str
+    status_label: Optional[str] = None
     job_opening_id: Optional[int] = None
     job_title: Optional[str] = None
     applied_at: datetime
     source: Optional[str] = None
+    last_rejection_reason: Optional[str] = None
     score: Optional[CandidateScoreRead] = None
     ai_review: Optional[CandidateAIReviewPreview] = None
+    history_count: int = 0
+    allowed_next_statuses: List[str] = Field(default_factory=list)
 
 
 class CandidateExtractedDataRead(BaseModel):
@@ -275,6 +279,8 @@ class CandidateListItem(BaseModel):
     is_archived: bool
     created_at: datetime
     top_score: Optional[int] = None
+    latest_status: Optional[str] = None
+    latest_status_label: Optional[str] = None
 
 
 class ApplicationSubmissionResponse(BaseModel):
@@ -300,6 +306,46 @@ class BulkUploadResult(BaseModel):
     duplicate_applications_skipped: int
     skipped_files: List[BulkUploadSkip] = Field(default_factory=list)
     candidate_ids: List[int] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Candidate workflow / status pipeline (Phase 14)
+# ---------------------------------------------------------------------------
+
+
+class CandidateStatusHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    old_status: Optional[str] = None
+    new_status: str
+    changed_by_id: Optional[int] = None
+    changed_by_email: Optional[str] = None
+    remarks: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    blacklist_approval: Optional[str] = None
+    created_at: datetime
+
+
+class CandidateStatusChange(BaseModel):
+    new_status: str = Field(min_length=1, max_length=40)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+    rejection_reason: Optional[str] = Field(default=None, max_length=2000)
+    blacklist_approval: Optional[str] = Field(default=None, max_length=2000)
+
+
+class StatusOption(BaseModel):
+    """Status descriptor returned by the meta endpoint."""
+
+    value: str
+    label: str
+    is_final: bool = False
+
+
+class StatusPipelineMeta(BaseModel):
+    statuses: List[StatusOption]
+    transitions: Dict[str, List[str]]
 
 
 # ---------------------------------------------------------------------------

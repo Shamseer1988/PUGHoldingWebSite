@@ -113,6 +113,8 @@ export interface CandidateListItem {
   is_archived: boolean;
   created_at: string;
   top_score: number | null;
+  latest_status: string | null;
+  latest_status_label: string | null;
 }
 
 export interface CandidateScoreBreakdown {
@@ -197,12 +199,47 @@ export interface AISettings {
 export interface CandidateApplicationSummary {
   id: number;
   status: string;
+  status_label: string | null;
   job_opening_id: number | null;
   job_title: string | null;
   applied_at: string;
   source: string | null;
+  last_rejection_reason: string | null;
   score: CandidateScore | null;
   ai_review: CandidateAIReviewPreview | null;
+  history_count: number;
+  allowed_next_statuses: string[];
+}
+
+export interface CandidateStatusHistoryEntry {
+  id: number;
+  application_id: number;
+  old_status: string | null;
+  new_status: string;
+  changed_by_id: number | null;
+  changed_by_email: string | null;
+  remarks: string | null;
+  rejection_reason: string | null;
+  blacklist_approval: string | null;
+  created_at: string;
+}
+
+export interface StatusOption {
+  value: string;
+  label: string;
+  is_final: boolean;
+}
+
+export interface StatusPipelineMeta {
+  statuses: StatusOption[];
+  transitions: Record<string, string[]>;
+}
+
+export interface CandidateStatusChangePayload {
+  new_status: string;
+  remarks?: string | null;
+  rejection_reason?: string | null;
+  blacklist_approval?: string | null;
 }
 
 export interface CandidateDocument {

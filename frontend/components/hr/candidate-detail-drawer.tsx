@@ -16,6 +16,7 @@ import {
 
 import { CandidateAIReviewPanel } from "@/components/hr/candidate-ai-review-panel";
 import { CandidateScorePanel } from "@/components/hr/candidate-score-panel";
+import { CandidateWorkflowPanel } from "@/components/hr/candidate-workflow-panel";
 import { ScoreBadge } from "@/components/hr/score-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -521,6 +522,12 @@ export function CandidateDetailDrawer({
                   </Field>
                 </div>
               </section>
+
+              {/* --- Workflow / status pipeline --- */}
+              <CandidateWorkflowPanel
+                candidate={candidate}
+                onChanged={() => void load(candidate.id)}
+              />
 
               {/* --- Scoring --- */}
               <CandidateScorePanel
