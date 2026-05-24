@@ -93,11 +93,26 @@
   }
 
   /* Phase 3 mobile safety net: prevent horizontal scroll across all
-   * breakpoints (tested at 360 / 390 / 430 / 768 / 1024 / 1440 px). */
+   * breakpoints (tested at 360 / 390 / 430 / 768 / 1024 / 1440 px).
+   *
+   * IMPORTANT: use `overflow-x: clip` rather than `hidden`. `hidden`
+   * creates a scroll-container context on <html>/<body> which silently
+   * breaks every `position: sticky` element on the page. `clip` blocks
+   * horizontal overflow the same way without creating that context.
+   *
+   * Fallback to `hidden` for older browsers (~Safari < 16). They lose
+   * sticky on the showcase but keep the no-horizontal-scroll guarantee.
+   */
   html,
   body {
     max-width: 100%;
     overflow-x: hidden;
+  }
+  @supports (overflow: clip) {
+    html,
+    body {
+      overflow-x: clip;
+    }
   }
 
   body {

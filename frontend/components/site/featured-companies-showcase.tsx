@@ -70,6 +70,7 @@ export function FeaturedCompaniesShowcase({
             trigger: panel,
             start: "top center",
             end: "bottom center",
+            // No markers / no scrub — just a callback flipping React state.
             onToggle: ({ isActive }) => {
               if (isActive) setActiveIndex(i);
             },
@@ -77,13 +78,42 @@ export function FeaturedCompaniesShowcase({
         );
       });
 
-      // Recompute once images settle so the trigger windows match
-      // the final layout.
-      const refresh = () => ScrollTrigger.refresh();
+      // Force initial evaluation so the active panel is correct
+      // when the user lands mid-page (link to anchor, reload, etc.).
+      const syncInitial = () => {
+        for (let i = 0; i < triggers.length; i++) {
+          if (triggers[i].isActive) {
+            setActiveIndex(i);
+            return;
+          }
+        }
+      };
+      syncInitial();
+
+      // Recompute trigger positions after the layout settles. We do this
+      // twice: once on the next frame (fonts + base CSS), and again on
+      // window 'load' (images + late assets). A ResizeObserver also
+      // refreshes whenever the section size changes (responsive flips).
+      const refresh = () => {
+        ScrollTrigger.refresh();
+        syncInitial();
+      };
+
+      const raf1 = requestAnimationFrame(() => {
+        const raf2 = requestAnimationFrame(refresh);
+        (refresh as { _raf2?: number })._raf2 = raf2;
+      });
       window.addEventListener("load", refresh);
 
+      const ro = new ResizeObserver(refresh);
+      panelRefs.current.forEach((panel) => panel && ro.observe(panel));
+
       cleanup = () => {
+        cancelAnimationFrame(raf1);
+        const raf2 = (refresh as { _raf2?: number })._raf2;
+        if (raf2) cancelAnimationFrame(raf2);
         window.removeEventListener("load", refresh);
+        ro.disconnect();
         triggers.forEach((t) => t.kill());
       };
     })();
@@ -99,9 +129,10 @@ export function FeaturedCompaniesShowcase({
   return (
     <section
       aria-label="Featured group companies"
-      className={cn(
-        "relative isolate overflow-hidden bg-background py-16 sm:py-20 lg:py-24"
-      )}
+      // NOTE: do NOT add overflow-hidden here — it would create a scroll
+      // container that breaks `position: sticky` on the preview frame.
+      // The decoration handles its own clipping locally.
+      className={cn("relative isolate bg-background py-16 sm:py-20 lg:py-24")}
     >
       <BackgroundDecor />
 
@@ -480,8 +511,15 @@ function MobileCompanyCard({
 // ---------------------------------------------------------------------------
 
 function BackgroundDecor() {
+  // `overflow: clip` (with hidden fallback) locally clips the decoration
+  // without creating a scroll container, so the sticky preview frame
+  // higher up the tree still anchors to the viewport.
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 -z-10"
+      style={{ overflow: "clip" }}
+    >
       <div
         className="absolute -left-40 top-20 h-[28rem] w-[28rem] rounded-full opacity-30 blur-3xl dark:opacity-25"
         style={{ background: "hsl(36 60% 55% / 0.35)" }}
