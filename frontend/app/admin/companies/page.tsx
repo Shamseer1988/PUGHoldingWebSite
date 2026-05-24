@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   Edit3,
+  Film,
   Loader2,
   Plus,
   Trash2,
@@ -14,6 +15,7 @@ import {
 import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
 import { ImageUpload } from "@/components/admin/image-upload";
+import { VideoUpload } from "@/components/admin/video-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +42,10 @@ interface CompanyFormState {
   long_description: string;
   homepage_highlight_description: string;
   homepage_highlight_points: string;
+  homepage_group_highlight: string;
+  homepage_group_stat_line: string;
+  homepage_group_video_url: string | null;
+  homepage_group_video_poster_url: string | null;
   branches: string;
   accent: string;
   initials: string;
@@ -64,6 +70,10 @@ const EMPTY_FORM: CompanyFormState = {
   long_description: "",
   homepage_highlight_description: "",
   homepage_highlight_points: "",
+  homepage_group_highlight: "",
+  homepage_group_stat_line: "",
+  homepage_group_video_url: null,
+  homepage_group_video_poster_url: null,
   branches: "",
   accent: "from-pug-green-500 to-pug-gold-500",
   initials: "",
@@ -120,6 +130,11 @@ export default function CompaniesAdminPage() {
       long_description: item.long_description ?? "",
       homepage_highlight_description: item.homepage_highlight_description ?? "",
       homepage_highlight_points: item.homepage_highlight_points ?? "",
+      homepage_group_highlight: item.homepage_group_highlight ?? "",
+      homepage_group_stat_line: item.homepage_group_stat_line ?? "",
+      homepage_group_video_url: item.homepage_group_video_url ?? null,
+      homepage_group_video_poster_url:
+        item.homepage_group_video_poster_url ?? null,
       branches: item.branches ?? "",
       accent: item.accent,
       initials: item.initials,
@@ -155,6 +170,12 @@ export default function CompaniesAdminPage() {
         // trim leading/trailing whitespace only.
         homepage_highlight_points:
           form.homepage_highlight_points.replace(/^\s+|\s+$/g, "") || null,
+        homepage_group_highlight: form.homepage_group_highlight.trim() || null,
+        homepage_group_stat_line:
+          form.homepage_group_stat_line.trim() || null,
+        homepage_group_video_url: form.homepage_group_video_url || null,
+        homepage_group_video_poster_url:
+          form.homepage_group_video_poster_url || null,
         branches: form.branches.trim() || null,
         accent: form.accent.trim(),
         initials: form.initials.trim(),
@@ -265,7 +286,18 @@ export default function CompaniesAdminPage() {
                         {item.initials}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{item.name}</p>
+                        <p className="flex items-center gap-1.5 truncate font-medium">
+                          <span className="truncate">{item.name}</span>
+                          {item.homepage_group_video_url && (
+                            <span
+                              title="Has a Group Companies homepage video"
+                              aria-label="Has a Group Companies homepage video"
+                              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-pug-gold-500/15 text-pug-gold-700 dark:text-pug-gold-300"
+                            >
+                              <Film className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </p>
                         <p className="truncate text-xs text-muted-foreground">
                           /{item.slug}
                         </p>
@@ -589,6 +621,70 @@ function CompanyDrawer({
                   Include in the scroll showcase
                 </label>
               </Field>
+
+              {/* Phase 18 follow-up — richer Group Companies card + video */}
+              <div className="space-y-3 border-t border-border/40 pt-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Group Companies card (homepage)
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Drives the left-side showcase card and the right-side
+                    media frame in the public &quot;A diversified
+                    portfolio&quot; section. Empty fields fall back to the
+                    existing image + long/short description so removing a
+                    value never breaks the section.
+                  </p>
+                </div>
+
+                <Field
+                  label="Group Companies highlight paragraph"
+                  hint="Short polished text (160–240 chars) shown inside the left card. Falls back to long → short description when empty."
+                >
+                  <Textarea
+                    rows={3}
+                    value={form.homepage_group_highlight}
+                    onChange={(e) =>
+                      set("homepage_group_highlight", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="Paris Food International is the group's flagship FMCG distribution arm, serving wholesale, retail, department store, and HORECA channels across the region."
+                  />
+                </Field>
+
+                <Field
+                  label="Stat line (below card)"
+                  hint="Single line of supporting stats, e.g. '500+ Brand Partners · 15,000+ SKUs'. Leave blank to hide."
+                >
+                  <Input
+                    value={form.homepage_group_stat_line}
+                    onChange={(e) =>
+                      set("homepage_group_stat_line", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="500+ Brand Partners · 15,000+ SKUs"
+                  />
+                </Field>
+
+                <VideoUpload
+                  label="Group Companies Video (Optional)"
+                  helperText="Upload a short 5–8 second looping video for the homepage Group Companies section. If uploaded, it will replace the image only inside the Group Companies media card on desktop. The image will still be used as preview, poster, and fallback."
+                  value={form.homepage_group_video_url}
+                  onChange={(url) => set("homepage_group_video_url", url)}
+                  disabled={saving}
+                />
+
+                {form.homepage_group_video_url && (
+                  <ImageUpload
+                    label="Video poster (optional)"
+                    value={form.homepage_group_video_poster_url}
+                    onChange={(url) =>
+                      set("homepage_group_video_poster_url", url)
+                    }
+                    disabled={saving}
+                  />
+                )}
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">

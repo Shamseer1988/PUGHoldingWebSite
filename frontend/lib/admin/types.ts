@@ -40,6 +40,11 @@ export interface Company {
   homepage_highlight_description: string | null;
   /** Newline-separated bullet points rendered as chips on the homepage panel. */
   homepage_highlight_points: string | null;
+  /** Phase 18 follow-up — richer Group Companies homepage card + video. */
+  homepage_group_highlight: string | null;
+  homepage_group_stat_line: string | null;
+  homepage_group_video_url: string | null;
+  homepage_group_video_poster_url: string | null;
   branches: string | null;
   accent: string;
   initials: string;
