@@ -81,6 +81,10 @@ class CompanyBase(BaseModel):
     email: Optional[str] = Field(default=None, max_length=255)
     address: Optional[str] = Field(default=None, max_length=500)
     website: Optional[str] = Field(default=None, max_length=255)
+    featured_image_url: Optional[str] = Field(default=None, max_length=500)
+    cta_label: Optional[str] = Field(default=None, max_length=120)
+    cta_url: Optional[str] = Field(default=None, max_length=500)
+    is_highlighted: bool = False
     display_order: int = 0
     is_active: bool = True
 
@@ -104,6 +108,10 @@ class CompanyUpdate(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     website: Optional[str] = None
+    featured_image_url: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+    is_highlighted: Optional[bool] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
     services: Optional[List[str]] = None
@@ -283,6 +291,14 @@ class SiteSettingRead(BaseModel):
     seo_default_description: Optional[str] = None
     seo_keywords: Optional[str] = None
 
+    featured_companies_enabled: bool = True
+    featured_companies_eyebrow: Optional[str] = None
+    featured_companies_title: Optional[str] = None
+    featured_companies_subtitle: Optional[str] = None
+    featured_companies_cta_label: Optional[str] = None
+    featured_companies_cta_url: Optional[str] = None
+    featured_companies_animation_enabled: bool = True
+
 
 class SiteSettingUpdate(BaseModel):
     site_name: Optional[str] = None
@@ -298,6 +314,46 @@ class SiteSettingUpdate(BaseModel):
     seo_default_title: Optional[str] = None
     seo_default_description: Optional[str] = None
     seo_keywords: Optional[str] = None
+
+    featured_companies_enabled: Optional[bool] = None
+    featured_companies_eyebrow: Optional[str] = None
+    featured_companies_title: Optional[str] = None
+    featured_companies_subtitle: Optional[str] = None
+    featured_companies_cta_label: Optional[str] = None
+    featured_companies_cta_url: Optional[str] = None
+    featured_companies_animation_enabled: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Featured-companies section (public)
+# ---------------------------------------------------------------------------
+
+
+class FeaturedSection(BaseModel):
+    enabled: bool
+    eyebrow: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+    animation_enabled: bool = True
+
+
+class FeaturedCompaniesSectionResponse(BaseModel):
+    section: FeaturedSection
+    companies: List[CompanyRead]
+
+
+# ---------------------------------------------------------------------------
+# Uploads
+# ---------------------------------------------------------------------------
+
+
+class UploadResponse(BaseModel):
+    url: str
+    filename: str
+    size: int
+    mime_type: str
 
 
 # ---------------------------------------------------------------------------

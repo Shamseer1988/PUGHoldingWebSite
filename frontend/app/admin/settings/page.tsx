@@ -34,6 +34,13 @@ const EMPTY_FORM: Form = {
   seo_default_title: "",
   seo_default_description: "",
   seo_keywords: "",
+  featured_companies_enabled: true,
+  featured_companies_eyebrow: "",
+  featured_companies_title: "",
+  featured_companies_subtitle: "",
+  featured_companies_cta_label: "",
+  featured_companies_cta_url: "",
+  featured_companies_animation_enabled: true,
 };
 
 export default function SiteSettingsAdminPage() {
@@ -167,6 +174,99 @@ export default function SiteSettingsAdminPage() {
               <Field label="Default title"><Input value={form.seo_default_title ?? ""} onChange={(e) => set("seo_default_title", e.target.value)} disabled={saving} /></Field>
               <Field label="Default description"><Textarea rows={3} value={form.seo_default_description ?? ""} onChange={(e) => set("seo_default_description", e.target.value)} disabled={saving} /></Field>
               <Field label="Keywords"><Input value={form.seo_keywords ?? ""} onChange={(e) => set("seo_keywords", e.target.value)} disabled={saving} placeholder="comma, separated" /></Field>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Homepage · Featured companies showcase</CardTitle>
+              <CardDescription>
+                Controls the dark pinned scroll section on the homepage. Companies are picked
+                by flipping the "Highlight on homepage" toggle inside each company.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Show the section">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.featured_companies_enabled}
+                      onChange={(e) =>
+                        set("featured_companies_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Render on the homepage
+                  </label>
+                </Field>
+                <Field label="Scroll animation">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.featured_companies_animation_enabled}
+                      onChange={(e) =>
+                        set("featured_companies_animation_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Enable GSAP scroll pin
+                  </label>
+                </Field>
+              </div>
+
+              <Field label="Eyebrow">
+                <Input
+                  value={form.featured_companies_eyebrow ?? ""}
+                  onChange={(e) => set("featured_companies_eyebrow", e.target.value)}
+                  disabled={saving}
+                  placeholder="Group companies"
+                />
+              </Field>
+
+              <Field label="Title">
+                <Input
+                  value={form.featured_companies_title ?? ""}
+                  onChange={(e) => set("featured_companies_title", e.target.value)}
+                  disabled={saving}
+                  placeholder="A diversified portfolio, one trusted group."
+                />
+              </Field>
+
+              <Field label="Subtitle">
+                <Textarea
+                  rows={2}
+                  value={form.featured_companies_subtitle ?? ""}
+                  onChange={(e) => set("featured_companies_subtitle", e.target.value)}
+                  disabled={saving}
+                  placeholder="Scroll to explore the businesses…"
+                />
+              </Field>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="CTA label">
+                  <Input
+                    value={form.featured_companies_cta_label ?? ""}
+                    onChange={(e) =>
+                      set("featured_companies_cta_label", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="View all companies"
+                  />
+                </Field>
+                <Field label="CTA URL">
+                  <Input
+                    value={form.featured_companies_cta_url ?? ""}
+                    onChange={(e) =>
+                      set("featured_companies_cta_url", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="/companies"
+                  />
+                </Field>
+              </div>
             </CardContent>
           </Card>
         </div>

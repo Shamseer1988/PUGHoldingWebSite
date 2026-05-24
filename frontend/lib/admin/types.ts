@@ -41,6 +41,10 @@ export interface Company {
   email: string | null;
   address: string | null;
   website: string | null;
+  featured_image_url: string | null;
+  cta_label: string | null;
+  cta_url: string | null;
+  is_highlighted: boolean;
   display_order: number;
   is_active: boolean;
   services: CompanyService[];
@@ -119,6 +123,22 @@ export interface SiteSettings {
   seo_default_title: string | null;
   seo_default_description: string | null;
   seo_keywords: string | null;
+
+  // Featured-companies section
+  featured_companies_enabled: boolean;
+  featured_companies_eyebrow: string | null;
+  featured_companies_title: string | null;
+  featured_companies_subtitle: string | null;
+  featured_companies_cta_label: string | null;
+  featured_companies_cta_url: string | null;
+  featured_companies_animation_enabled: boolean;
+}
+
+export interface UploadResponse {
+  url: string;
+  filename: string;
+  size: number;
+  mime_type: string;
 }
 
 export interface DashboardStat {

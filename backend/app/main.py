@@ -8,9 +8,11 @@ middleware that every later phase will rely on.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import api_router
@@ -52,6 +54,17 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router, prefix="/api/v1")
+
+    # Static mount for user-uploaded assets (CMS images, etc.).
+    # The directory is created on first upload, but ensure it exists
+    # at boot so the StaticFiles mount doesn't raise.
+    upload_root = Path(settings.upload_dir)
+    upload_root.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/api/v1/uploads",
+        StaticFiles(directory=str(upload_root)),
+        name="uploads",
+    )
 
     @app.get("/", tags=["Root"], summary="Root endpoint")
     def root() -> dict[str, str]:

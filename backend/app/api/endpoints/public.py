@@ -27,6 +27,8 @@ from app.schemas.cms import (
     CompanyRead,
     ContactMessageRead,
     ContactSubmit,
+    FeaturedCompaniesSectionResponse,
+    FeaturedSection,
     HeroSlideRead,
     LeadershipRead,
     NewsRead,
@@ -163,9 +165,85 @@ def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
     settings = db.get(SiteSetting, 1)
     if settings is None:
         # Return a transient default so the frontend always has values
-        # to render — admin's first save creates the row.
-        return SiteSetting(id=1, site_name="Paris United Group Holding")
+        # to render — admin's first save creates the row. Pass all
+        # NOT NULL columns explicitly because SQLAlchemy doesn't apply
+        # column defaults to uncommitted instances.
+        return SiteSetting(
+            id=1,
+            site_name="Paris United Group Holding",
+            featured_companies_enabled=True,
+            featured_companies_animation_enabled=True,
+        )
     return settings
+
+
+# ---------------------------------------------------------------------------
+# Featured-companies homepage section
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/featured-companies-section",
+    response_model=FeaturedCompaniesSectionResponse,
+)
+def get_featured_companies_section(
+    db: Session = Depends(get_db),
+) -> FeaturedCompaniesSectionResponse:
+    """Return the section settings + active highlighted companies.
+
+    Falls back gracefully when site_settings has no row yet, and when
+    no company is flagged ``is_highlighted`` (returns every active
+    company, ordered by display_order).
+    """
+    settings = db.get(SiteSetting, 1)
+
+    section = FeaturedSection(
+        enabled=(
+            settings.featured_companies_enabled if settings is not None else True
+        ),
+        eyebrow=(settings.featured_companies_eyebrow if settings else None)
+        or "Group companies",
+        title=(settings.featured_companies_title if settings else None)
+        or "A diversified portfolio, one trusted group.",
+        subtitle=(settings.featured_companies_subtitle if settings else None)
+        or "Scroll to explore the businesses powering Paris United Group across "
+        "retail, distribution, and services.",
+        cta_label=(settings.featured_companies_cta_label if settings else None)
+        or "View all companies",
+        cta_url=(settings.featured_companies_cta_url if settings else None)
+        or "/companies",
+        animation_enabled=(
+            settings.featured_companies_animation_enabled if settings else True
+        ),
+    )
+
+    # Highlighted + active first; if none are highlighted, fall back to
+    # every active company so the section still has content.
+    highlighted = (
+        db.execute(
+            select(Company)
+            .where(Company.is_active.is_(True), Company.is_highlighted.is_(True))
+            .order_by(Company.display_order, Company.created_at)
+        )
+        .scalars()
+        .all()
+    )
+    if not highlighted:
+        highlighted = (
+            db.execute(
+                select(Company)
+                .where(Company.is_active.is_(True))
+                .order_by(Company.display_order, Company.created_at)
+                .limit(6)
+            )
+            .scalars()
+            .all()
+        )
+
+    return FeaturedCompaniesSectionResponse(
+        section=section,
+        companies=[CompanyRead.model_validate(c) for c in highlighted],
+    )
 
 
 # ---------------------------------------------------------------------------

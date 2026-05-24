@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Briefcase, MessageSquare, Phone } from "lucide-react";
 
-import { CompanyCard } from "@/components/site/company-card";
+import { FeaturedCompaniesShowcase } from "@/components/site/featured-companies-showcase";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { JobCard } from "@/components/site/job-card";
 import { LeadershipCard } from "@/components/site/leadership-card";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/site/glass-card";
 import { getJobs } from "@/lib/dummy-data/jobs";
 import {
-  getCompanies,
+  getFeaturedCompaniesSection,
   getHeroSlides,
   getLeadership,
   getNews,
@@ -24,15 +24,14 @@ import {
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const [hero, companies, leadership, news, settings] = await Promise.all([
+  const [hero, featured, leadership, news, settings] = await Promise.all([
     getHeroSlides(),
-    getCompanies(),
+    getFeaturedCompaniesSection(),
     getLeadership(),
     getNews({ limit: 3 }),
     getSiteSettings(),
   ]);
 
-  const featuredCompanies = companies.slice(0, 6);
   const openJobs = getJobs(); // Phase 9 will wire jobs to the ATS API.
 
   const phone = settings.contact_phone ?? "+974 0000 0000";
@@ -60,27 +59,10 @@ export default async function HomePage() {
         <SectorCards />
       </Section>
 
-      {featuredCompanies.length > 0 && (
-        <Section
-          eyebrow="Group companies"
-          title="Featured companies"
-          description="Hover or tap a card to explore the company. Use the link below to see every business in the group."
-        >
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredCompanies.map((company) => (
-              <CompanyCard key={company.slug} company={company} />
-            ))}
-          </div>
-          <div className="mt-8 text-center">
-            <Button asChild variant="outline">
-              <Link href="/companies">
-                View all group companies
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </Section>
-      )}
+      <FeaturedCompaniesShowcase
+        section={featured.section}
+        companies={featured.companies}
+      />
 
       {leadership.length > 0 && (
         <Section

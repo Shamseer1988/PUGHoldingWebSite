@@ -6,15 +6,28 @@ who-did-what-when.
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context, require_website_admin
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.auth import SCOPE_WEBSITE, AuditLog, User
 from app.models.cms import (
@@ -46,8 +59,20 @@ from app.schemas.cms import (
     NewsletterSubscriberRead,
     SiteSettingRead,
     SiteSettingUpdate,
+    UploadResponse,
 )
 from app.services.audit_log import record_audit
+
+
+# Image upload constraints
+ALLOWED_IMAGE_MIME = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 router = APIRouter(
@@ -705,3 +730,79 @@ def list_audit_logs(
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Image uploads (CMS)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/uploads/image", response_model=UploadResponse, status_code=201)
+async def upload_image(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+    file: UploadFile = File(...),
+) -> UploadResponse:
+    """Accept a single image upload from the admin CMS.
+
+    Files are stored under ``<upload_dir>/cms/`` with a content-hash
+    filename so identical uploads dedupe naturally. Returns a public
+    URL the frontend can render.
+    """
+    ext = ALLOWED_IMAGE_MIME.get(file.content_type or "")
+    if ext is None:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type: {file.content_type}. "
+            f"Allowed: {', '.join(sorted(ALLOWED_IMAGE_MIME))}",
+        )
+
+    # Read and validate the size.
+    data = await file.read()
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({len(data)} bytes). Max {MAX_IMAGE_BYTES}.",
+        )
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty upload")
+
+    settings = get_settings()
+    base = Path(settings.upload_dir) / "cms"
+    base.mkdir(parents=True, exist_ok=True)
+
+    content_hash = hashlib.sha256(data).hexdigest()
+    filename = f"{content_hash[:16]}.{ext}"
+    target = base / filename
+
+    if not target.exists():
+        target.write_bytes(data)
+
+    # Public URL — served by the StaticFiles mount in app/main.py.
+    url = f"/api/v1/uploads/cms/{filename}"
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.upload.image",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="upload",
+        target_id=filename,
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "size": len(data),
+            "mime_type": file.content_type,
+            "original_name": file.filename,
+        },
+    )
+
+    return UploadResponse(
+        url=url,
+        filename=filename,
+        size=len(data),
+        mime_type=file.content_type or "",
+    )

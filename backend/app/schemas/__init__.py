@@ -15,6 +15,8 @@ from app.schemas.cms import (
     ContactReply,
     ContactSubmit,
     DashboardSummary,
+    FeaturedCompaniesSectionResponse,
+    FeaturedSection,
     HeroSlideCreate,
     HeroSlideRead,
     HeroSlideUpdate,
@@ -28,6 +30,7 @@ from app.schemas.cms import (
     NewsletterSubscriberRead,
     SiteSettingRead,
     SiteSettingUpdate,
+    UploadResponse,
 )
 from app.schemas.health import HealthResponse
 

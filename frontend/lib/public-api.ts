@@ -116,6 +116,13 @@ const FALLBACK_SETTINGS: SiteSettings = {
   seo_default_title: null,
   seo_default_description: null,
   seo_keywords: null,
+  featured_companies_enabled: true,
+  featured_companies_eyebrow: null,
+  featured_companies_title: null,
+  featured_companies_subtitle: null,
+  featured_companies_cta_label: null,
+  featured_companies_cta_url: null,
+  featured_companies_animation_enabled: true,
 };
 
 export async function getSiteSettings(): Promise<SiteSettings> {
@@ -123,6 +130,66 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     (await fetchPublic<SiteSettings>("/public/site-settings")) ??
     FALLBACK_SETTINGS
   );
+}
+
+// Featured-companies homepage section -----------------------------------
+
+export interface FeaturedSectionPayload {
+  enabled: boolean;
+  eyebrow: string | null;
+  title: string | null;
+  subtitle: string | null;
+  cta_label: string | null;
+  cta_url: string | null;
+  animation_enabled: boolean;
+}
+
+export interface FeaturedCompaniesSection {
+  section: FeaturedSectionPayload;
+  companies: Company[];
+}
+
+export async function getFeaturedCompaniesSection(): Promise<FeaturedCompaniesSection> {
+  const fallback: FeaturedCompaniesSection = {
+    section: {
+      enabled: true,
+      eyebrow: "Group companies",
+      title: "A diversified portfolio, one trusted group.",
+      subtitle:
+        "Scroll to explore the businesses powering Paris United Group across retail, distribution, and services.",
+      cta_label: "View all companies",
+      cta_url: "/companies",
+      animation_enabled: true,
+    },
+    companies: [],
+  };
+  return (
+    (await fetchPublic<FeaturedCompaniesSection>(
+      "/public/featured-companies-section"
+    )) ?? fallback
+  );
+}
+
+/**
+ * Resolve an asset URL coming from the backend.
+ *
+ * Uploads under `/api/v1/uploads/...` are served by the FastAPI host,
+ * not by Next.js — so we prefix with `env.apiBaseUrl`'s origin.
+ * External URLs (http://, https://) and Next.js public assets
+ * (anything else starting with `/`) pass through unchanged.
+ */
+export function resolveAssetUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/api/")) {
+    try {
+      const base = new URL(env.apiBaseUrl);
+      return `${base.origin}${url}`;
+    } catch {
+      return url;
+    }
+  }
+  return url;
 }
 
 // Convenience helpers used by detail pages for `generateStaticParams`.
