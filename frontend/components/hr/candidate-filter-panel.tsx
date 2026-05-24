@@ -328,7 +328,7 @@ function RangePair({
   onMaxChange: (next: number | "") => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 sm:gap-2">
       <Input
         type="number"
         step={step}
@@ -337,7 +337,7 @@ function RangePair({
           onMinChange(e.target.value === "" ? "" : Number(e.target.value))
         }
         placeholder="Min"
-        className="w-full"
+        className="min-w-0 w-full"
       />
       <span className="text-xs text-muted-foreground">to</span>
       <Input
@@ -348,7 +348,7 @@ function RangePair({
           onMaxChange(e.target.value === "" ? "" : Number(e.target.value))
         }
         placeholder="Max"
-        className="w-full"
+        className="min-w-0 w-full"
       />
     </div>
   );

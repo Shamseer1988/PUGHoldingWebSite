@@ -207,9 +207,9 @@ export default function HrDashboardPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Candidate</TableHead>
-                    <TableHead>Round</TableHead>
-                    <TableHead className="w-40">When</TableHead>
-                    <TableHead className="w-24">Mode</TableHead>
+                    <TableHead className="hidden sm:table-cell">Round</TableHead>
+                    <TableHead className="w-28 sm:w-40">When</TableHead>
+                    <TableHead className="hidden sm:table-cell w-24">Mode</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -222,12 +222,21 @@ export default function HrDashboardPage() {
                         <p className="text-xs text-muted-foreground">
                           {iv.job_title ?? "—"}
                         </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">
+                          {iv.round_name}
+                          {" · "}
+                          <span className="capitalize">
+                            {iv.mode.replace("_", " ")}
+                          </span>
+                        </p>
                       </TableCell>
-                      <TableCell>{iv.round_name}</TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="hidden sm:table-cell">
+                        {iv.round_name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs sm:text-sm">
                         {formatWhen(iv.scheduled_at)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <Badge variant="muted" className="capitalize">
                           {iv.mode.replace("_", " ")}
                         </Badge>

@@ -110,13 +110,18 @@ export default function HrCandidatesPage() {
             variant="outline"
             size="sm"
             onClick={() => setBulkOpen(true)}
+            aria-label="Bulk ZIP upload"
           >
             <Upload className="h-4 w-4" />
-            Bulk ZIP
+            <span className="hidden sm:inline">Bulk ZIP</span>
           </Button>
-          <Button size="sm" onClick={() => setSingleOpen(true)}>
+          <Button
+            size="sm"
+            onClick={() => setSingleOpen(true)}
+            aria-label="Upload a single CV"
+          >
             <Plus className="h-4 w-4" />
-            Upload CV
+            <span className="hidden sm:inline">Upload CV</span>
           </Button>
         </div>
       }
@@ -210,11 +215,11 @@ export default function HrCandidatesPage() {
                 <TableHead>Candidate</TableHead>
                 <TableHead className="hidden md:table-cell">Contact</TableHead>
                 <TableHead className="hidden lg:table-cell w-24">Exp.</TableHead>
-                <TableHead className="w-32">Status</TableHead>
-                <TableHead className="w-24">Score</TableHead>
+                <TableHead className="w-24 sm:w-32">Status</TableHead>
+                <TableHead className="w-16 sm:w-24">Score</TableHead>
                 <TableHead className="hidden md:table-cell w-32">Source</TableHead>
                 <TableHead className="hidden lg:table-cell w-36">Created</TableHead>
-                <TableHead className="w-24 text-right">CV</TableHead>
+                <TableHead className="w-16 sm:w-24 text-right">CV</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -325,9 +330,10 @@ function CandidateRow({
             onOpenDetail();
           }}
           className="px-2 text-xs"
+          aria-label="Open candidate detail"
         >
-          Open
-          <ExternalLink className="ml-1 h-3 w-3" />
+          <span className="hidden sm:inline">Open</span>
+          <ExternalLink className="h-3 w-3 sm:ml-1" />
         </Button>
       </TableCell>
     </TableRow>
