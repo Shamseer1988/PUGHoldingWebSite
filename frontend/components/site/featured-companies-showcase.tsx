@@ -432,13 +432,41 @@ function resolveHighlightPoints(company: Company): string[] {
   return company.services.slice(0, 3).map((s) => s.name);
 }
 
-/** Pulls the names used for the marquee. Prefers explicit highlight
- *  points (so admins can drive the strip), falls back to the company's
- *  services so the strip never sits empty when the admin hasn't curated
- *  a list yet. Returns at most 8 items — the marquee duplicates the
- *  list inline so 8 unique entries already produce a long, smooth
- *  loop without becoming visually noisy. */
-function resolveBrandStripItems(company: Company): string[] {
+/** Marquee row union — either a real uploaded logo image or a plain
+ *  text chip. The render path picks per-row so admins can have a mix
+ *  of images (uploaded brand logos) and text (services fallback). */
+type MarqueeItem =
+  | {
+      kind: "image";
+      key: string;
+      image_url: string;
+      name: string | null;
+      link_url: string | null;
+    }
+  | { kind: "text"; key: string; label: string };
+
+/** Pulls the rows displayed inside the marquee.
+ *
+ * Priority:
+ *   1. Uploaded brand logos from the Admin Company Setup (images).
+ *   2. Explicit highlight points + the company's services (text chips
+ *      — kept as a graceful fallback when no logos are uploaded yet).
+ *
+ * Caps at 8 rows — the marquee duplicates the list inline for the
+ * seamless loop, so 8 unique entries already produce a long, smooth
+ * track without becoming visually noisy. */
+function resolveMarqueeItems(company: Company): MarqueeItem[] {
+  const logos = company.brand_logos ?? [];
+  if (logos.length > 0) {
+    return logos.slice(0, 8).map((logo, i) => ({
+      kind: "image" as const,
+      key: `img-${logo.id ?? i}`,
+      image_url: resolveAssetUrl(logo.image_url) ?? logo.image_url,
+      name: logo.name ?? null,
+      link_url: logo.link_url ?? null,
+    }));
+  }
+
   const explicit = company.homepage_highlight_points?.trim();
   const fromExplicit = explicit
     ? explicit
@@ -447,33 +475,32 @@ function resolveBrandStripItems(company: Company): string[] {
         .filter(Boolean)
     : [];
   const fromServices = company.services.map((s) => s.name);
-  // Dedupe + cap. Order: explicit first, then services so admin
-  // overrides take precedence visually.
   const seen = new Set<string>();
-  const merged: string[] = [];
-  for (const item of [...fromExplicit, ...fromServices]) {
-    const key = item.toLowerCase();
+  const merged: MarqueeItem[] = [];
+  for (const label of [...fromExplicit, ...fromServices]) {
+    const key = label.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    merged.push(item);
+    merged.push({ kind: "text" as const, key: `txt-${key}`, label });
     if (merged.length >= 8) break;
   }
   return merged;
 }
 
 /** Eyebrow label switches based on what's actually rendered inside.
- *  The spec wants three modes:
+ *  Three modes:
  *    - "COMPANY HIGHLIGHT" — pure description card (default)
  *    - "GROUP BRANDS"       — description + sub-brand / service marquee
  *    - "TRUSTED PARTNERS"   — partner-only mode (no description)
- *  We pick the label deterministically from the rendered content so a
- *  single backend field can drive all three without an extra toggle. */
+ *
+ *  When the marquee is driven by uploaded brand logos we prefer
+ *  "Trusted Partners" / "Group Brands" labels accordingly. */
 function resolveHighlightEyebrow(opts: {
   description: string | null;
-  marquee: string[];
+  hasMarquee: boolean;
 }): string {
-  if (!opts.description && opts.marquee.length > 0) return "Trusted Partners";
-  if (opts.marquee.length > 0) return "Group Brands";
+  if (!opts.description && opts.hasMarquee) return "Trusted Partners";
+  if (opts.hasMarquee) return "Group Brands";
   return "Company Highlight";
 }
 
@@ -486,14 +513,15 @@ function CompanyHighlight({
 }) {
   const description = resolveHighlightDescription(company);
   const points = resolveHighlightPoints(company);
-  // Marquee draws from services / explicit points. Only render the
-  // strip when we have enough items to make scrolling meaningful (>=2);
-  // a single item would just sit static.
-  const marqueeItems = resolveBrandStripItems(company);
+  // Marquee prefers uploaded brand logos, falls back to text chips
+  // built from services / explicit points. Only render the strip when
+  // we have enough items to make scrolling meaningful (>=2); a single
+  // entry would just sit static.
+  const marqueeItems = resolveMarqueeItems(company);
   const showMarquee = marqueeItems.length >= 2;
   const eyebrow = resolveHighlightEyebrow({
     description,
-    marquee: showMarquee ? marqueeItems : [],
+    hasMarquee: showMarquee,
   });
   if (!description && points.length === 0 && !showMarquee) return null;
 
@@ -555,32 +583,80 @@ function CompanyHighlight({
 }
 
 
-/** Pure-CSS marquee of text "logos". The list is duplicated inline so
- *  the keyframe can translate `-50%` for a seamless loop. The track is
+/** Pure-CSS marquee that renders both image logos (preferred) and
+ *  text chips (fallback). The list is duplicated inline so the
+ *  keyframe can translate `-50%` for a seamless loop. The track is
  *  paused on hover; `prefers-reduced-motion` cancels the animation in
  *  globals.css so users who opt out see a static row instead. */
-function BrandLogoMarquee({ items }: { items: string[] }) {
-  // Render the list twice so translating the track by -50% lands the
-  // second copy in the exact position of the first — a seamless loop.
+function BrandLogoMarquee({ items }: { items: MarqueeItem[] }) {
+  // Image rows get a slightly taller chip so a 32px logo + padding
+  // has room. Reuses the same chip surface for text rows so the two
+  // can be mixed without visual mismatch.
   return (
     <div className="brand-marquee mt-5">
       <div className="brand-marquee__track" aria-hidden>
-        {[...items, ...items].map((label, i) => (
-          <span
-            key={`${label}-${i}`}
-            className="brand-marquee__chip"
-          >
-            {label}
-          </span>
+        {[...items, ...items].map((item, i) => (
+          <MarqueeChip key={`${item.key}-${i}`} item={item} />
         ))}
       </div>
       {/* SR-friendly list mirroring the visible marquee */}
       <ul className="sr-only">
-        {items.map((label) => (
-          <li key={label}>{label}</li>
+        {items.map((item) => (
+          <li key={item.key}>
+            {item.kind === "image"
+              ? item.name ?? "Brand logo"
+              : item.label}
+          </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+function MarqueeChip({ item }: { item: MarqueeItem }) {
+  if (item.kind === "text") {
+    return <span className="brand-marquee__chip">{item.label}</span>;
+  }
+
+  // Image row: fixed height so logos line up; width auto so wide
+  // logos don't squash. `object-contain` keeps the original aspect
+  // ratio. Image dims are intrinsic-loaded for layout reservation.
+  const inner = (
+    <>
+      <img
+        src={item.image_url}
+        alt={item.name ?? ""}
+        loading="lazy"
+        decoding="async"
+        className="brand-marquee__logo"
+        // Empty alt is intentional when no name is set so screen
+        // readers skip the duplicate (the SR list above already
+        // names the brand).
+      />
+      {item.name && <span className="sr-only">{item.name}</span>}
+    </>
+  );
+
+  if (item.link_url) {
+    return (
+      <a
+        href={item.link_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="brand-marquee__chip brand-marquee__chip--image"
+        title={item.name ?? undefined}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <span
+      className="brand-marquee__chip brand-marquee__chip--image"
+      title={item.name ?? undefined}
+    >
+      {inner}
+    </span>
   );
 }
 
