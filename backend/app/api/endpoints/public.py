@@ -46,7 +46,10 @@ from app.schemas.cms import (
 from app.schemas.hr_ats import (
     ApplicationSubmissionResponse,
     JobOpeningRead,
+    PublicAIAskRequest,
+    PublicAIAskResponse,
 )
+from app.ai.public_assistant import answer_question, log_query
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
@@ -702,4 +705,52 @@ async def submit_candidate_application(
             if result.application.job_opening is not None
             else None
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public "Ask PUG AI" assistant
+# ---------------------------------------------------------------------------
+
+
+@router.post("/ai-assistant/ask", response_model=PublicAIAskResponse)
+def ask_pug_ai(
+    payload: PublicAIAskRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PublicAIAskResponse:
+    """Public chat endpoint — answers using CMS-only context.
+
+    No auth; the client passes a `session_id` (any string up to 64 chars)
+    so multi-turn conversations from the same visitor can be grouped in
+    the usage log without requiring login.
+    """
+    history = [
+        {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
+        for m in (payload.history or [])
+        if isinstance(m, dict)
+    ]
+
+    result = answer_question(
+        db,
+        question=payload.question,
+        history=history,
+    )
+
+    ctx = get_request_context(request)
+    log_query(
+        db,
+        question=payload.question,
+        result=result,
+        session_id=payload.session_id,
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+    )
+
+    return PublicAIAskResponse(
+        answer=result.answer,
+        mode=result.mode,
+        was_fallback=result.was_fallback,
+        session_id=payload.session_id,
+        model_name=result.model_name,
     )

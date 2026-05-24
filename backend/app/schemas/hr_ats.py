@@ -433,6 +433,11 @@ class AISettingsRead(BaseModel):
     # is selected but credentials aren't actually in the environment.
     has_azure_api_key: bool = False
     effective_mode: Optional[str] = None
+    # Public "Ask PUG AI" toggles (Phase 17). Decoupled from the HR
+    # mode so admins can disable the public chat without touching the
+    # HR review flow.
+    public_enabled: bool = True
+    public_extra_system_prompt: Optional[str] = None
 
 
 class AISettingsUpdate(BaseModel):
@@ -447,6 +452,45 @@ class AISettingsUpdate(BaseModel):
     max_output_tokens: Optional[int] = Field(default=None, ge=64, le=8000)
     request_timeout_seconds: Optional[int] = Field(default=None, ge=5, le=300)
     extra_system_prompt: Optional[str] = None
+    public_enabled: Optional[bool] = None
+    public_extra_system_prompt: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Public AI assistant (Phase 17)
+# ---------------------------------------------------------------------------
+
+
+class PublicAIAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    session_id: Optional[str] = Field(default=None, max_length=64)
+    history: Optional[List[Dict[str, str]]] = Field(default=None, max_length=20)
+
+
+class PublicAIAskResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    answer: str
+    mode: str
+    was_fallback: bool = False
+    session_id: Optional[str] = None
+    model_name: Optional[str] = None
+
+
+class PublicAIQueryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    session_id: Optional[str] = None
+    question: str
+    answer: Optional[str] = None
+    mode: str
+    model_name: Optional[str] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    was_fallback: bool
+    ip_address: Optional[str] = None
+    created_at: datetime
 
 
 # ---------------------------------------------------------------------------

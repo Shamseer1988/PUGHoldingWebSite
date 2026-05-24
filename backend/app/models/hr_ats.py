@@ -743,3 +743,40 @@ class AISetting(Base, TimestampMixin):
     updated_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+
+    # Phase 17 — Public "Ask PUG AI" assistant. Decoupled from the HR
+    # `mode` above so admins can disable the public chat without
+    # touching the HR review flow. The same Azure deployment +
+    # temperature settings are shared (saves Azure billing complexity).
+    public_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    public_extra_system_prompt: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class PublicAIQuery(Base):
+    """A single Ask-PUG-AI exchange logged for audit + analytics."""
+
+    __tablename__ = "public_ai_queries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Client-generated UUID so multi-message conversations from the
+    # same user can be grouped without requiring login.
+    session_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[Optional[str]] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    model_name: Mapped[Optional[str]] = mapped_column(String(120))
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    was_fallback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    user_agent: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )

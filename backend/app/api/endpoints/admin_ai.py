@@ -9,13 +9,22 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from typing import List
+
+from fastapi.responses import JSONResponse
+from sqlalchemy import desc, select
+
 from app.ai.candidate_review import resolve_config
 from app.auth.dependencies import get_request_context, require_scope
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.auth import SCOPE_SYSTEM, User
-from app.models.hr_ats import AI_MODES, AISetting
-from app.schemas.hr_ats import AISettingsRead, AISettingsUpdate
+from app.models.hr_ats import AI_MODES, AISetting, PublicAIQuery
+from app.schemas.hr_ats import (
+    AISettingsRead,
+    AISettingsUpdate,
+    PublicAIQueryRead,
+)
 from app.services.audit_log import record_audit
 
 
@@ -53,6 +62,8 @@ def _to_read(setting: AISetting) -> AISettingsRead:
         updated_at=setting.updated_at,
         has_azure_api_key=bool(env.azure_openai_api_key),
         effective_mode=resolved.mode,
+        public_enabled=setting.public_enabled,
+        public_extra_system_prompt=setting.public_extra_system_prompt,
     )
 
 
@@ -103,3 +114,26 @@ def update_ai_settings(
     db.commit()
     db.refresh(setting)
     return _to_read(setting)
+
+
+# ---------------------------------------------------------------------------
+# Public AI usage log (Phase 17)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/public-logs", response_model=List[PublicAIQueryRead])
+def list_public_ai_logs(
+    db: Session = Depends(get_db),
+    limit: int = 50,
+) -> List[PublicAIQuery]:
+    """Recent Ask-PUG-AI exchanges, newest first."""
+    limit = max(1, min(limit, 200))
+    return (
+        db.execute(
+            select(PublicAIQuery)
+            .order_by(desc(PublicAIQuery.created_at))
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
