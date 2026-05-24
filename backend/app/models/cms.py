@@ -78,6 +78,16 @@ class Company(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     short_description: Mapped[Optional[str]] = mapped_column(String(500))
     long_description: Mapped[Optional[str]] = mapped_column(Text)
+    # Homepage Group Companies section overrides (phase-5 follow-up).
+    # Surface a short premium description on the homepage panel only —
+    # separate from `long_description` which still drives the company
+    # detail page. Both are optional; the homepage component falls back
+    # to long → short → hide.
+    homepage_highlight_description: Mapped[Optional[str]] = mapped_column(Text)
+    # Newline-separated bullet points rendered as chips below the
+    # homepage description. Mirrors how `home_brand_logos` stores its
+    # list — keeps the schema simple, no relation table needed.
+    homepage_highlight_points: Mapped[Optional[str]] = mapped_column(Text)
     branches: Mapped[Optional[str]] = mapped_column(String(255))
     accent: Mapped[str] = mapped_column(
         String(255),
