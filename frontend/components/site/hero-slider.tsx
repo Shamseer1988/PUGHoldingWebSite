@@ -253,7 +253,7 @@ export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
                 <Button
                   asChild
                   size="lg"
-                  className="group bg-white text-foreground shadow-[0_8px_30px_-12px_rgba(255,255,255,0.5)] transition-all hover:-translate-y-0.5 hover:bg-white/95 hover:shadow-[0_12px_40px_-12px_rgba(255,255,255,0.6)]"
+                  className="group bg-white text-pug-green-900 shadow-[0_8px_30px_-12px_rgba(255,255,255,0.5)] transition-all hover:-translate-y-0.5 hover:bg-white/95 hover:text-pug-green-950 hover:shadow-[0_12px_40px_-12px_rgba(255,255,255,0.6)] dark:text-pug-green-900 dark:hover:text-pug-green-950"
                 >
                   <Link href={slide.cta_href}>
                     {slide.cta_label}
