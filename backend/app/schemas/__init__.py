@@ -33,9 +33,19 @@ from app.schemas.cms import (
     UploadResponse,
 )
 from app.schemas.health import HealthResponse
+from app.schemas.hr_ats import (
+    JobOpeningCreate,
+    JobOpeningList,
+    JobOpeningRead,
+    JobOpeningUpdate,
+)
 
 __all__ = [
     "HealthResponse",
+    "JobOpeningCreate",
+    "JobOpeningList",
+    "JobOpeningRead",
+    "JobOpeningUpdate",
     "LoginRequest",
     "LoginResponse",
     "PermissionRead",

@@ -23,6 +23,7 @@ from app.models.cms import (
     NewsletterSubscriber,
     SiteSetting,
 )
+from app.models.hr_ats import JOB_STATUS_OPEN, JobOpening
 from app.schemas.cms import (
     CompanyRead,
     ContactMessageRead,
@@ -36,6 +37,7 @@ from app.schemas.cms import (
     NewsletterSubscriberRead,
     SiteSettingRead,
 )
+from app.schemas.hr_ats import JobOpeningRead
 from app.services.audit_log import record_audit
 
 
@@ -153,6 +155,63 @@ def get_published_news(slug: str, db: Session = Depends(get_db)) -> NewsItem:
     if item is None:
         raise HTTPException(status_code=404, detail="News item not found")
     return item
+
+
+# ---------------------------------------------------------------------------
+# Read: jobs (open only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs", response_model=List[JobOpeningRead])
+def list_open_jobs(
+    db: Session = Depends(get_db),
+    department: Optional[str] = None,
+    company: Optional[str] = None,
+    location: Optional[str] = None,
+    employment_type: Optional[str] = Query(
+        default=None, pattern=r"^(full_time|part_time|contract)$"
+    ),
+    q: Optional[str] = Query(default=None, max_length=200),
+) -> List[JobOpening]:
+    stmt = (
+        select(JobOpening)
+        .where(JobOpening.status == JOB_STATUS_OPEN)
+        .order_by(desc(JobOpening.posted_at), JobOpening.id)
+    )
+    if department:
+        stmt = stmt.where(JobOpening.department == department)
+    if company:
+        stmt = stmt.where(JobOpening.company == company)
+    if location:
+        stmt = stmt.where(JobOpening.location == location)
+    if employment_type:
+        stmt = stmt.where(JobOpening.employment_type == employment_type)
+    if q:
+        from sqlalchemy import func
+
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(
+            (func.lower(JobOpening.title).like(like))
+            | (func.lower(JobOpening.required_skills).like(like))
+            | (func.lower(JobOpening.preferred_skills).like(like))
+        )
+    return db.execute(stmt).scalars().all()
+
+
+@router.get("/jobs/{slug}", response_model=JobOpeningRead)
+def get_open_job(slug: str, db: Session = Depends(get_db)) -> JobOpening:
+    job = (
+        db.execute(
+            select(JobOpening).where(
+                JobOpening.slug == slug, JobOpening.status == JOB_STATUS_OPEN
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 # ---------------------------------------------------------------------------

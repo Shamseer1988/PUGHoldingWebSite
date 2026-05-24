@@ -132,6 +132,98 @@ export async function getSiteSettings(): Promise<SiteSettings> {
   );
 }
 
+// Job openings ------------------------------------------------------------
+
+export type JobStatus = "open" | "on_hold" | "closed";
+export type EmploymentType = "full_time" | "part_time" | "contract";
+
+export interface PublicJob {
+  id: number;
+  slug: string;
+  title: string;
+  department: string;
+  division: string | null;
+  company: string;
+  location: string;
+  employment_type: EmploymentType;
+  min_experience: number;
+  max_experience: number;
+  required_education: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  visa_requirement: string | null;
+  nationality_preference: string | null;
+  language_requirement: string | null;
+  notice_period_preference: string | null;
+  description: string | null;
+  responsibilities: string | null;
+  requirements: string | null;
+  required_skills: string | null;
+  preferred_skills: string | null;
+  status: JobStatus;
+  posted_at: string;
+  closed_at: string | null;
+  created_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicJobsQuery {
+  department?: string;
+  company?: string;
+  location?: string;
+  employment_type?: EmploymentType;
+  q?: string;
+}
+
+export async function getPublicJobs(
+  query?: PublicJobsQuery
+): Promise<PublicJob[]> {
+  const params = new URLSearchParams();
+  if (query?.department) params.set("department", query.department);
+  if (query?.company) params.set("company", query.company);
+  if (query?.location) params.set("location", query.location);
+  if (query?.employment_type)
+    params.set("employment_type", query.employment_type);
+  if (query?.q) params.set("q", query.q);
+  const search = params.toString() ? `?${params}` : "";
+  return (await fetchPublic<PublicJob[]>(`/public/jobs${search}`)) ?? [];
+}
+
+export async function getPublicJobBySlug(slug: string): Promise<PublicJob | null> {
+  return fetchPublic<PublicJob>(`/public/jobs/${encodeURIComponent(slug)}`);
+}
+
+export const EMPLOYMENT_TYPE_LABELS: Record<EmploymentType, string> = {
+  full_time: "Full-time",
+  part_time: "Part-time",
+  contract: "Contract",
+};
+
+/**
+ * Split a comma-separated skills string into a clean trimmed list.
+ * Empty entries are dropped. Returns [] for null/undefined input.
+ */
+export function splitSkills(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Split a newline-separated text block into a clean trimmed list.
+ * Used for `responsibilities` and `requirements` rendering.
+ */
+export function splitLines(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 // Featured-companies homepage section -----------------------------------
 
 export interface FeaturedSectionPayload {
