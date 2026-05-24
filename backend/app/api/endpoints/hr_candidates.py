@@ -32,6 +32,7 @@ from app.models.auth import User
 from app.models.hr_ats import (
     SOURCE_BULK_UPLOAD,
     SOURCE_MANUAL_UPLOAD,
+    AISetting,
     Candidate,
     CandidateExtractedData,
     CandidateJobApplication,
@@ -39,9 +40,12 @@ from app.models.hr_ats import (
     JobOpening,
 )
 from app.schemas.hr_ats import (
+    AIReviewGenerateResult,
     ApplicationSubmissionResponse,
     BulkUploadResult,
     BulkUploadSkip,
+    CandidateAIReviewPreview,
+    CandidateAIReviewRead,
     CandidateApplicationSummary,
     CandidateDocumentRead,
     CandidateExtractedDataRead,
@@ -53,6 +57,14 @@ from app.schemas.hr_ats import (
     CandidateScoreRead,
     CandidateUpdate,
     CvReparseResult,
+)
+from app.ai.candidate_review import (
+    AIConfigError,
+    AIDisabledError,
+    AIProviderError,
+    generate_review,
+    persist_review,
+    resolve_config,
 )
 from app.services.audit_log import record_audit
 from app.services.candidate_intake import (
@@ -86,6 +98,11 @@ def _serialize_application(app: CandidateJobApplication) -> CandidateApplication
     )
     if score is not None and app.score is not None and app.score.breakdown is not None:
         score.breakdown = CandidateScoreBreakdownRead.model_validate(app.score.breakdown)
+    ai_preview = (
+        CandidateAIReviewPreview.model_validate(app.ai_review)
+        if app.ai_review is not None
+        else None
+    )
     return CandidateApplicationSummary(
         id=app.id,
         status=app.status,
@@ -94,6 +111,7 @@ def _serialize_application(app: CandidateJobApplication) -> CandidateApplication
         applied_at=app.applied_at,
         source=app.source,
         score=score,
+        ai_review=ai_preview,
     )
 
 
@@ -836,3 +854,131 @@ def clear_application_score_override(
     db.commit()
     db.refresh(app.score)
     return _serialize_score(app.score)
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 — AI candidate review endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{candidate_id}/applications/{application_id}/ai-review",
+    response_model=CandidateAIReviewRead,
+)
+def get_application_ai_review(
+    candidate_id: int,
+    application_id: int,
+    db: Session = Depends(get_db),
+) -> CandidateAIReviewRead:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    if app.ai_review is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No AI review yet — run POST .../ai-review to generate one.",
+        )
+    return CandidateAIReviewRead.model_validate(app.ai_review)
+
+
+@router.post(
+    "/{candidate_id}/applications/{application_id}/ai-review",
+    response_model=AIReviewGenerateResult,
+)
+def generate_application_ai_review(
+    candidate_id: int,
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> AIReviewGenerateResult:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    setting = db.get(AISetting, 1)
+    config = resolve_config(setting)
+
+    try:
+        result = generate_review(
+            candidate=app.candidate,
+            application=app,
+            job=app.job_opening,
+            config=config,
+        )
+    except AIDisabledError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AIConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    review = persist_review(app, result)
+    db.flush()
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.ai_review.generate",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_ai_review",
+        target_id=str(review.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": candidate_id,
+            "application_id": application_id,
+            "mode": config.mode,
+            "model_name": result.model_name,
+            "recommendation": result.recommendation,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(review)
+    return AIReviewGenerateResult(
+        review=CandidateAIReviewRead.model_validate(review),
+        mode=config.mode,
+        model_name=result.model_name,
+    )
+
+
+@router.delete(
+    "/{candidate_id}/applications/{application_id}/ai-review",
+    status_code=204,
+)
+def delete_application_ai_review(
+    candidate_id: int,
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+):
+    from fastapi import Response
+
+    app = _get_application_or_404(db, candidate_id, application_id)
+    if app.ai_review is None:
+        return Response(status_code=204)
+
+    review_id = app.ai_review.id
+    db.delete(app.ai_review)
+    app.ai_review = None
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.ai_review.delete",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_ai_review",
+        target_id=str(review_id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": candidate_id,
+            "application_id": application_id,
+        },
+        commit=False,
+    )
+    db.commit()
+    return Response(status_code=204)

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Brain,
   Building2,
   ExternalLink,
   FileText,
@@ -65,6 +66,7 @@ const NAV: NavGroup[] = [
     label: "System",
     items: [
       { label: "Site settings", href: "/admin/settings", icon: Settings },
+      { label: "AI settings", href: "/admin/ai-settings", icon: Brain },
       { label: "Users & roles", href: "/admin/users", icon: Users, badge: "Soon" },
       { label: "Audit log", href: "/admin/audit", icon: History },
     ],

@@ -37,3 +37,8 @@ httpx==0.27.2
 # when either dependency is missing.
 pypdf==5.1.0
 python-docx==1.1.2
+
+# Phase 13 — Azure OpenAI client for the HR AI candidate review.
+# Mock mode works without an Azure deployment; live mode requires the
+# Azure-OpenAI endpoint + key set in .env.
+openai==1.54.0

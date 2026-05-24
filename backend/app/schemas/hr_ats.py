@@ -151,6 +151,18 @@ class CandidateScoreOverride(BaseModel):
     reason: str = Field(min_length=4, max_length=2000)
 
 
+class CandidateAIReviewPreview(BaseModel):
+    """Compact AI-review summary embedded in application listings."""
+
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    recommendation: Optional[str] = None
+    model_name: Optional[str] = None
+    generated_at: datetime
+    updated_at: Optional[datetime] = None
+
+
 class CandidateApplicationSummary(BaseModel):
     """Application row shown alongside the candidate (e.g. in lists)."""
 
@@ -163,6 +175,7 @@ class CandidateApplicationSummary(BaseModel):
     applied_at: datetime
     source: Optional[str] = None
     score: Optional[CandidateScoreRead] = None
+    ai_review: Optional[CandidateAIReviewPreview] = None
 
 
 class CandidateExtractedDataRead(BaseModel):
@@ -287,3 +300,79 @@ class BulkUploadResult(BaseModel):
     duplicate_applications_skipped: int
     skipped_files: List[BulkUploadSkip] = Field(default_factory=list)
     candidate_ids: List[int] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# AI candidate review (Phase 13)
+# ---------------------------------------------------------------------------
+
+
+AI_MODE_PATTERN = r"^(disabled|mock|live)$"
+
+
+class CandidateAIReviewRead(BaseModel):
+    """Advisory AI review for a candidate-application pair."""
+
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    application_id: int
+    summary: Optional[str] = None
+    strengths: Optional[str] = None
+    weaknesses: Optional[str] = None
+    missing_information: Optional[str] = None
+    risk_points: Optional[str] = None
+    suggested_questions: Optional[str] = None
+    recommendation: Optional[str] = None
+    model_name: Optional[str] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    generated_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class AIReviewGenerateResult(BaseModel):
+    """Return value of POST .../ai-review — wraps the persisted review."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    review: CandidateAIReviewRead
+    mode: str
+    model_name: Optional[str] = None
+
+
+class AISettingsRead(BaseModel):
+    """Runtime AI configuration (Phase 13)."""
+
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    mode: str
+    azure_endpoint: Optional[str] = None
+    azure_deployment: Optional[str] = None
+    azure_api_version: Optional[str] = None
+    model_name: Optional[str] = None
+    temperature: float
+    max_output_tokens: int
+    request_timeout_seconds: int
+    extra_system_prompt: Optional[str] = None
+    updated_by_id: Optional[int] = None
+    updated_at: Optional[datetime] = None
+    # Diagnostic flags so the UI can warn HR clearly when 'live' mode
+    # is selected but credentials aren't actually in the environment.
+    has_azure_api_key: bool = False
+    effective_mode: Optional[str] = None
+
+
+class AISettingsUpdate(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    mode: Optional[str] = Field(default=None, pattern=AI_MODE_PATTERN)
+    azure_endpoint: Optional[str] = Field(default=None, max_length=500)
+    azure_deployment: Optional[str] = Field(default=None, max_length=120)
+    azure_api_version: Optional[str] = Field(default=None, max_length=40)
+    model_name: Optional[str] = Field(default=None, max_length=120)
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    max_output_tokens: Optional[int] = Field(default=None, ge=64, le=8000)
+    request_timeout_seconds: Optional[int] = Field(default=None, ge=5, le=300)
+    extra_system_prompt: Optional[str] = None

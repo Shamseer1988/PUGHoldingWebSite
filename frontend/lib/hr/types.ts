@@ -140,6 +140,60 @@ export interface CandidateScore {
   updated_at: string | null;
 }
 
+export type AIRecommendation =
+  | "strong_fit"
+  | "possible_fit"
+  | "weak_fit"
+  | "needs_more_info";
+
+export interface CandidateAIReviewPreview {
+  id: number;
+  recommendation: AIRecommendation | string | null;
+  model_name: string | null;
+  generated_at: string;
+  updated_at: string | null;
+}
+
+export interface CandidateAIReview {
+  id: number;
+  application_id: number;
+  summary: string | null;
+  strengths: string | null;
+  weaknesses: string | null;
+  missing_information: string | null;
+  risk_points: string | null;
+  suggested_questions: string | null;
+  recommendation: AIRecommendation | string | null;
+  model_name: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  generated_at: string;
+  updated_at: string | null;
+}
+
+export interface AIReviewGenerateResult {
+  review: CandidateAIReview;
+  mode: "disabled" | "mock" | "live" | string;
+  model_name: string | null;
+}
+
+export interface AISettings {
+  id: number;
+  mode: "disabled" | "mock" | "live";
+  azure_endpoint: string | null;
+  azure_deployment: string | null;
+  azure_api_version: string | null;
+  model_name: string | null;
+  temperature: number;
+  max_output_tokens: number;
+  request_timeout_seconds: number;
+  extra_system_prompt: string | null;
+  updated_by_id: number | null;
+  updated_at: string | null;
+  has_azure_api_key: boolean;
+  effective_mode: string | null;
+}
+
 export interface CandidateApplicationSummary {
   id: number;
   status: string;
@@ -148,6 +202,7 @@ export interface CandidateApplicationSummary {
   applied_at: string;
   source: string | null;
   score: CandidateScore | null;
+  ai_review: CandidateAIReviewPreview | null;
 }
 
 export interface CandidateDocument {
