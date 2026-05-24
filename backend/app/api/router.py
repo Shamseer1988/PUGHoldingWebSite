@@ -11,6 +11,7 @@ from app.api.endpoints import (
     hr_auth,
     hr_candidates,
     hr_dashboard,
+    hr_interviews,
     hr_jobs,
     public,
 )
@@ -25,3 +26,4 @@ api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)
 api_router.include_router(hr_jobs.router)
 api_router.include_router(hr_candidates.router)
+api_router.include_router(hr_interviews.router)

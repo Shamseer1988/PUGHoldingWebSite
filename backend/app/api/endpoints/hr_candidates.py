@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import (
@@ -24,7 +25,7 @@ from fastapi import (
     UploadFile,
 )
 from sqlalchemy import desc, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.auth.dependencies import get_request_context, require_hr_admin
 from app.core.database import get_db
@@ -59,8 +60,13 @@ from app.schemas.hr_ats import (
     CandidateStatusHistoryRead,
     CandidateUpdate,
     CvReparseResult,
+    InterviewSummaryForApplication,
     StatusOption,
     StatusPipelineMeta,
+)
+from app.services.interview_management import (
+    INTERVIEW_MODE_LABELS,
+    INTERVIEW_STATUS_LABELS,
 )
 from app.services.candidate_workflow import (
     InvalidTransitionError,
@@ -108,7 +114,10 @@ from app.services.cv_storage import (
 
 
 def _serialize_application(
-    app: CandidateJobApplication, *, actor: Optional[User] = None
+    app: CandidateJobApplication,
+    *,
+    actor: Optional[User] = None,
+    interviewer_lookup: Optional[dict[int, User]] = None,
 ) -> CandidateApplicationSummary:
     score = (
         CandidateScoreRead.model_validate(app.score) if app.score is not None else None
@@ -124,6 +133,45 @@ def _serialize_application(
     next_statuses = sorted(
         allowed_next_statuses(app.status, actor_is_superuser=is_superuser)
     )
+
+    interviewer_lookup = interviewer_lookup or {}
+    interview_rows: List[InterviewSummaryForApplication] = []
+    next_interview_at: Optional[object] = None
+    now = datetime.now(timezone.utc)
+    for iv in app.interviews:
+        interviewer = interviewer_lookup.get(iv.interviewer_id) if iv.interviewer_id else None
+        interview_rows.append(
+            InterviewSummaryForApplication(
+                id=iv.id,
+                round_name=iv.round_name,
+                round_number=iv.round_number,
+                scheduled_at=iv.scheduled_at,
+                duration_minutes=iv.duration_minutes,
+                mode=iv.mode,
+                mode_label=INTERVIEW_MODE_LABELS.get(iv.mode, iv.mode),
+                location_or_link=iv.location_or_link,
+                status=iv.status,
+                status_label=INTERVIEW_STATUS_LABELS.get(iv.status, iv.status),
+                interviewer_id=iv.interviewer_id,
+                interviewer_email=interviewer.email if interviewer else None,
+                interviewer_name=interviewer.full_name if interviewer else None,
+                has_feedback=bool(iv.feedback),
+                latest_recommendation=(
+                    iv.feedback[0].recommendation if iv.feedback else None
+                ),
+            )
+        )
+        if iv.status == "scheduled":
+            scheduled_at_aware = (
+                iv.scheduled_at
+                if iv.scheduled_at.tzinfo is not None
+                else iv.scheduled_at.replace(tzinfo=timezone.utc)
+            )
+            if scheduled_at_aware >= now and (
+                next_interview_at is None or scheduled_at_aware < next_interview_at
+            ):
+                next_interview_at = scheduled_at_aware
+
     return CandidateApplicationSummary(
         id=app.id,
         status=app.status,
@@ -137,13 +185,35 @@ def _serialize_application(
         ai_review=ai_preview,
         history_count=len(app.status_history) if app.status_history is not None else 0,
         allowed_next_statuses=next_statuses,
+        interviews=interview_rows,
+        interview_count=len(interview_rows),
+        next_interview_at=next_interview_at,
     )
 
 
 def _serialize_candidate(
     candidate: Candidate, *, actor: Optional[User] = None
 ) -> CandidateRead:
-    applications = [_serialize_application(a, actor=actor) for a in candidate.applications]
+    interviewer_ids = {
+        iv.interviewer_id
+        for app in candidate.applications
+        for iv in app.interviews
+        if iv.interviewer_id
+    }
+    interviewer_lookup: dict[int, User] = {}
+    if interviewer_ids:
+        rows = (
+            object_session(candidate)
+            .execute(select(User).where(User.id.in_(interviewer_ids)))
+            .scalars()
+            .all()
+        )
+        interviewer_lookup = {u.id: u for u in rows}
+
+    applications = [
+        _serialize_application(a, actor=actor, interviewer_lookup=interviewer_lookup)
+        for a in candidate.applications
+    ]
     scores = [a.score.total for a in candidate.applications if a.score is not None]
     return CandidateRead(
         id=candidate.id,
