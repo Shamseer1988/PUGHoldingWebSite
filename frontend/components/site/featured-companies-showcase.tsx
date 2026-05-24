@@ -3,13 +3,12 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building2 } from "lucide-react";
 
 import type { Company } from "@/lib/admin/types";
 import type { FeaturedSectionPayload } from "@/lib/public-api";
 import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
-
 
 interface FeaturedCompaniesShowcaseProps {
   section: FeaturedSectionPayload;
@@ -19,37 +18,34 @@ interface FeaturedCompaniesShowcaseProps {
 /**
  * Premium scroll-driven "Featured Companies" section.
  *
- * Desktop (>= 1024px, motion allowed):
- *   - The whole section pins for ~100vh per company while the
- *     stacked preview cards on the right scrub from one to the next.
- *   - The left column updates the small "01 / 04" pager + a
- *     subtle progress bar.
+ * Desktop (≥ 1024px, motion allowed, admin toggle on):
+ *   - Left column: one tall panel per company; user scrolls through.
+ *   - Right column: a single preview frame that is `position: sticky`
+ *     so it stays pinned next to whichever panel is currently centered.
+ *   - GSAP ScrollTrigger detects which panel is "active" (center of
+ *     viewport) and React swaps the visible image via opacity+scale.
  *
- * Mobile / reduced-motion:
- *   - Cards stack vertically below the heading. No pinning, no
- *     scroll-bound animation. Each card fades+lifts in once.
+ * Mobile / reduced-motion / animation disabled:
+ *   - Single-column stack. Each panel shows its own inline image
+ *     below the text. No pinning, no sticky, no GSAP.
+ *
+ * Colours are theme-aware — base surface uses CSS variables so it
+ * looks right in both light and dark mode.
  */
 export function FeaturedCompaniesShowcase({
   section,
   companies,
 }: FeaturedCompaniesShowcaseProps) {
-  const rootRef = React.useRef<HTMLDivElement | null>(null);
-  const cardRefs = React.useRef<(HTMLDivElement | null)[]>([]);
-  const progressRef = React.useRef<HTMLDivElement | null>(null);
-  const counterRef = React.useRef<HTMLSpanElement | null>(null);
-
+  const panelRefs = React.useRef<(HTMLElement | null)[]>([]);
   const [activeIndex, setActiveIndex] = React.useState(0);
 
-  const total = companies.length;
-
   // ---------------------------------------------------------------------
-  // GSAP ScrollTrigger — desktop only, respects prefers-reduced-motion,
-  // and only runs when the admin enabled the animation toggle.
+  // GSAP ScrollTrigger — per-panel active-state detection.
   // ---------------------------------------------------------------------
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     if (!section.animation_enabled) return;
-    if (companies.length === 0) return;
+    if (companies.length <= 1) return;
 
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
@@ -66,95 +62,29 @@ export function FeaturedCompaniesShowcase({
       if (cancelled) return;
       gsap.registerPlugin(ScrollTrigger);
 
-      const root = rootRef.current;
-      const cards = cardRefs.current.filter(
-        (c): c is HTMLDivElement => Boolean(c)
-      );
-      const progress = progressRef.current;
-      const counter = counterRef.current;
-      if (!root || cards.length === 0) return;
-
-      const ctx = gsap.context(() => {
-        // Start with only the first card visible.
-        gsap.set(cards, {
-          opacity: 0,
-          y: 60,
-          scale: 0.97,
-          pointerEvents: "none",
-        });
-        gsap.set(cards[0], {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          pointerEvents: "auto",
-        });
-
-        // ~100vh of scroll per card after the first.
-        const distance = 100 * (cards.length - 1);
-
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: root,
-            start: "top top",
-            end: () => `+=${distance * window.innerHeight / 100}`,
-            pin: true,
-            scrub: 0.6,
-            anticipatePin: 1,
-            onUpdate: (self) => {
-              const idx = Math.min(
-                cards.length - 1,
-                Math.round(self.progress * (cards.length - 1))
-              );
-              setActiveIndex(idx);
-              if (counter) {
-                counter.textContent = String(idx + 1).padStart(2, "0");
-              }
-              if (progress) {
-                progress.style.transform = `scaleX(${self.progress})`;
-              }
+      const triggers: InstanceType<typeof ScrollTrigger>[] = [];
+      panelRefs.current.forEach((panel, i) => {
+        if (!panel) return;
+        triggers.push(
+          ScrollTrigger.create({
+            trigger: panel,
+            start: "top center",
+            end: "bottom center",
+            onToggle: ({ isActive }) => {
+              if (isActive) setActiveIndex(i);
             },
-          },
-        });
+          })
+        );
+      });
 
-        for (let i = 1; i < cards.length; i++) {
-          const prev = cards[i - 1];
-          const next = cards[i];
-          tl
-            .to(
-              prev,
-              {
-                opacity: 0,
-                y: -60,
-                scale: 0.96,
-                pointerEvents: "none",
-                duration: 1,
-                ease: "power2.inOut",
-              },
-              i - 1
-            )
-            .fromTo(
-              next,
-              { opacity: 0, y: 80, scale: 0.97, pointerEvents: "none" },
-              {
-                opacity: 1,
-                y: 0,
-                scale: 1,
-                pointerEvents: "auto",
-                duration: 1,
-                ease: "power2.out",
-              },
-              i - 1 + 0.1
-            );
-        }
-      }, root);
-
-      // Recompute pin distances once images settle.
+      // Recompute once images settle so the trigger windows match
+      // the final layout.
       const refresh = () => ScrollTrigger.refresh();
       window.addEventListener("load", refresh);
 
       cleanup = () => {
         window.removeEventListener("load", refresh);
-        ctx.revert();
+        triggers.forEach((t) => t.kill());
       };
     })();
 
@@ -168,257 +98,407 @@ export function FeaturedCompaniesShowcase({
 
   return (
     <section
-      ref={rootRef}
       aria-label="Featured group companies"
       className={cn(
-        "relative isolate overflow-hidden",
-        // Dark luxury background that picks up the brand greens with a
-        // warm gold radial glow.
-        "bg-gradient-to-b from-pug-green-900 via-pug-green-800 to-[hsl(145_60%_6%)]",
-        "text-white"
+        "relative isolate overflow-hidden bg-background py-16 sm:py-20 lg:py-24"
       )}
     >
       <BackgroundDecor />
 
-      {/* The pinned viewport: 100vh tall when ScrollTrigger pins it. */}
-      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-16 sm:px-6 lg:flex-row lg:items-center lg:gap-12 lg:px-8 lg:py-0">
-        {/* Left column — sticky text + pager */}
-        <div className="relative lg:w-[44%] lg:py-24">
-          <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-white/80 backdrop-blur">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Section header */}
+        <header className="mx-auto max-w-3xl text-center">
+          <span className="inline-flex items-center rounded-full border border-border/60 bg-background/60 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground backdrop-blur">
             {section.eyebrow ?? "Group companies"}
           </span>
-          <h2 className="mt-5 text-balance text-3xl font-semibold leading-[1.1] tracking-tight sm:text-4xl lg:text-5xl">
-            {section.title ?? "A diversified portfolio."}
+          <h2 className="mt-5 text-balance text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
+            {section.title ?? "A diversified portfolio, one trusted group."}
           </h2>
           {section.subtitle && (
-            <p className="mt-4 max-w-xl text-pretty text-base text-white/80 sm:text-lg">
+            <p className="mt-4 text-pretty text-base text-muted-foreground sm:text-lg">
               {section.subtitle}
             </p>
           )}
+        </header>
 
-          {section.cta_url && (
+        {/* Desktop split — left panels scroll, right preview sticks */}
+        <div className="mt-12 hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-14 xl:gap-20">
+          {/* Left: scrolling panels */}
+          <div>
+            {companies.map((company, i) => (
+              <CompanyPanel
+                key={company.id}
+                ref={(el) => {
+                  panelRefs.current[i] = el;
+                }}
+                company={company}
+                index={i}
+                total={companies.length}
+                isActive={i === activeIndex}
+              />
+            ))}
+          </div>
+
+          {/* Right: sticky preview */}
+          <div className="relative">
+            <div className="sticky top-24 h-[calc(100vh-8rem)] min-h-[520px]">
+              <PreviewFrame>
+                {companies.map((company, i) => (
+                  <PreviewImage
+                    key={company.id}
+                    company={company}
+                    isActive={i === activeIndex}
+                  />
+                ))}
+              </PreviewFrame>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile / reduced-motion: simple stacked cards */}
+        <div className="mt-10 space-y-6 lg:hidden">
+          {companies.map((company, i) => (
+            <MobileCompanyCard
+              key={company.id}
+              company={company}
+              index={i}
+              total={companies.length}
+            />
+          ))}
+        </div>
+
+        {section.cta_url && (
+          <div className="mt-12 flex justify-center lg:mt-16">
             <Link
               href={section.cta_url}
               className={cn(
-                "mt-7 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold",
-                "bg-white text-pug-green-900 transition-transform hover:scale-[1.02]",
-                "shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
+                "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-transform hover:scale-[1.02]",
+                "bg-primary text-primary-foreground shadow-sm"
               )}
             >
               {section.cta_label ?? "View all companies"}
               <ArrowRight className="h-4 w-4" />
             </Link>
-          )}
-
-          {/* Pager + progress bar (visible on desktop). */}
-          <div className="mt-10 hidden items-center gap-4 lg:flex">
-            <span className="font-mono text-sm tabular-nums text-white/90">
-              <span ref={counterRef}>01</span>
-              <span className="mx-1.5 text-white/40">/</span>
-              <span>{String(total).padStart(2, "0")}</span>
-            </span>
-            <div className="h-px flex-1 max-w-[180px] overflow-hidden bg-white/15">
-              <div
-                ref={progressRef}
-                className="h-full origin-left bg-gradient-to-r from-pug-gold-400 to-pug-gold-200"
-                style={{ transform: "scaleX(0)" }}
-                aria-hidden
-              />
-            </div>
           </div>
-
-          {/* Compact pager dots (visible on mobile too). */}
-          <ul className="mt-8 flex flex-wrap gap-1.5 lg:hidden">
-            {companies.map((_, i) => (
-              <li
-                key={i}
-                className={cn(
-                  "h-1.5 rounded-full transition-all",
-                  i === activeIndex
-                    ? "w-8 bg-pug-gold-400"
-                    : "w-1.5 bg-white/30"
-                )}
-              />
-            ))}
-          </ul>
-        </div>
-
-        {/* Right column — preview frame with the stacked cards */}
-        <div className="relative mt-10 flex-1 lg:mt-0">
-          <PreviewFrame>
-            {/* Desktop / motion-on: cards stacked, GSAP animates them. */}
-            <div className="relative hidden h-full lg:block">
-              {companies.map((company, i) => (
-                <div
-                  key={company.id}
-                  ref={(el) => {
-                    cardRefs.current[i] = el;
-                  }}
-                  className="absolute inset-0"
-                  aria-hidden={i !== activeIndex}
-                >
-                  <CompanyCard company={company} />
-                </div>
-              ))}
-            </div>
-
-            {/* Mobile / reduced motion: simple stack, no overlay positioning. */}
-            <div className="space-y-4 lg:hidden">
-              {companies.map((company) => (
-                <CompanyCard key={company.id} company={company} compact />
-              ))}
-            </div>
-          </PreviewFrame>
-        </div>
+        )}
       </div>
     </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Subcomponents
+// Left-panel: one full-height block per company
 // ---------------------------------------------------------------------------
 
-function BackgroundDecor() {
+const CompanyPanel = React.forwardRef<
+  HTMLElement,
+  {
+    company: Company;
+    index: number;
+    total: number;
+    isActive: boolean;
+  }
+>(function CompanyPanel({ company, index, total, isActive }, ref) {
+  const ctaHref =
+    company.cta_url ?? company.website ?? `/companies/${company.slug}`;
+  const ctaLabel = company.cta_label ?? "Explore the brand";
+  const external = company.cta_url?.startsWith("http") ?? false;
+
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-      <div
-        className="absolute -left-32 top-1/4 h-96 w-96 rounded-full opacity-30 blur-3xl"
-        style={{ background: "hsl(36 60% 50% / 0.45)" }}
-      />
-      <div
-        className="absolute right-[-10%] bottom-[-10%] h-[28rem] w-[28rem] rounded-full opacity-25 blur-3xl"
-        style={{ background: "hsl(145 70% 30% / 0.5)" }}
-      />
-      <div
-        className="absolute inset-0 opacity-[0.04]"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.6) 1px, transparent 0)",
-          backgroundSize: "32px 32px",
-        }}
-      />
-    </div>
+    <article
+      ref={ref}
+      className={cn(
+        "flex min-h-[78vh] flex-col justify-center border-t border-border/40 py-12 first:border-t-0 lg:min-h-screen lg:py-16",
+        "transition-opacity duration-500",
+        isActive ? "opacity-100" : "opacity-55"
+      )}
+      aria-current={isActive ? "true" : undefined}
+    >
+      <div className="flex items-center gap-3 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        <span className="font-mono text-foreground/80">
+          {String(index + 1).padStart(2, "0")}
+          <span className="mx-1.5 text-muted-foreground/60">/</span>
+          {String(total).padStart(2, "0")}
+        </span>
+        <span aria-hidden className="h-px flex-1 bg-border" />
+        <span className="capitalize">{company.category}</span>
+      </div>
+
+      <div className="mt-6 flex items-center gap-3">
+        <span
+          className={cn(
+            "inline-flex h-10 w-10 items-center justify-center rounded-lg text-sm font-bold text-white shadow-md",
+            "bg-gradient-to-br",
+            company.accent || "from-pug-green-600 to-pug-gold-500"
+          )}
+          aria-hidden
+        >
+          {company.initials}
+        </span>
+        {company.branches && (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Building2 className="h-3.5 w-3.5" />
+            {company.branches}
+          </span>
+        )}
+      </div>
+
+      <h3 className="mt-4 text-balance text-3xl font-semibold leading-tight tracking-tight sm:text-4xl lg:text-5xl">
+        <span
+          className={cn(
+            "bg-gradient-to-r bg-clip-text",
+            isActive
+              ? "text-transparent from-pug-green-700 to-pug-gold-600 dark:from-pug-gold-200 dark:to-pug-green-300"
+              : "text-foreground"
+          )}
+        >
+          {company.name}
+        </span>
+      </h3>
+
+      {company.short_description && (
+        <p className="mt-4 max-w-xl text-pretty text-base text-muted-foreground sm:text-lg">
+          {company.short_description}
+        </p>
+      )}
+
+      {company.services.length > 0 && (
+        <ul className="mt-5 flex flex-wrap gap-1.5">
+          {company.services.slice(0, 4).map((service) => (
+            <li
+              key={service.id}
+              className="rounded-full border border-border/60 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur"
+            >
+              {service.name}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-7">
+        <Link
+          href={ctaHref}
+          {...(external
+            ? { target: "_blank", rel: "noopener noreferrer" }
+            : {})}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+            isActive
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "border border-border/60 bg-background/60 text-foreground hover:bg-muted"
+          )}
+        >
+          {ctaLabel}
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+    </article>
   );
-}
+});
+
+// ---------------------------------------------------------------------------
+// Sticky preview frame on the right
+// ---------------------------------------------------------------------------
 
 function PreviewFrame({ children }: { children: React.ReactNode }) {
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-3 backdrop-blur-xl",
-        "shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]",
-        // Frame height matches the pinned viewport on desktop, with
-        // an aspect ratio fallback on mobile.
-        "min-h-[420px] sm:min-h-[480px] lg:h-[72vh] lg:min-h-[520px]"
+        "relative h-full overflow-hidden rounded-3xl border border-border/60 bg-card p-3",
+        "shadow-[0_30px_80px_-30px_rgba(0,0,0,0.25)] dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]"
       )}
     >
-      {/* fake browser chrome dots */}
+      {/* Browser chrome dots */}
       <div className="flex items-center gap-1.5 px-2 py-1.5">
-        <span className="h-2 w-2 rounded-full bg-white/30" />
-        <span className="h-2 w-2 rounded-full bg-white/20" />
-        <span className="h-2 w-2 rounded-full bg-white/15" />
+        <span className="h-2 w-2 rounded-full bg-foreground/15" />
+        <span className="h-2 w-2 rounded-full bg-foreground/10" />
+        <span className="h-2 w-2 rounded-full bg-foreground/[0.07]" />
       </div>
-      <div className="relative h-[calc(100%-1.75rem)] overflow-hidden rounded-2xl bg-pug-green-900/40">
+      <div className="relative h-[calc(100%-1.75rem)] overflow-hidden rounded-2xl bg-muted/40">
         {children}
       </div>
     </div>
   );
 }
 
-function CompanyCard({
+function PreviewImage({
   company,
-  compact = false,
+  isActive,
 }: {
   company: Company;
-  compact?: boolean;
+  isActive: boolean;
 }) {
-  const featuredImage = resolveAssetUrl(company.featured_image_url);
-  const ctaHref =
-    company.cta_url ?? company.website ?? `/companies/${company.slug}`;
-  const ctaLabel = company.cta_label ?? "Explore the brand";
+  const featured = resolveAssetUrl(company.featured_image_url);
 
   return (
-    <article
+    <div
       className={cn(
-        "group relative h-full overflow-hidden rounded-2xl",
-        compact && "min-h-[280px]"
+        "absolute inset-0 transition-all duration-500 ease-out",
+        isActive
+          ? "opacity-100 scale-100 pointer-events-auto"
+          : "opacity-0 scale-[0.97] pointer-events-none"
       )}
+      aria-hidden={!isActive}
     >
-      {/* Backdrop: real image if uploaded, else the brand accent gradient */}
-      {featuredImage ? (
+      {featured ? (
         <Image
-          src={featuredImage}
+          src={featured}
           alt=""
           fill
-          sizes="(max-width: 1024px) 100vw, 700px"
+          sizes="(max-width: 1024px) 100vw, 720px"
           className="object-cover"
           unoptimized
-          priority={false}
+          priority={isActive}
         />
       ) : (
         <div
           aria-hidden
           className={cn(
             "absolute inset-0 bg-gradient-to-br",
-            company.accent || "from-pug-green-700 to-pug-gold-500"
+            company.accent || "from-pug-green-600 to-pug-gold-500"
           )}
         />
       )}
 
-      {/* Gradient overlay for legibility */}
+      {/* Bottom gradient overlay for legibility */}
       <div
         aria-hidden
-        className="absolute inset-0 bg-gradient-to-t from-pug-green-900/95 via-pug-green-900/60 to-pug-green-900/10"
+        className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 via-black/30 to-transparent"
       />
 
-      {/* Content */}
-      <div className="relative flex h-full flex-col justify-end p-6 sm:p-8">
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "inline-flex h-10 w-10 items-center justify-center rounded-lg text-sm font-bold text-white shadow-md",
-              "bg-gradient-to-br",
-              company.accent || "from-pug-green-700 to-pug-gold-500"
-            )}
-            aria-hidden
-          >
-            {company.initials}
-          </span>
-          <span className="text-xs font-medium uppercase tracking-[0.18em] text-white/70">
-            {company.category}
-          </span>
-        </div>
-
-        <h3 className="mt-4 text-balance text-2xl font-semibold leading-tight tracking-tight text-white sm:text-3xl">
+      {/* Caption bar */}
+      <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
+        <span className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] backdrop-blur">
+          {company.category}
+        </span>
+        <h4 className="mt-2 text-xl font-semibold leading-tight tracking-tight sm:text-2xl">
           {company.name}
-        </h3>
-
+        </h4>
         {company.short_description && (
-          <p className="mt-2 max-w-xl text-pretty text-sm text-white/80 sm:text-base">
+          <p className="mt-1 line-clamp-2 max-w-xl text-sm text-white/85">
             {company.short_description}
           </p>
         )}
+      </div>
+    </div>
+  );
+}
 
-        <div className="mt-5 flex flex-wrap items-center gap-3">
+// ---------------------------------------------------------------------------
+// Mobile card (one per company, image inline)
+// ---------------------------------------------------------------------------
+
+function MobileCompanyCard({
+  company,
+  index,
+  total,
+}: {
+  company: Company;
+  index: number;
+  total: number;
+}) {
+  const featured = resolveAssetUrl(company.featured_image_url);
+  const ctaHref =
+    company.cta_url ?? company.website ?? `/companies/${company.slug}`;
+  const ctaLabel = company.cta_label ?? "Explore";
+  const external = company.cta_url?.startsWith("http") ?? false;
+
+  return (
+    <article className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+      <div className="relative aspect-[5/3] w-full overflow-hidden">
+        {featured ? (
+          <Image
+            src={featured}
+            alt=""
+            fill
+            sizes="100vw"
+            className="object-cover"
+            unoptimized
+          />
+        ) : (
+          <div
+            aria-hidden
+            className={cn(
+              "absolute inset-0 bg-gradient-to-br",
+              company.accent || "from-pug-green-600 to-pug-gold-500"
+            )}
+          />
+        )}
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"
+        />
+        <div className="absolute inset-x-0 bottom-0 p-4 text-white">
+          <span className="font-mono text-xs text-white/80">
+            {String(index + 1).padStart(2, "0")}
+            <span className="mx-1.5 text-white/40">/</span>
+            {String(total).padStart(2, "0")}
+          </span>
+          <h3 className="mt-1 text-lg font-semibold leading-tight">
+            {company.name}
+          </h3>
+        </div>
+      </div>
+
+      <div className="p-5">
+        {company.short_description && (
+          <p className="text-sm text-muted-foreground">
+            {company.short_description}
+          </p>
+        )}
+        {company.services.length > 0 && (
+          <ul className="mt-3 flex flex-wrap gap-1.5">
+            {company.services.slice(0, 3).map((service) => (
+              <li
+                key={service.id}
+                className="rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+              >
+                {service.name}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4">
           <Link
             href={ctaHref}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold",
-              "bg-white text-pug-green-900 transition-transform hover:scale-[1.02]"
-            )}
-            {...(company.cta_url?.startsWith("http")
+            {...(external
               ? { target: "_blank", rel: "noopener noreferrer" }
               : {})}
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
           >
             {ctaLabel}
             <ArrowUpRight className="h-3.5 w-3.5" />
           </Link>
-          {company.branches && (
-            <span className="text-xs text-white/70">{company.branches}</span>
-          )}
         </div>
       </div>
     </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Decorative background (theme-aware)
+// ---------------------------------------------------------------------------
+
+function BackgroundDecor() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+      <div
+        className="absolute -left-40 top-20 h-[28rem] w-[28rem] rounded-full opacity-30 blur-3xl dark:opacity-25"
+        style={{ background: "hsl(36 60% 55% / 0.35)" }}
+      />
+      <div
+        className="absolute right-[-12rem] bottom-10 h-[32rem] w-[32rem] rounded-full opacity-25 blur-3xl dark:opacity-20"
+        style={{ background: "hsl(145 60% 35% / 0.45)" }}
+      />
+      <div
+        className="absolute inset-0 opacity-[0.025] dark:opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)",
+          backgroundSize: "32px 32px",
+          color: "var(--tw-prose-body, currentColor)",
+        }}
+      />
+    </div>
   );
 }
