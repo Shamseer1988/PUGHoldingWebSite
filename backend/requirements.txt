@@ -42,3 +42,8 @@ python-docx==1.1.2
 # Mock mode works without an Azure deployment; live mode requires the
 # Azure-OpenAI endpoint + key set in .env.
 openai==1.54.0
+
+# Phase 16 — HR reports / exports. CSV uses the stdlib; Excel via
+# openpyxl, PDF via reportlab.
+openpyxl==3.1.5
+reportlab==4.2.5

@@ -94,6 +94,7 @@ from app.services.candidate_intake import (
     ingest_candidate_application,
     reparse_candidate_cv,
 )
+from app.services.candidate_search import CandidateFilters, search_candidates
 from app.services.candidate_scoring import (
     TOTAL_MAX,
     apply_manual_override,
@@ -286,68 +287,58 @@ def list_candidates(
     db: Session = Depends(get_db),
     include_archived: bool = Query(default=False),
     q: Optional[str] = Query(default=None, max_length=200),
+    nationality: Optional[str] = Query(default=None, max_length=120),
+    location: Optional[str] = Query(default=None, max_length=255),
+    experience_min: Optional[float] = Query(default=None, ge=0, le=70),
+    experience_max: Optional[float] = Query(default=None, ge=0, le=70),
+    salary_min: Optional[int] = Query(default=None, ge=0),
+    salary_max: Optional[int] = Query(default=None, ge=0),
+    visa: Optional[str] = Query(default=None, max_length=120),
+    notice_period: Optional[str] = Query(default=None, max_length=120),
+    education: Optional[str] = Query(default=None, max_length=120),
+    language: Optional[str] = Query(default=None, max_length=80),
+    skill: Optional[str] = Query(default=None, max_length=120),
+    job_slug: Optional[str] = Query(default=None, max_length=200),
+    department: Optional[str] = Query(default=None, max_length=120),
+    status: Optional[str] = Query(default=None, max_length=40),
+    score_min: Optional[int] = Query(default=None, ge=0, le=100),
+    score_max: Optional[int] = Query(default=None, ge=0, le=100),
+    uploaded_from: Optional[datetime] = Query(default=None),
+    uploaded_to: Optional[datetime] = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
 ) -> List[CandidateListItem]:
-    stmt = select(Candidate).order_by(desc(Candidate.created_at), desc(Candidate.id))
-    if not include_archived:
-        stmt = stmt.where(Candidate.is_archived.is_(False))
-    if q:
-        like = f"%{q.lower()}%"
-        stmt = stmt.where(
-            (func.lower(Candidate.full_name).like(like))
-            | (func.lower(Candidate.email).like(like))
-            | (Candidate.mobile.like(f"%{q}%"))
-        )
-    candidates = db.execute(stmt).scalars().all()
+    """Advanced server-side search.
 
-    # Compute the top score per candidate in a single query so we don't
-    # do N+1 lookups.
-    cand_ids = [c.id for c in candidates]
-    top_score_by_candidate: dict[int, int] = {}
-    latest_status_by_candidate: dict[int, str] = {}
-    if cand_ids:
-        rows = (
-            db.execute(
-                select(
-                    CandidateJobApplication.candidate_id,
-                    func.max(CandidateScore.total),
-                )
-                .join(CandidateScore, CandidateScore.application_id == CandidateJobApplication.id)
-                .where(CandidateJobApplication.candidate_id.in_(cand_ids))
-                .group_by(CandidateJobApplication.candidate_id)
-            )
-            .all()
-        )
-        top_score_by_candidate = {cid: total for cid, total in rows}
-
-        # Latest status = the application with the newest applied_at.
-        # Dialect-agnostic: pull (candidate_id, applied_at, status) and
-        # bucket in Python.
-        app_rows = (
-            db.execute(
-                select(
-                    CandidateJobApplication.candidate_id,
-                    CandidateJobApplication.applied_at,
-                    CandidateJobApplication.status,
-                ).where(CandidateJobApplication.candidate_id.in_(cand_ids))
-            )
-            .all()
-        )
-        latest_applied: dict[int, object] = {}
-        for cid_row, applied_at, status_row in app_rows:
-            if (
-                cid_row not in latest_applied
-                or applied_at > latest_applied[cid_row]
-            ):
-                latest_applied[cid_row] = applied_at
-                latest_status_by_candidate[cid_row] = status_row
-
+    Accepts every Phase-16 filter; falls back to the previous behaviour
+    when no extra params are supplied (only `q` + `include_archived`).
+    """
+    filters = CandidateFilters(
+        q=q,
+        include_archived=include_archived,
+        nationality=nationality,
+        location=location,
+        experience_min=experience_min,
+        experience_max=experience_max,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        visa=visa,
+        notice_period=notice_period,
+        education=education,
+        language=language,
+        skill=skill,
+        job_slug=job_slug,
+        department=department,
+        status=status,
+        score_min=score_min,
+        score_max=score_max,
+        uploaded_from=uploaded_from,
+        uploaded_to=uploaded_to,
+        limit=limit,
+    )
+    rows = search_candidates(db, filters)
     return [
-        _serialize_list_item(
-            c,
-            top_score_by_candidate.get(c.id),
-            latest_status_by_candidate.get(c.id),
-        )
-        for c in candidates
+        _serialize_list_item(r.candidate, r.top_score, r.latest_status)
+        for r in rows
     ]
 
 
