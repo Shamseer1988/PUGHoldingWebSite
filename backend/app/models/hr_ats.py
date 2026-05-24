@@ -420,7 +420,10 @@ class CandidateJobApplication(Base, TimestampMixin):
         lazy="selectin",
     )
     ai_review: Mapped[Optional["CandidateAIReview"]] = relationship(
-        back_populates="application", uselist=False, cascade="all, delete-orphan"
+        back_populates="application",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
     status_history: Mapped[List["CandidateStatusHistory"]] = relationship(
         back_populates="application",
@@ -683,3 +686,57 @@ class OfferTracking(Base, TimestampMixin):
     )
 
     application: Mapped[CandidateJobApplication] = relationship(back_populates="offer")
+
+
+# ---------------------------------------------------------------------------
+# AI settings (Phase 13 — single row, id=1)
+# ---------------------------------------------------------------------------
+
+
+# Mode values: "disabled" → never call AI; "mock" → return deterministic
+# synthetic review (great for dev/CI/no-key); "live" → call Azure OpenAI.
+AI_MODE_DISABLED = "disabled"
+AI_MODE_MOCK = "mock"
+AI_MODE_LIVE = "live"
+AI_MODES = (AI_MODE_DISABLED, AI_MODE_MOCK, AI_MODE_LIVE)
+
+
+class AISetting(Base, TimestampMixin):
+    """Runtime-tunable AI settings.
+
+    The .env-supplied Azure credentials still bootstrap the application,
+    but a system-scope admin can flip the mode, swap the deployment, or
+    tune the model parameters at runtime without a redeploy. The Azure
+    API key always stays in the .env — never in the database.
+    """
+
+    __tablename__ = "hr_ai_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=AI_MODE_DISABLED,
+        server_default=AI_MODE_DISABLED,
+    )
+    azure_endpoint: Mapped[Optional[str]] = mapped_column(String(500))
+    azure_deployment: Mapped[Optional[str]] = mapped_column(String(120))
+    azure_api_version: Mapped[Optional[str]] = mapped_column(String(40))
+    # Free-form model name written to the audit record / displayed in the
+    # UI. For Azure this is usually the deployment name; we keep it
+    # separate so it stays human-readable even when deployments change.
+    model_name: Mapped[Optional[str]] = mapped_column(String(120))
+    temperature: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.2, server_default="0.2"
+    )
+    max_output_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=900, server_default="900"
+    )
+    request_timeout_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=45, server_default="45"
+    )
+    # Extra system-prompt context: company values, locale notes, etc.
+    extra_system_prompt: Mapped[Optional[str]] = mapped_column(Text)
+    updated_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )

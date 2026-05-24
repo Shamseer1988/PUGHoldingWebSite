@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 
+import { CandidateAIReviewPanel } from "@/components/hr/candidate-ai-review-panel";
 import { CandidateScorePanel } from "@/components/hr/candidate-score-panel";
 import { ScoreBadge } from "@/components/hr/score-badge";
 import { Badge } from "@/components/ui/badge";
@@ -523,6 +524,13 @@ export function CandidateDetailDrawer({
 
               {/* --- Scoring --- */}
               <CandidateScorePanel
+                candidateId={candidate.id}
+                applications={candidate.applications}
+                onChanged={() => void load(candidate.id)}
+              />
+
+              {/* --- AI review --- */}
+              <CandidateAIReviewPanel
                 candidateId={candidate.id}
                 applications={candidate.applications}
                 onChanged={() => void load(candidate.id)}
