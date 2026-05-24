@@ -7,6 +7,7 @@ import { ArrowRight, ChevronDown, Pause, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { HeroSlide } from "@/lib/admin/types";
+import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 interface HeroSliderProps {
@@ -28,6 +29,8 @@ export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
 
   if (slides.length === 0) return null;
   const slide = slides[Math.min(index, slides.length - 1)];
+  const videoUrl = resolveAssetUrl(slide.background_video_url);
+  const imageUrl = resolveAssetUrl(slide.background_image_url);
 
   return (
     <section
@@ -35,21 +38,54 @@ export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
       aria-label="Featured stories"
       className="relative isolate overflow-hidden"
     >
-      {/* Animated gradient backdrop */}
+      {/* Background layer: video > image > gradient */}
       <AnimatePresence mode="wait">
         <motion.div
-          key={slide.id}
+          key={`bg-${slide.id}`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.8 }}
           aria-hidden
-          className={cn(
-            "absolute inset-0 -z-10 bg-gradient-to-br",
-            slide.gradient
+          className="absolute inset-0 -z-10"
+        >
+          {videoUrl ? (
+            <video
+              key={videoUrl}
+              src={videoUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+              poster={imageUrl ?? undefined}
+              className="h-full w-full object-cover"
+            />
+          ) : imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div
+              className={cn(
+                "h-full w-full bg-gradient-to-br",
+                slide.gradient
+              )}
+            />
           )}
-        />
+        </motion.div>
       </AnimatePresence>
+
+      {/* Dim overlay so text stays legible over imagery */}
+      {(videoUrl || imageUrl) && (
+        <div
+          aria-hidden
+          className="absolute inset-0 -z-10 bg-gradient-to-br from-pug-green-900/70 via-pug-green-800/55 to-pug-gold-700/45"
+        />
+      )}
       <div
         aria-hidden
         className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.18),transparent_60%)]"

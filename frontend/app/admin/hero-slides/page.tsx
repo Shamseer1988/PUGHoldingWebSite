@@ -5,6 +5,7 @@ import { CheckCircle2, Edit3, Loader2, Plus, Sparkles, Trash2, X } from "lucide-
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
+import { ImageUpload } from "@/components/admin/image-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,8 @@ interface SlideForm {
   cta_href: string;
   secondary_cta_label: string;
   secondary_cta_href: string;
+  background_image_url: string;
+  background_video_url: string;
   gradient: string;
   display_order: number;
   is_active: boolean;
@@ -43,6 +46,8 @@ const EMPTY: SlideForm = {
   cta_href: "",
   secondary_cta_label: "",
   secondary_cta_href: "",
+  background_image_url: "",
+  background_video_url: "",
   gradient: "from-pug-green-700 via-pug-green-500 to-pug-gold-500",
   display_order: 0,
   is_active: true,
@@ -85,6 +90,8 @@ export default function HeroSlidesAdminPage() {
       cta_href: item.cta_href ?? "",
       secondary_cta_label: item.secondary_cta_label ?? "",
       secondary_cta_href: item.secondary_cta_href ?? "",
+      background_image_url: item.background_image_url ?? "",
+      background_video_url: item.background_video_url ?? "",
       gradient: item.gradient,
       display_order: item.display_order,
       is_active: item.is_active,
@@ -105,6 +112,8 @@ export default function HeroSlidesAdminPage() {
         cta_href: form.cta_href.trim() || null,
         secondary_cta_label: form.secondary_cta_label.trim() || null,
         secondary_cta_href: form.secondary_cta_href.trim() || null,
+        background_image_url: form.background_image_url.trim() || null,
+        background_video_url: form.background_video_url.trim() || null,
         title: form.title.trim(),
         gradient: form.gradient.trim(),
         display_order: Number(form.display_order) || 0,
@@ -255,7 +264,22 @@ function SlideDrawer({ open, title, form, onChange, onClose, onSave, saving }: {
               <Labeled label="Secondary CTA label"><Input value={form.secondary_cta_label} onChange={(e) => set("secondary_cta_label", e.target.value)} disabled={saving} /></Labeled>
               <Labeled label="Secondary CTA URL"><Input value={form.secondary_cta_href} onChange={(e) => set("secondary_cta_href", e.target.value)} disabled={saving} /></Labeled>
             </div>
-            <Labeled label="Gradient" hint="Tailwind from-… via-… to-… classes">
+            <div className="space-y-1.5">
+              <Label>Background image</Label>
+              <ImageUpload
+                value={form.background_image_url}
+                onChange={(url) => set("background_image_url", url ?? "")}
+                disabled={saving}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Used as the slide background when no video is set, and as the
+                poster frame while a video loads.
+              </p>
+            </div>
+            <Labeled label="Background video URL" hint="MP4/WebM. When set, the video plays full-bleed behind the text (autoplay, muted, loops).">
+              <Input value={form.background_video_url} onChange={(e) => set("background_video_url", e.target.value)} disabled={saving} placeholder="/video/home/paris_group_banner.mp4" />
+            </Labeled>
+            <Labeled label="Gradient" hint="Fallback Tailwind from-… via-… to-… classes when no media is set.">
               <Input value={form.gradient} onChange={(e) => set("gradient", e.target.value)} disabled={saving} />
             </Labeled>
             <div className="grid gap-3 sm:grid-cols-2">

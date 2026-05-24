@@ -20,6 +20,8 @@ class HeroSlideBase(BaseModel):
     cta_href: Optional[str] = Field(default=None, max_length=255)
     secondary_cta_label: Optional[str] = Field(default=None, max_length=120)
     secondary_cta_href: Optional[str] = Field(default=None, max_length=255)
+    background_image_url: Optional[str] = Field(default=None, max_length=500)
+    background_video_url: Optional[str] = Field(default=None, max_length=500)
     gradient: str = Field(
         default="from-pug-green-700 via-pug-green-500 to-pug-gold-500",
         max_length=255,
@@ -40,6 +42,8 @@ class HeroSlideUpdate(BaseModel):
     cta_href: Optional[str] = None
     secondary_cta_label: Optional[str] = None
     secondary_cta_href: Optional[str] = None
+    background_image_url: Optional[str] = None
+    background_video_url: Optional[str] = None
     gradient: Optional[str] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
@@ -141,6 +145,7 @@ class LeadershipBase(BaseModel):
         default="from-pug-green-600 to-pug-gold-500", max_length=255
     )
     initials: str = Field(min_length=1, max_length=8)
+    photo_url: Optional[str] = Field(default=None, max_length=500)
     signature: Optional[str] = None
     display_order: int = 0
     is_active: bool = True
@@ -158,6 +163,7 @@ class LeadershipUpdate(BaseModel):
     full_message: Optional[str] = None
     accent: Optional[str] = None
     initials: Optional[str] = None
+    photo_url: Optional[str] = None
     signature: Optional[str] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
@@ -186,6 +192,7 @@ class NewsBase(BaseModel):
     cover: str = Field(
         default="from-pug-green-600 to-pug-gold-500", max_length=255
     )
+    cover_image_url: Optional[str] = Field(default=None, max_length=500)
     published_at: Optional[datetime] = None
     is_featured: bool = False
     is_published: bool = True
@@ -205,6 +212,7 @@ class NewsUpdate(BaseModel):
     )
     author: Optional[str] = None
     cover: Optional[str] = None
+    cover_image_url: Optional[str] = None
     published_at: Optional[datetime] = None
     is_featured: Optional[bool] = None
     is_published: Optional[bool] = None
@@ -299,6 +307,29 @@ class SiteSettingRead(BaseModel):
     featured_companies_cta_url: Optional[str] = None
     featured_companies_animation_enabled: bool = True
 
+    # Page banners
+    about_banner_image_url: Optional[str] = None
+    about_banner_video_url: Optional[str] = None
+    careers_banner_image_url: Optional[str] = None
+    careers_banner_mobile_url: Optional[str] = None
+    contact_banner_image_url: Optional[str] = None
+    contact_banner_mobile_url: Optional[str] = None
+    news_banner_image_url: Optional[str] = None
+    news_banner_mobile_url: Optional[str] = None
+
+    # Homepage extras
+    home_about_image_url: Optional[str] = None
+    home_about_title: Optional[str] = None
+    home_about_body: Optional[str] = None
+    home_founder_image_url: Optional[str] = None
+    home_founder_name: Optional[str] = None
+    home_founder_role: Optional[str] = None
+    home_founder_message: Optional[str] = None
+
+    # Trusted brands
+    home_brand_logos: Optional[str] = None
+    home_brand_strip_title: Optional[str] = None
+
 
 class SiteSettingUpdate(BaseModel):
     site_name: Optional[str] = None
@@ -322,6 +353,26 @@ class SiteSettingUpdate(BaseModel):
     featured_companies_cta_label: Optional[str] = None
     featured_companies_cta_url: Optional[str] = None
     featured_companies_animation_enabled: Optional[bool] = None
+
+    about_banner_image_url: Optional[str] = None
+    about_banner_video_url: Optional[str] = None
+    careers_banner_image_url: Optional[str] = None
+    careers_banner_mobile_url: Optional[str] = None
+    contact_banner_image_url: Optional[str] = None
+    contact_banner_mobile_url: Optional[str] = None
+    news_banner_image_url: Optional[str] = None
+    news_banner_mobile_url: Optional[str] = None
+
+    home_about_image_url: Optional[str] = None
+    home_about_title: Optional[str] = None
+    home_about_body: Optional[str] = None
+    home_founder_image_url: Optional[str] = None
+    home_founder_name: Optional[str] = None
+    home_founder_role: Optional[str] = None
+    home_founder_message: Optional[str] = None
+
+    home_brand_logos: Optional[str] = None
+    home_brand_strip_title: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,8 @@ HERO_SLIDES = [
         cta_href="/companies",
         secondary_cta_label="Contact us",
         secondary_cta_href="/contact",
+        background_video_url="/video/home/paris_group_banner.mp4",
+        background_image_url="/images/home/home_banner.jpg",
         gradient="from-pug-green-800 via-pug-green-600 to-pug-gold-500",
         display_order=1,
         is_active=True,
@@ -57,6 +59,7 @@ HERO_SLIDES = [
         cta_href="/companies",
         secondary_cta_label="Latest news",
         secondary_cta_href="/news",
+        background_image_url="/images/home/offers/home_journey.jpg",
         gradient="from-pug-gold-700 via-pug-gold-500 to-pug-green-500",
         display_order=2,
         is_active=True,
@@ -72,6 +75,7 @@ HERO_SLIDES = [
         cta_href="/careers",
         secondary_cta_label="About us",
         secondary_cta_href="/about",
+        background_image_url="/images/home/career/career_banner.jpg",
         gradient="from-pug-green-600 via-pug-green-500 to-pug-gold-600",
         display_order=3,
         is_active=True,
@@ -88,6 +92,7 @@ COMPANIES = [
         "long_description": "Paris Food International is the group's flagship FMCG distribution arm…",
         "accent": "from-pug-green-500 to-pug-gold-500",
         "initials": "PF",
+        "featured_image_url": "/images/home/services/service_02.jpg",
         "services": ["FMCG wholesale", "Department store supply", "HORECA supply"],
     },
     {
@@ -139,6 +144,7 @@ COMPANIES = [
         "branches": "4 branches in Qatar · 1 branch in KSA",
         "accent": "from-pug-gold-500 to-pug-gold-700",
         "initials": "PH",
+        "featured_image_url": "/images/home/services/service_01.jpg",
         "services": ["Grocery", "Fresh food", "Household", "Electronics"],
     },
     {
@@ -181,6 +187,7 @@ COMPANIES = [
         "long_description": "YellowTech Garage offers full-service light vehicle maintenance.",
         "accent": "from-pug-gold-500 to-pug-gold-700",
         "initials": "YG",
+        "featured_image_url": "/images/home/services/service_03.jpg",
         "services": ["Vehicle maintenance", "Diagnostics", "Body work"],
     },
     {
@@ -211,6 +218,7 @@ COMPANIES = [
         "long_description": "Greentech Real Estate Broker advises buyers, sellers, and tenants.",
         "accent": "from-pug-green-500 to-pug-green-700",
         "initials": "GR",
+        "featured_image_url": "/images/home/services/service_04.jpg",
         "services": ["Property sales", "Leasing", "Investment advisory"],
     },
     {
@@ -221,6 +229,7 @@ COMPANIES = [
         "long_description": "Core Engineering and Construction delivers turnkey construction projects.",
         "accent": "from-pug-gold-600 to-pug-gold-800",
         "initials": "CE",
+        "featured_image_url": "/images/home/services/service_05.jpg",
         "services": ["Construction", "Fit-outs", "Engineering services"],
     },
 ]
@@ -235,6 +244,7 @@ LEADERSHIP = [
         "full_message": "When we founded Paris United Group, we set out to build a company that families could rely on.",
         "accent": "from-pug-green-600 to-pug-gold-500",
         "initials": "AH",
+        "photo_url": "/images/ourcompany/ceo_img.png",
         "signature": "Mr. A. Al Hassan",
         "display_order": 1,
     },
@@ -246,6 +256,7 @@ LEADERSHIP = [
         "full_message": "Running a diversified group means making thoughtful decisions every single day.",
         "accent": "from-pug-green-700 to-pug-gold-500",
         "initials": "KR",
+        "photo_url": "/images/ourcompany/member1.png",
         "signature": "Mr. K. Rahman",
         "display_order": 2,
     },
@@ -257,6 +268,7 @@ LEADERSHIP = [
         "full_message": "Across Paris Hyper Market, Paris Express, Al Mihrab, and Maharib Fish we serve hundreds of thousands every week.",
         "accent": "from-pug-gold-500 to-pug-gold-700",
         "initials": "SK",
+        "photo_url": "/images/ourcompany/member2.png",
         "signature": "Ms. S. Khan",
         "display_order": 3,
     },
@@ -268,6 +280,7 @@ LEADERSHIP = [
         "full_message": "Our distribution businesses move FMCG, fresh produce, packaging, and building materials.",
         "accent": "from-pug-green-500 to-pug-green-700",
         "initials": "RI",
+        "photo_url": "/images/ourcompany/member3.png",
         "signature": "Mr. R. Iyer",
         "display_order": 4,
     },
@@ -283,6 +296,7 @@ NEWS = [
         "category": "company",
         "author": "Group Communications",
         "cover": "from-pug-gold-500 to-pug-green-500",
+        "cover_image_url": "/images/news/news_01.png",
         "published_at": datetime(2026, 5, 12, tzinfo=timezone.utc),
         "is_featured": True,
     },
@@ -294,6 +308,7 @@ NEWS = [
         "category": "company",
         "author": "Group Communications",
         "cover": "from-pug-gold-500 to-pug-gold-700",
+        "cover_image_url": "/images/news/news_02.png",
         "published_at": datetime(2026, 4, 28, tzinfo=timezone.utc),
     },
     {
@@ -304,6 +319,7 @@ NEWS = [
         "category": "csr",
         "author": "Group CSR",
         "cover": "from-pug-green-500 to-pug-gold-500",
+        "cover_image_url": "/images/news/news_03.png",
         "published_at": datetime(2026, 4, 15, tzinfo=timezone.utc),
     },
     {
@@ -314,6 +330,7 @@ NEWS = [
         "category": "company",
         "author": "Group Communications",
         "cover": "from-pug-green-500 to-pug-green-700",
+        "cover_image_url": "/images/news/news_04.png",
         "published_at": datetime(2026, 3, 22, tzinfo=timezone.utc),
     },
     {
@@ -324,6 +341,7 @@ NEWS = [
         "category": "event",
         "author": "Group Communications",
         "cover": "from-pug-green-600 to-pug-gold-500",
+        "cover_image_url": "/images/news/news_05.png",
         "published_at": datetime(2026, 2, 18, tzinfo=timezone.utc),
         "is_featured": True,
     },
@@ -335,6 +353,7 @@ NEWS = [
         "category": "press",
         "author": "Group Communications",
         "cover": "from-pug-gold-600 to-pug-gold-800",
+        "cover_image_url": "/images/news/news_01.png",
         "published_at": datetime(2026, 1, 30, tzinfo=timezone.utc),
     },
 ]
@@ -408,20 +427,69 @@ def _upsert_news(db: Session) -> int:
     return len(NEWS)
 
 
+BRAND_LOGOS_DEFAULT = "\n".join(
+    f"/images/home/brands/brand_{i:02d}.png" for i in range(1, 11)
+)
+
+HOME_ABOUT_BODY_DEFAULT = (
+    "Paris United Group Holding has grown from a single family business into "
+    "one of Qatar's most diversified groups — operating across retail, "
+    "distribution, fresh food, packaging, garages, real estate, and "
+    "construction. We are guided every day by quality, trust, and the "
+    "communities we serve."
+)
+
+HOME_FOUNDER_MESSAGE_DEFAULT = (
+    "When we started Paris United Group, we set out to build something "
+    "families could rely on. Decades later, every shelf, every shipment, and "
+    "every project still reflects that promise."
+)
+
+
+SITE_SETTINGS_DEFAULTS = dict(
+    site_name="Paris United Group Holding",
+    tagline="A diversified group across retail, distribution, and services.",
+    contact_phone="+974 0000 0000",
+    contact_email="info@parisunitedgroup.example.com",
+    contact_address="Doha, Qatar",
+    whatsapp_number="+97400000000",
+    social_linkedin="https://www.linkedin.com/",
+    # Page banners
+    about_banner_image_url="/images/ourcompany/ourvision.png",
+    about_banner_video_url="/video/our-company/about_banner.mp4",
+    careers_banner_image_url="/images/career/career_banner.png",
+    careers_banner_mobile_url="/images/career/careerbanner_mob.png",
+    contact_banner_image_url="/images/contact/contactusbanner.png",
+    contact_banner_mobile_url="/images/contact/contactusbannermob.png",
+    news_banner_image_url="/images/news/news_banner.png",
+    news_banner_mobile_url="/images/news/newsbanner_mob.png",
+    # Homepage About + Founder sections
+    home_about_image_url="/images/home/about/home_about.jpg",
+    home_about_title="Building everyday life across the GCC",
+    home_about_body=HOME_ABOUT_BODY_DEFAULT,
+    home_founder_image_url="/images/home/founder/founder.jpg",
+    home_founder_name="Mr. A. Al Hassan",
+    home_founder_role="Chairman & Founder",
+    home_founder_message=HOME_FOUNDER_MESSAGE_DEFAULT,
+    # Trusted-brands strip
+    home_brand_logos=BRAND_LOGOS_DEFAULT,
+    home_brand_strip_title="Trusted brands we work with",
+)
+
+
 def _upsert_site_settings(db: Session) -> None:
     settings = db.get(SiteSetting, 1)
     if settings is None:
-        settings = SiteSetting(
-            id=1,
-            site_name="Paris United Group Holding",
-            tagline="A diversified group across retail, distribution, and services.",
-            contact_phone="+974 0000 0000",
-            contact_email="info@parisunitedgroup.example.com",
-            contact_address="Doha, Qatar",
-            whatsapp_number="+97400000000",
-            social_linkedin="https://www.linkedin.com/",
-        )
+        settings = SiteSetting(id=1, **SITE_SETTINGS_DEFAULTS)
         db.add(settings)
+        db.flush()
+    else:
+        # Only fill in fields that are still empty — never overwrite admin
+        # edits when the seed script is re-run.
+        for key, value in SITE_SETTINGS_DEFAULTS.items():
+            current = getattr(settings, key, None)
+            if current in (None, ""):
+                setattr(settings, key, value)
         db.flush()
 
 

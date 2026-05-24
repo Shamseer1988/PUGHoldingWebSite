@@ -5,6 +5,7 @@ import { CheckCircle2, Edit3, Loader2, Megaphone, Plus, Trash2, X } from "lucide
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
+import { ImageUpload } from "@/components/admin/image-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ interface NewsForm {
   category: NewsCategory;
   author: string;
   cover: string;
+  cover_image_url: string;
   published_at: string; // yyyy-mm-dd
   is_featured: boolean;
   is_published: boolean;
@@ -43,6 +45,7 @@ const EMPTY: NewsForm = {
   category: "company",
   author: "",
   cover: "from-pug-green-600 to-pug-gold-500",
+  cover_image_url: "",
   published_at: new Date().toISOString().slice(0, 10),
   is_featured: false,
   is_published: true,
@@ -87,6 +90,7 @@ export default function NewsAdminPage() {
       category: item.category,
       author: item.author ?? "",
       cover: item.cover,
+      cover_image_url: item.cover_image_url ?? "",
       published_at: item.published_at.slice(0, 10),
       is_featured: item.is_featured,
       is_published: item.is_published,
@@ -107,6 +111,7 @@ export default function NewsAdminPage() {
         category: form.category,
         author: form.author.trim() || null,
         cover: form.cover.trim(),
+        cover_image_url: form.cover_image_url.trim() || null,
         published_at: new Date(form.published_at).toISOString(),
         is_featured: form.is_featured,
         is_published: form.is_published,
@@ -296,6 +301,18 @@ function NewsDrawer({
               <Labeled label="Published on">
                 <Input type="date" value={form.published_at} onChange={(e) => set("published_at", e.target.value)} disabled={saving} />
               </Labeled>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cover image</Label>
+              <ImageUpload
+                value={form.cover_image_url}
+                onChange={(url) => set("cover_image_url", url ?? "")}
+                disabled={saving}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Used on the news card and article hero. The gradient is shown
+                only when no image is set.
+              </p>
             </div>
             <Labeled label="Summary" hint="One-line preview">
               <Input value={form.summary} onChange={(e) => set("summary", e.target.value)} disabled={saving} />

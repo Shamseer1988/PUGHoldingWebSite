@@ -1,13 +1,16 @@
 import { NewsCard } from "@/components/site/news-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
-import { getNews } from "@/lib/public-api";
+import { getNews, getSiteSettings } from "@/lib/public-api";
 
 export const metadata = { title: "News & Events" };
 export const revalidate = 60;
 
 export default async function NewsPage() {
-  const allNews = await getNews();
+  const [allNews, settings] = await Promise.all([
+    getNews(),
+    getSiteSettings(),
+  ]);
   const featured = allNews.filter((n) => n.is_featured);
   const others = allNews.filter((n) => !n.is_featured);
 
@@ -18,6 +21,8 @@ export default async function NewsPage() {
         title="What's happening at Paris United Group"
         description="Store launches, partnerships, CSR initiatives, and updates from across the group."
         accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
+        imageUrl={settings.news_banner_image_url}
+        mobileImageUrl={settings.news_banner_mobile_url}
       />
 
       {featured.length > 0 && (

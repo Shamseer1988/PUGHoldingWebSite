@@ -16,7 +16,7 @@ import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getNews, getNewsBySlug } from "@/lib/public-api";
+import { getNews, getNewsBySlug, resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 export const revalidate = 60;
@@ -46,6 +46,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
   const related = all
     .filter((n) => n.slug !== item.slug && n.category === item.category)
     .slice(0, 3);
+  const coverImage = resolveAssetUrl(item.cover_image_url);
 
   return (
     <>
@@ -85,10 +86,20 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
               <div
                 aria-hidden
                 className={cn(
-                  "aspect-[16/8] w-full bg-gradient-to-br",
-                  item.cover
+                  "relative aspect-[16/8] w-full overflow-hidden",
+                  !coverImage && "bg-gradient-to-br",
+                  !coverImage && item.cover
                 )}
-              />
+              >
+                {coverImage && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={coverImage}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                )}
+              </div>
               <div className="p-6 sm:p-8">
                 <Badge variant="muted">{NEWS_CATEGORY_LABELS[item.category]}</Badge>
                 {item.body && (
