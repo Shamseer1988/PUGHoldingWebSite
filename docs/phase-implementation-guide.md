@@ -22,7 +22,7 @@ lives at the repo root in
 | 4     | Public pages (dummy content)                     | **Done**    |
 | 5     | Website admin content management                 | **Done**    |
 | 6     | Public website backend API integration           | **Done**    |
-| 7     | HR ATS database and core models                  | Planned     |
+| 7     | HR ATS database and core models                  | **Done**    |
 | 8     | HR ATS admin dashboard                           | Planned     |
 | 9     | Job opening management                           | Planned     |
 | 10    | Candidate application and CV upload              | Planned     |
@@ -36,6 +36,94 @@ lives at the repo root in
 | 18    | Responsive UI polish and mobile testing          | Planned     |
 | 19    | Security, audit, validation, and testing         | Planned     |
 | 20    | Deployment documentation and final package       | Planned     |
+
+## Phase 7 deliverables
+
+14 new SQLAlchemy models covering every HR ATS table called out in the
+master prompt — and the Alembic migration that creates them.
+
+**Tables (all `hr_*`)**
+
+- `hr_job_openings` — job postings (slug, title, department, division,
+  company, location, employment_type, experience range, salary range,
+  visa / nationality / language / notice preferences, description,
+  responsibilities, requirements, required_skills, preferred_skills,
+  status, posted_at, closed_at, created_by_id).
+- `hr_candidates` — master candidate record (name, email, mobile,
+  nationality, current location / designation / company, experience
+  totals incl. GCC + Qatar, expected_salary, notice_period, visa_status,
+  availability, blacklist + archive flags, source).
+- `hr_candidate_documents` — CV files (filename, path, mime_type, size,
+  sha256 hash for dedup, is_primary, uploaded_by).
+- `hr_candidate_extracted_data` — 1:1 with candidate; skills, education
+  (JSON), certifications (JSON), languages (JSON), previous_companies
+  (JSON), full_text, parser_version.
+- `hr_candidate_tags` — many tags per candidate, unique within candidate.
+- `hr_candidate_notes` — free-form HR notes.
+- `hr_candidate_job_applications` — the link table carrying pipeline
+  state (status, applied_at, source, cover_letter,
+  last_rejection_reason). Unique on (candidate_id, job_opening_id).
+- `hr_candidate_scores` — 1:1 with application; total /100, manual
+  override fields.
+- `hr_candidate_score_breakdowns` — 1:1 with score; one column per
+  weighted component (relevant_experience /25, required_skills /20,
+  education /10, industry_experience /10, gcc_qatar_experience /10,
+  salary_fit /10, notice_period /5, visa_status /5, language_match /5),
+  plus a JSON `notes` map for per-component explanations.
+- `hr_candidate_ai_reviews` — 1:1 with application; summary, strengths,
+  weaknesses, missing_information, risk_points, suggested_questions,
+  recommendation, model_name, token counts, raw_response JSON,
+  generated_at.
+- `hr_candidate_status_history` — pipeline state-change audit
+  (old_status, new_status, changed_by, remarks, rejection_reason,
+  blacklist_approval, created_at).
+- `hr_interviews` — round_name, round_number, scheduled_at, duration,
+  mode, location_or_link, interviewer_id, status, created_by_id.
+- `hr_interview_feedback` — rating, recommendation, free-form feedback,
+  per-axis sub-scores (technical, communication, cultural fit).
+- `hr_offer_tracking` — 1:1 with application; salary_offered,
+  joining_date, benefits_summary, status, sent_at, responded_at,
+  decline_reason.
+
+**Constants**
+
+Status / mode strings exposed as Python constants in `app.models.hr_ats`
+so every later phase shares the same vocabulary
+(`STATUS_*`, `JOB_STATUS_*`, `INTERVIEW_*`, `OFFER_*`, `AI_*`,
+`SCORE_WEIGHTS`). `SCORE_WEIGHTS` totals 100 (asserted at import time).
+
+**Cross-cutting**
+
+The existing `audit_logs` table (Phase 2) is reused for HR-scoped audit
+entries — every HR write action will populate it with `scope='hr'`
+and rich `details` JSON. No separate `hr_audit_logs` table.
+
+**Migration**
+
+`20260524_0001_phase7_hr_ats_tables` creates all 14 tables in dependency
+order, with FK constraints, the (candidate_id, job_opening_id) unique
+constraint, the (candidate_id, tag) unique constraint, and indexes on
+every column later phases will filter on (status, scheduled_at, slug,
+email, mobile, file_hash, etc.).
+
+**Seed**
+
+`python -m app.scripts.seed_hr` upserts the eight job openings the
+Phase 4 careers page already shows on the public site. Phase 9 will
+swap the public careers page to read from this table.
+
+**Tests (12 new, 53 total)**
+
+- `SCORE_WEIGHTS` sums to 100.
+- Job opening round-trip + slug uniqueness.
+- Candidate with documents, extracted_data, tags, notes round-trip.
+- Cascade delete on candidate removes children.
+- (candidate_id, tag) unique constraint.
+- Application unique on (candidate_id, job_opening_id).
+- Score + breakdown + AI review round-trip.
+- Status history insertion.
+- Interview + feedback round-trip.
+- Offer round-trip + uniqueness per application.
 
 ## Phase 6 deliverables
 

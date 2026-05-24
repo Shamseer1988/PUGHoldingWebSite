@@ -22,15 +22,33 @@ from app.models.cms import (
     NewsletterSubscriber,
     SiteSetting,
 )
+from app.models.hr_ats import (
+    Candidate,
+    CandidateAIReview,
+    CandidateDocument,
+    CandidateExtractedData,
+    CandidateJobApplication,
+    CandidateNote,
+    CandidateScore,
+    CandidateScoreBreakdown,
+    CandidateStatusHistory,
+    CandidateTag,
+    Interview,
+    InterviewFeedback,
+    JobOpening,
+    OfferTracking,
+)
 
 __all__ = [
     "TimestampMixin",
+    # Auth
     "AuditLog",
     "Permission",
     "Role",
     "RolePermission",
     "User",
     "UserRole",
+    # CMS
     "Company",
     "CompanyService",
     "ContactMessage",
@@ -39,4 +57,19 @@ __all__ = [
     "NewsItem",
     "NewsletterSubscriber",
     "SiteSetting",
+    # HR ATS
+    "Candidate",
+    "CandidateAIReview",
+    "CandidateDocument",
+    "CandidateExtractedData",
+    "CandidateJobApplication",
+    "CandidateNote",
+    "CandidateScore",
+    "CandidateScoreBreakdown",
+    "CandidateStatusHistory",
+    "CandidateTag",
+    "Interview",
+    "InterviewFeedback",
+    "JobOpening",
+    "OfferTracking",
 ]
