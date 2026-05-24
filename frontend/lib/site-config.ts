@@ -68,6 +68,16 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Contact Us", href: "/contact" },
 ];
 
+/**
+ * Primary header CTA shown on the desktop navbar and at the bottom of
+ * the mobile drawer. Single source of truth so a future site-settings
+ * lift can replace this constant without touching the navbar.
+ */
+export const PRIMARY_CTA = {
+  label: "Join Us",
+  href: "/careers",
+} as const;
+
 export interface SocialLink {
   label: string;
   href: string;

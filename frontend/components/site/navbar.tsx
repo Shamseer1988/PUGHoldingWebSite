@@ -4,7 +4,13 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, Menu, Search, X } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  Menu,
+  Search,
+  X,
+} from "lucide-react";
 
 import { CompaniesMegaMenu } from "@/components/site/companies-mega-menu";
 import { Logo } from "@/components/site/logo";
@@ -12,20 +18,37 @@ import { MobileMenu } from "@/components/site/mobile-menu";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 import { Button } from "@/components/ui/button";
 import type { Company } from "@/lib/admin/types";
-import { NAV_ITEMS, type NavItem } from "@/lib/site-config";
+import { NAV_ITEMS, PRIMARY_CTA, type NavItem } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
 interface NavbarProps {
   companies: Company[];
 }
 
+/**
+ * Public site header — inset rounded glass chrome, centred nav, three
+ * circular icon controls + a gold "Join Us" pill on the right.
+ *
+ * Visuals:
+ *   - Fixed at the top, but the visible bar is a max-w-7xl inset
+ *     container with a `rounded-[28px]` glass surface, thin
+ *     pug-gold/pug-white border, and a soft shadow.
+ *   - Light: bg-background/90 backdrop-blur, pug-gold-500/20 border.
+ *   - Dark : bg-pug-green-950/85 backdrop-blur, white/10 border.
+ *
+ * Behaviour: the existing mega-menu + dropdown + scroll-tracking
+ * logic is preserved verbatim. The only structural change is the
+ * three-column grid layout (logo | centered nav | right controls)
+ * so the nav can sit perfectly centred while the logo + actions
+ * own their own edges.
+ */
 export function Navbar({ companies }: NavbarProps) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
+  const [openItemHref, setOpenItemHref] = React.useState<string | null>(null);
 
-  // Add a "scrolled" treatment after a few pixels of scroll.
   React.useEffect(() => {
     function onScroll() {
       setScrolled(window.scrollY > 8);
@@ -35,97 +58,133 @@ export function Navbar({ companies }: NavbarProps) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Close the mega menu when the route changes.
-  const [openItemHref, setOpenItemHref] = React.useState<string | null>(null);
   React.useEffect(() => {
     setOpenItemHref(null);
   }, [pathname]);
 
   return (
     <>
-      <header
-        className={cn(
-          "fixed inset-x-0 top-0 z-30 transition-all duration-300",
-          scrolled
-            ? "border-b border-pug-gold-500/15 bg-background/80 shadow-[0_4px_30px_-12px_rgba(0,0,0,0.12)] backdrop-blur-xl"
-            : "bg-transparent"
-        )}
-      >
-        <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4 sm:h-[72px]">
-          <Logo />
+      {/* Fixed wrapper — anchors the inset chrome and lets us drive
+          scroll-state styling without resizing the rounded container. */}
+      <header className="fixed inset-x-0 top-0 z-30">
+        <div className="container mx-auto px-3 pt-3 sm:px-4 sm:pt-4">
+          <div
+            className={cn(
+              "relative isolate mx-auto flex items-center gap-3 rounded-[22px] border px-3 py-2 transition-shadow duration-300 sm:rounded-[28px] sm:px-5 sm:py-2.5",
+              // Surface: solid glass at all times so the floating
+              // chrome reads cleanly over any page background.
+              "bg-background/90 backdrop-blur-xl",
+              "dark:bg-pug-green-950/85",
+              // Border + shadow strength react to scroll position so
+              // the chrome "lifts" slightly when scrolling.
+              scrolled
+                ? "border-pug-gold-500/25 shadow-[0_10px_40px_-18px_rgba(15,42,28,0.35)] dark:border-white/10 dark:shadow-[0_10px_40px_-18px_rgba(0,0,0,0.6)]"
+                : "border-pug-gold-500/15 shadow-[0_4px_24px_-16px_rgba(15,42,28,0.25)] dark:border-white/[0.06] dark:shadow-[0_4px_24px_-16px_rgba(0,0,0,0.45)]"
+            )}
+          >
+            {/* Three-column grid: logo | centered nav | controls.
+                Grid (not flex) so the nav stays visually centred on
+                the page, not centred between the logo and the controls. */}
+            <div className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3">
+              <Logo />
 
-          <DesktopNav
-            pathname={pathname}
-            items={NAV_ITEMS}
-            companies={companies}
-            openItemHref={openItemHref}
-            onOpenChange={setOpenItemHref}
-          />
+              <div className="hidden justify-center lg:flex">
+                <DesktopNav
+                  pathname={pathname}
+                  items={NAV_ITEMS}
+                  companies={companies}
+                  openItemHref={openItemHref}
+                  onOpenChange={setOpenItemHref}
+                />
+              </div>
 
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={searchOpen ? "Close search" : "Open search"}
-              onClick={() => setSearchOpen((s) => !s)}
-              className="hidden sm:inline-flex"
-            >
-              {searchOpen ? (
-                <X className="h-4 w-4" />
-              ) : (
-                <Search className="h-4 w-4" />
+              <div className="flex items-center justify-end gap-1.5">
+                <NavIconButton
+                  aria-label={searchOpen ? "Close search" : "Open search"}
+                  aria-expanded={searchOpen}
+                  onClick={() => setSearchOpen((s) => !s)}
+                  className="hidden sm:inline-flex"
+                >
+                  {searchOpen ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                </NavIconButton>
+
+                {/* ThemeToggle accepts `className` — we override the
+                    base Button's size/shape to match NavIconButton. */}
+                <ThemeToggle
+                  className={cn(NAV_ICON_BUTTON_CLASSES, "hidden sm:inline-flex")}
+                />
+
+                <Button
+                  asChild
+                  size="sm"
+                  className={cn(
+                    // Gold gradient pill with a subtle hover lift.
+                    "hidden h-11 rounded-full bg-gradient-to-r from-pug-gold-600 to-pug-gold-500 px-5 text-sm font-semibold text-pug-green-950 shadow-[0_6px_22px_-12px_rgba(166,124,58,0.55)] motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 hover:from-pug-gold-500 hover:to-pug-gold-400 hover:text-pug-green-950 hover:shadow-[0_10px_28px_-12px_rgba(166,124,58,0.6)] focus-visible:ring-pug-gold-500 sm:inline-flex",
+                    "dark:text-pug-green-950"
+                  )}
+                >
+                  <Link href={PRIMARY_CTA.href}>
+                    {PRIMARY_CTA.label}
+                    <ArrowRight
+                      className="h-4 w-4 motion-safe:transition-transform group-hover:translate-x-0.5"
+                      aria-hidden
+                    />
+                  </Link>
+                </Button>
+
+                <NavIconButton
+                  aria-label="Open menu"
+                  aria-expanded={mobileOpen}
+                  onClick={() => setMobileOpen(true)}
+                  className="lg:hidden"
+                >
+                  <Menu className="h-5 w-5" />
+                </NavIconButton>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {searchOpen && (
+                <motion.div
+                  key="search-panel"
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.2 }}
+                  className="mt-2 overflow-hidden rounded-2xl border border-border/40 bg-background/95 backdrop-blur-xl"
+                >
+                  <form
+                    role="search"
+                    className="flex items-center gap-2 px-4 py-3"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                    }}
+                  >
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="search"
+                      placeholder="Search the site (coming soon)"
+                      className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      aria-label="Search the site"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSearchOpen(false)}
+                    >
+                      Close
+                    </Button>
+                  </form>
+                </motion.div>
               )}
-            </Button>
-            <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Open menu"
-              aria-expanded={mobileOpen}
-              onClick={() => setMobileOpen(true)}
-              className="lg:hidden"
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
+            </AnimatePresence>
           </div>
         </div>
-
-        <AnimatePresence>
-          {searchOpen && (
-            <motion.div
-              key="search-panel"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              className="border-t border-border/40 bg-background/85 backdrop-blur-xl"
-            >
-              <form
-                role="search"
-                className="container mx-auto flex items-center gap-2 px-4 py-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                }}
-              >
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <input
-                  type="search"
-                  placeholder="Search the site (coming soon)"
-                  className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  aria-label="Search the site"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSearchOpen(false)}
-                >
-                  Close
-                </Button>
-              </form>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </header>
 
       <MobileMenu
@@ -135,11 +194,44 @@ export function Navbar({ companies }: NavbarProps) {
         companies={companies}
       />
 
-      {/* Spacer so page content isn't hidden under the fixed header. */}
-      <div className="h-16 sm:h-[72px]" aria-hidden />
+      {/* Spacer so page content isn't hidden under the floating chrome.
+          Matches the inset header height + its top padding. */}
+      <div className="h-[76px] sm:h-[96px]" aria-hidden />
     </>
   );
 }
+
+
+// ---------------------------------------------------------------------------
+// Circular icon button — used for Search, Theme, and the mobile menu.
+// Style: 44x44 (40x40 on small screens), rounded-full, thin pug-gold
+// border, soft gold-tint hover. Kept local so the shared Button
+// variants stay clean for the rest of the app.
+// ---------------------------------------------------------------------------
+
+
+const NAV_ICON_BUTTON_CLASSES =
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-pug-gold-500/25 bg-transparent text-foreground/80 transition-colors hover:border-pug-gold-500/40 hover:bg-pug-gold-500/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pug-gold-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 dark:border-white/15 dark:hover:border-pug-gold-300/40 sm:h-11 sm:w-11";
+
+
+function NavIconButton({
+  className,
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button type="button" className={cn(NAV_ICON_BUTTON_CLASSES, className)} {...props}>
+      {children}
+    </button>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Desktop nav — centered list. Behaviour preserved verbatim from the
+// previous implementation; styling refined.
+// ---------------------------------------------------------------------------
+
 
 function DesktopNav({
   items,
@@ -155,8 +247,8 @@ function DesktopNav({
   onOpenChange: (href: string | null) => void;
 }) {
   return (
-    <nav aria-label="Primary" className="hidden lg:block">
-      <ul className="flex items-center gap-1">
+    <nav aria-label="Primary">
+      <ul className="flex items-center gap-0.5">
         {items.map((item) => (
           <DesktopNavItem
             key={item.href}
@@ -171,6 +263,7 @@ function DesktopNav({
     </nav>
   );
 }
+
 
 function DesktopNavItem({
   item,
@@ -267,6 +360,18 @@ function DesktopNavItem({
   );
 }
 
+
+/**
+ * Top-level nav link.
+ *
+ * Visual treatment:
+ *   - Active: 3px gold dot 4px below the label (matches the reference
+ *     image's "Home" indicator).
+ *   - Hover (non-active): a soft 80% gold underline grows from centre
+ *     via `scaleX 0 → 1` on `motion-safe:` only.
+ *   - Dropdown items (mega + children) keep the chevron icon; plain
+ *     links don't show one.
+ */
 function NavLink({
   href,
   active,
@@ -287,31 +392,41 @@ function NavLink({
       href={href}
       aria-haspopup={chevron ? "menu" : undefined}
       aria-expanded={ariaExpanded}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "relative inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-        active ? "text-primary" : "text-foreground/80 hover:text-foreground"
+        "group/nav relative inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        active
+          ? "text-pug-green-900 dark:text-pug-gold-100"
+          : "text-foreground/75 hover:text-foreground dark:text-foreground/80 dark:hover:text-foreground"
       )}
     >
       <span className="relative">
         {children}
-        {active && (
+        {active ? (
           <span
             aria-hidden
-            className="absolute -bottom-1 left-1/2 h-[2px] w-6 -translate-x-1/2 rounded-full bg-gradient-to-r from-pug-gold-500 to-pug-green-500"
+            className="absolute -bottom-2 left-1/2 block h-[3px] w-[3px] -translate-x-1/2 rounded-full bg-pug-gold-500 shadow-[0_0_0_2px_rgba(212,165,82,0.18)]"
+          />
+        ) : (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -bottom-1.5 left-0 right-0 h-px origin-center scale-x-0 bg-gradient-to-r from-transparent via-pug-gold-500/70 to-transparent motion-safe:transition-transform motion-safe:duration-200 group-hover/nav:scale-x-100"
           />
         )}
       </span>
       {chevron && (
         <ChevronDown
           className={cn(
-            "h-3.5 w-3.5 transition-transform",
+            "h-3.5 w-3.5 text-foreground/60 transition-transform",
             chevronOpen && "rotate-180"
           )}
+          aria-hidden
         />
       )}
     </Link>
   );
 }
+
 
 function MegaWrapper({ children }: { children: React.ReactNode }) {
   // Positioning lives on the static outer div so Tailwind's translate
@@ -319,7 +434,7 @@ function MegaWrapper({ children }: { children: React.ReactNode }) {
   // animated child. Width capped via inline style so it's not subject
   // to Tailwind JIT picking up arbitrary-value classes.
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-[60px] z-40 flex justify-center px-4 sm:top-[76px]">
+    <div className="pointer-events-none fixed inset-x-0 top-[76px] z-40 flex justify-center px-4 sm:top-[96px]">
       <motion.div
         initial={{ opacity: 0, y: 8, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -336,6 +451,7 @@ function MegaWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+
 function DropdownWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
@@ -343,7 +459,7 @@ function DropdownWrapper({ children }: { children: React.ReactNode }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.15 }}
-      className="absolute left-1/2 top-full mt-2 w-72 -translate-x-1/2"
+      className="absolute left-1/2 top-full mt-3 w-72 -translate-x-1/2"
     >
       <div className="rounded-xl border border-pug-gold-500/20 bg-background/95 p-2 shadow-2xl backdrop-blur-xl">
         {children}
@@ -351,6 +467,7 @@ function DropdownWrapper({ children }: { children: React.ReactNode }) {
     </motion.div>
   );
 }
+
 
 function isActive(pathname: string | null, item: NavItem): boolean {
   if (!pathname) return false;
