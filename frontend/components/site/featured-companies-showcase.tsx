@@ -371,6 +371,7 @@ const CompanyPanel = React.forwardRef<
       </div>
 
       <CompanyHighlight company={company} className="mt-8" />
+      <CompanyStatLine company={company} />
     </article>
   );
 });
@@ -408,6 +409,11 @@ function trimLongDescription(value: string): string {
 }
 
 function resolveHighlightDescription(company: Company): string | null {
+  // Phase 18 follow-up — prefer the new admin field, then fall back to
+  // the existing homepage_highlight_description, then trim long, then
+  // short. Keeps existing rows working without any data migration.
+  const groupHighlight = company.homepage_group_highlight?.trim();
+  if (groupHighlight) return groupHighlight;
   const explicit = company.homepage_highlight_description?.trim();
   if (explicit) return explicit;
   const long = company.long_description?.trim();
@@ -429,6 +435,51 @@ function resolveHighlightPoints(company: Company): string[] {
   return company.services.slice(0, 3).map((s) => s.name);
 }
 
+/** Pulls the names used for the marquee. Prefers explicit highlight
+ *  points (so admins can drive the strip), falls back to the company's
+ *  services so the strip never sits empty when the admin hasn't curated
+ *  a list yet. Returns at most 8 items — the marquee duplicates the
+ *  list inline so 8 unique entries already produce a long, smooth
+ *  loop without becoming visually noisy. */
+function resolveBrandStripItems(company: Company): string[] {
+  const explicit = company.homepage_highlight_points?.trim();
+  const fromExplicit = explicit
+    ? explicit
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const fromServices = company.services.map((s) => s.name);
+  // Dedupe + cap. Order: explicit first, then services so admin
+  // overrides take precedence visually.
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const item of [...fromExplicit, ...fromServices]) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+    if (merged.length >= 8) break;
+  }
+  return merged;
+}
+
+/** Eyebrow label switches based on what's actually rendered inside.
+ *  The spec wants three modes:
+ *    - "COMPANY HIGHLIGHT" — pure description card (default)
+ *    - "GROUP BRANDS"       — description + sub-brand / service marquee
+ *    - "TRUSTED PARTNERS"   — partner-only mode (no description)
+ *  We pick the label deterministically from the rendered content so a
+ *  single backend field can drive all three without an extra toggle. */
+function resolveHighlightEyebrow(opts: {
+  description: string | null;
+  marquee: string[];
+}): string {
+  if (!opts.description && opts.marquee.length > 0) return "Trusted Partners";
+  if (opts.marquee.length > 0) return "Group Brands";
+  return "Company Highlight";
+}
+
 function CompanyHighlight({
   company,
   className,
@@ -438,7 +489,16 @@ function CompanyHighlight({
 }) {
   const description = resolveHighlightDescription(company);
   const points = resolveHighlightPoints(company);
-  if (!description && points.length === 0) return null;
+  // Marquee draws from services / explicit points. Only render the
+  // strip when we have enough items to make scrolling meaningful (>=2);
+  // a single item would just sit static.
+  const marqueeItems = resolveBrandStripItems(company);
+  const showMarquee = marqueeItems.length >= 2;
+  const eyebrow = resolveHighlightEyebrow({
+    description,
+    marquee: showMarquee ? marqueeItems : [],
+  });
+  if (!description && points.length === 0 && !showMarquee) return null;
 
   return (
     <aside
@@ -456,7 +516,7 @@ function CompanyHighlight({
         className="inline-flex items-center gap-1.5 rounded-full border border-pug-gold-500/25 bg-pug-gold-500/10 px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] text-pug-gold-700 dark:text-pug-gold-300"
       >
         <Sparkles className="h-3 w-3" aria-hidden />
-        Company Highlight
+        {eyebrow}
       </p>
 
       {description && (
@@ -486,12 +546,61 @@ function CompanyHighlight({
         </ul>
       )}
 
+      {showMarquee && <BrandLogoMarquee items={marqueeItems} />}
+
       <span
         aria-hidden
         data-highlight-accent
         className="mt-5 block h-px w-20 bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0"
       />
     </aside>
+  );
+}
+
+
+/** Pure-CSS marquee of text "logos". The list is duplicated inline so
+ *  the keyframe can translate `-50%` for a seamless loop. The track is
+ *  paused on hover; `prefers-reduced-motion` cancels the animation in
+ *  globals.css so users who opt out see a static row instead. */
+function BrandLogoMarquee({ items }: { items: string[] }) {
+  // Render the list twice so translating the track by -50% lands the
+  // second copy in the exact position of the first — a seamless loop.
+  return (
+    <div className="brand-marquee mt-5">
+      <div className="brand-marquee__track" aria-hidden>
+        {[...items, ...items].map((label, i) => (
+          <span
+            key={`${label}-${i}`}
+            className="brand-marquee__chip"
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+      {/* SR-friendly list mirroring the visible marquee */}
+      <ul className="sr-only">
+        {items.map((label) => (
+          <li key={label}>{label}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
+/** Single-line stat strip rendered below the card. Driven purely by
+ *  `homepage_group_stat_line` so the admin can decide whether to show
+ *  it at all. Returns null when the field is empty. */
+function CompanyStatLine({ company }: { company: Company }) {
+  const line = company.homepage_group_stat_line?.trim();
+  if (!line) return null;
+  return (
+    <p
+      className="mt-4 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground"
+      data-highlight-statline
+    >
+      {line}
+    </p>
   );
 }
 
@@ -677,6 +786,7 @@ function MobileCompanyCard({
             short-circuits because reducedMotion / !isDesktop returns
             early up top. */}
         <CompanyHighlight company={company} className="mt-5" />
+        <CompanyStatLine company={company} />
       </div>
     </article>
   );

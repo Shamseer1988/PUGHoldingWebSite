@@ -299,8 +299,114 @@
     .brand-gold-shift-text,
     .hero-orb,
     .hero-scroll-mouse,
-    .hero-scroll-dot {
+    .hero-scroll-dot,
+    .brand-marquee__track,
+    .group-media-shine::after {
       animation: none !important;
     }
+  }
+
+  /* ----------------------------------------------------------------
+     Group Companies — brand / service marquee strip
+     ----------------------------------------------------------------
+     Pure CSS infinite loop. The track contains the chip list twice
+     so translating by -50% lands on the second copy in exactly the
+     position of the first one (seamless). Hovering pauses the loop,
+     and a soft mask fades the leftmost/rightmost edges so chips
+     glide in and out instead of popping. */
+  .brand-marquee {
+    position: relative;
+    overflow: hidden;
+    --marquee-fade: 32px;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black var(--marquee-fade),
+      black calc(100% - var(--marquee-fade)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black var(--marquee-fade),
+      black calc(100% - var(--marquee-fade)),
+      transparent 100%
+    );
+  }
+  .brand-marquee__track {
+    display: inline-flex;
+    gap: 0.5rem;
+    /* Use w-max so the inline track is exactly its content width,
+       which makes the -50% translate land cleanly between copies. */
+    width: max-content;
+    animation: brand-marquee-scroll 26s linear infinite;
+  }
+  .brand-marquee:hover .brand-marquee__track,
+  .brand-marquee:focus-within .brand-marquee__track {
+    animation-play-state: paused;
+  }
+  .brand-marquee__chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.85rem;
+    border-radius: 9999px;
+    border: 1px solid hsl(var(--border) / 0.75);
+    background: hsl(var(--background) / 0.6);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    color: hsl(var(--muted-foreground));
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    transition: color 200ms ease, transform 200ms ease,
+      border-color 200ms ease, background 200ms ease;
+    filter: grayscale(1);
+  }
+  .brand-marquee__chip:hover {
+    color: hsl(var(--foreground));
+    border-color: hsl(36 60% 55% / 0.55);
+    background: hsl(36 60% 55% / 0.08);
+    transform: scale(1.04);
+    filter: grayscale(0);
+  }
+  @keyframes brand-marquee-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+
+  /* ----------------------------------------------------------------
+     Group Companies media — soft light sweep used by GSAP during a
+     company-change transition. The animation only runs when the
+     parent element has `.is-sweeping` (set + removed by the React
+     code). Pure decoration; layout-safe (uses transform + opacity).
+     ---------------------------------------------------------------- */
+  .group-media-shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .group-media-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      115deg,
+      transparent 30%,
+      hsl(36 60% 70% / 0.18) 50%,
+      transparent 70%
+    );
+    transform: translateX(-120%);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+  .group-media-shine.is-sweeping::after {
+    animation: group-media-sweep 850ms ease-out;
+  }
+  @keyframes group-media-sweep {
+    0%   { transform: translateX(-120%); opacity: 0; }
+    35%  { opacity: 1; }
+    100% { transform: translateX(120%);  opacity: 0; }
   }
 }
