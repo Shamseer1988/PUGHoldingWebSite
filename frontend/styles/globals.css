@@ -372,24 +372,32 @@
     filter: grayscale(0);
   }
   /* Image variant — taller chip, no inner text padding, transparent
-     background so the logo reads as a stand-alone mark. The grayscale
-     → color hover treatment matches the text variant for visual
-     consistency. */
+     background so the logo reads as a stand-alone mark. Logos render
+     in full colour by default (override the grayscale that text chips
+     use) and grow slightly on hover. */
   .brand-marquee__chip--image {
-    padding: 0.35rem 0.75rem;
+    padding: 0.5rem 1rem;
     background: hsl(var(--card));
     border-color: hsl(var(--border) / 0.85);
+    filter: none;
   }
   .brand-marquee__chip--image:hover {
     background: hsl(var(--card));
+    filter: none;
   }
   .brand-marquee__logo {
     display: block;
-    height: 28px;
+    height: 48px;
     width: auto;
-    max-width: 96px;
+    max-width: 144px;
     object-fit: contain;
     object-position: center;
+  }
+  @media (min-width: 640px) {
+    .brand-marquee__logo {
+      height: 56px;
+      max-width: 168px;
+    }
   }
   @keyframes brand-marquee-scroll {
     from { transform: translateX(0); }
