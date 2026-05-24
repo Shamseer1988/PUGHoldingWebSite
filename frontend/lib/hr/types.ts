@@ -117,6 +117,56 @@ export interface CandidateListItem {
   latest_status_label: string | null;
 }
 
+// Phase 16 — advanced search filters ------------------------------------
+
+export interface CandidateAdvancedFilters {
+  q?: string;
+  nationality?: string;
+  location?: string;
+  experience_min?: number | "";
+  experience_max?: number | "";
+  salary_min?: number | "";
+  salary_max?: number | "";
+  visa?: string;
+  notice_period?: string;
+  education?: string;
+  language?: string;
+  skill?: string;
+  job_slug?: string;
+  department?: string;
+  status?: string;
+  score_min?: number | "";
+  score_max?: number | "";
+  uploaded_from?: string;
+  uploaded_to?: string;
+  include_archived?: boolean;
+}
+
+// Phase 16 — reports ----------------------------------------------------
+
+export interface ReportType {
+  key: string;
+  title: string;
+  description: string;
+  icon: string;
+}
+
+export interface ReportResponse {
+  type: string;
+  title: string;
+  description: string;
+  generated_at: string;
+  columns: string[];
+  rows: (string | number | null)[][];
+  summary: Record<string, string | number>;
+}
+
+export interface JobOption {
+  slug: string;
+  title: string;
+  department: string | null;
+}
+
 export interface CandidateScoreBreakdown {
   relevant_experience: number;
   required_skills: number;

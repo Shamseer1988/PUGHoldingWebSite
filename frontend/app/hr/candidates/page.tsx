@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ExternalLink,
   FileUp,
+  Filter,
   Loader2,
   Plus,
   Search,
@@ -14,6 +15,10 @@ import {
 } from "lucide-react";
 
 import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
+import {
+  CandidateFilterPanel,
+  filtersToQueryParams,
+} from "@/components/hr/candidate-filter-panel";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { ScoreBadge } from "@/components/hr/score-badge";
@@ -32,6 +37,7 @@ import {
 import { hrApi, HrApiError } from "@/lib/hr/api";
 import type {
   BulkUploadResult,
+  CandidateAdvancedFilters,
   CandidateListItem,
   ApplicationSubmissionResponse,
   JobOpening,
@@ -46,7 +52,8 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export default function HrCandidatesPage() {
   const [items, setItems] = React.useState<CandidateListItem[] | null>(null);
-  const [searchQ, setSearchQ] = React.useState("");
+  const [filters, setFilters] = React.useState<CandidateAdvancedFilters>({});
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [singleOpen, setSingleOpen] = React.useState(false);
@@ -66,14 +73,32 @@ export default function HrCandidatesPage() {
   async function refresh() {
     setItems(null);
     try {
-      const params = new URLSearchParams();
-      if (searchQ.trim()) params.set("q", searchQ.trim());
+      const params = filtersToQueryParams(filters);
       const url = `/hr/candidates${params.toString() ? `?${params}` : ""}`;
       setItems(await hrApi.get<CandidateListItem[]>(url));
     } catch (err) {
       setError((err as HrApiError).message);
     }
   }
+
+  function resetFilters() {
+    setFilters({});
+    // Refresh after the next render — see useEffect below.
+  }
+
+  // Re-run the list whenever the filter bundle changes from a Reset.
+  React.useEffect(() => {
+    if (Object.keys(filters).length === 0) void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  const activeFilterCount = Object.entries(filters).filter(
+    ([k, v]) =>
+      v !== undefined &&
+      v !== "" &&
+      v !== null &&
+      !(k === "include_archived" && v === false)
+  ).length;
 
   return (
     <HrShell
@@ -104,29 +129,61 @@ export default function HrCandidatesPage() {
         </div>
       )}
 
-      {/* Search row */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          refresh();
-        }}
-        className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur"
-      >
-        <div className="flex-1 space-y-1.5">
-          <Label htmlFor="cands-search">Search</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="cands-search"
-              placeholder="Name, email or mobile"
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
-              className="pl-9"
-            />
+      {/* Quick search + Advanced toggle */}
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            refresh();
+          }}
+          className="flex flex-1 items-end gap-3"
+        >
+          <div className="flex-1 space-y-1.5">
+            <Label htmlFor="cands-search">Search</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="cands-search"
+                placeholder="Name, email or mobile"
+                value={filters.q ?? ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, q: e.target.value })
+                }
+                className="pl-9"
+              />
+            </div>
           </div>
+          <Button type="submit" variant="outline">
+            Apply
+          </Button>
+        </form>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setFiltersOpen((o) => !o)}
+          aria-expanded={filtersOpen}
+        >
+          <Filter className="h-3.5 w-3.5" />
+          Advanced filters
+          {activeFilterCount > 0 && (
+            <span className="ml-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-primary">
+              {activeFilterCount}
+            </span>
+          )}
+        </Button>
+      </div>
+
+      {filtersOpen && (
+        <div className="mb-4">
+          <CandidateFilterPanel
+            value={filters}
+            onChange={setFilters}
+            onApply={refresh}
+            onReset={resetFilters}
+          />
         </div>
-        <Button type="submit" variant="outline">Apply</Button>
-      </form>
+      )}
 
       {items === null ? (
         <p className="text-sm text-muted-foreground">
