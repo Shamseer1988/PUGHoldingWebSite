@@ -88,6 +88,21 @@ class Company(Base, TimestampMixin):
     # homepage description. Mirrors how `home_brand_logos` stores its
     # list — keeps the schema simple, no relation table needed.
     homepage_highlight_points: Mapped[Optional[str]] = mapped_column(Text)
+    # Phase 18 follow-up — richer Group Companies homepage card.
+    # `homepage_group_highlight` is a short polished paragraph (160–240
+    # chars) shown inside the left-side card. `homepage_group_stat_line`
+    # is a one-line stat strip rendered below the card.
+    # `homepage_group_video_url` / `_poster_url` drive the right-side
+    # media card — when a video URL is set the public site uses HTML5
+    # video on desktop, falling back to the poster (or featured_image)
+    # on mobile / video error / reduced-motion. Leaving everything
+    # blank keeps the existing image-only behaviour.
+    homepage_group_highlight: Mapped[Optional[str]] = mapped_column(Text)
+    homepage_group_stat_line: Mapped[Optional[str]] = mapped_column(String(255))
+    homepage_group_video_url: Mapped[Optional[str]] = mapped_column(String(500))
+    homepage_group_video_poster_url: Mapped[Optional[str]] = mapped_column(
+        String(500)
+    )
     branches: Mapped[Optional[str]] = mapped_column(String(255))
     accent: Mapped[str] = mapped_column(
         String(255),

@@ -79,6 +79,13 @@ class CompanyBase(BaseModel):
     # Homepage Group Companies overrides — see model docstring.
     homepage_highlight_description: Optional[str] = None
     homepage_highlight_points: Optional[str] = None
+    # Phase 18 follow-up — richer Group Companies homepage card + video.
+    homepage_group_highlight: Optional[str] = None
+    homepage_group_stat_line: Optional[str] = Field(default=None, max_length=255)
+    homepage_group_video_url: Optional[str] = Field(default=None, max_length=500)
+    homepage_group_video_poster_url: Optional[str] = Field(
+        default=None, max_length=500
+    )
     branches: Optional[str] = Field(default=None, max_length=255)
     accent: str = Field(
         default="from-pug-green-500 to-pug-gold-500", max_length=255
@@ -110,6 +117,10 @@ class CompanyUpdate(BaseModel):
     long_description: Optional[str] = None
     homepage_highlight_description: Optional[str] = None
     homepage_highlight_points: Optional[str] = None
+    homepage_group_highlight: Optional[str] = None
+    homepage_group_stat_line: Optional[str] = None
+    homepage_group_video_url: Optional[str] = None
+    homepage_group_video_poster_url: Optional[str] = None
     branches: Optional[str] = None
     accent: Optional[str] = None
     initials: Optional[str] = None

@@ -232,3 +232,54 @@ def test_company_with_featured_image_and_highlight(client, seed_auth):
     public = client.get(PUBLIC).json()
     slugs = [c["slug"] for c in public["companies"]]
     assert "featured-co" in slugs
+
+
+def test_company_group_homepage_video_fields_roundtrip(client, seed_auth):
+    """Phase 18 follow-up — admins can set + clear the Group Companies
+    video URL, poster, highlight paragraph, and stat line, and the
+    values flow through to the public payload."""
+    headers = _admin_headers(client, seed_auth["password"])
+    body = {
+        "slug": "video-co",
+        "name": "Video Co",
+        "category": "distribution",
+        "initials": "VC",
+        "is_highlighted": True,
+        "featured_image_url": "/api/v1/uploads/cms/poster.png",
+        "homepage_group_highlight": (
+            "Video Co distributes premium FMCG across the GCC, serving "
+            "wholesale, retail, department store, and HORECA channels."
+        ),
+        "homepage_group_stat_line": "500+ Brand Partners · 15,000+ SKUs",
+        "homepage_group_video_url": "/api/v1/uploads/cms/loop.mp4",
+        "homepage_group_video_poster_url": "/api/v1/uploads/cms/loop-poster.jpg",
+    }
+    create = client.post("/api/v1/admin/cms/companies", json=body, headers=headers)
+    assert create.status_code == 201, create.text
+    created = create.json()
+    assert created["homepage_group_video_url"] == "/api/v1/uploads/cms/loop.mp4"
+    assert (
+        created["homepage_group_video_poster_url"]
+        == "/api/v1/uploads/cms/loop-poster.jpg"
+    )
+    assert created["homepage_group_highlight"].startswith("Video Co distributes")
+    assert created["homepage_group_stat_line"] == "500+ Brand Partners · 15,000+ SKUs"
+
+    # Public payload exposes the same fields.
+    public = client.get(PUBLIC).json()
+    payload = next(c for c in public["companies"] if c["slug"] == "video-co")
+    assert payload["homepage_group_video_url"] == "/api/v1/uploads/cms/loop.mp4"
+    assert payload["homepage_group_highlight"].startswith("Video Co distributes")
+
+    # Patch — clearing the video reverts to image-only.
+    patched = client.patch(
+        f"/api/v1/admin/cms/companies/{created['id']}",
+        headers=headers,
+        json={"homepage_group_video_url": None, "homepage_group_video_poster_url": None},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["homepage_group_video_url"] is None
+    assert patched.json()["homepage_group_video_poster_url"] is None
+    # featured_image_url is preserved so the public section still shows
+    # a sensible poster.
+    assert patched.json()["featured_image_url"] == "/api/v1/uploads/cms/poster.png"
