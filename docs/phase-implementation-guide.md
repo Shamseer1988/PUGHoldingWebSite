@@ -23,7 +23,7 @@ lives at the repo root in
 | 5     | Website admin content management                 | **Done**    |
 | 6     | Public website backend API integration           | **Done**    |
 | 7     | HR ATS database and core models                  | **Done**    |
-| 8     | HR ATS admin dashboard                           | Planned     |
+| 8     | HR ATS admin dashboard                           | **Done**    |
 | 9     | Job opening management                           | Planned     |
 | 10    | Candidate application and CV upload              | Planned     |
 | 11    | CV parsing and data extraction                   | Planned     |
@@ -36,6 +36,56 @@ lives at the repo root in
 | 18    | Responsive UI polish and mobile testing          | Planned     |
 | 19    | Security, audit, validation, and testing         | Planned     |
 | 20    | Deployment documentation and final package       | Planned     |
+
+## Phase 8 deliverables
+
+**Backend (dashboard + audit endpoints)**
+
+- `GET /api/v1/hr/dashboard` — aggregated read-only summary:
+  - **13 KPI cards**: open jobs, total candidates, applications (total
+    + this month), AI reviewed, AI recommended, HR review pending,
+    shortlisted, rejected, selected, joined, pending interviews,
+    pending offers.
+  - **Pipeline funnel**: canonical 10-stage funnel (`cv_received` →
+    `joined`) returned even when empty so the UI renders the shape.
+  - **Applications-per-month** trend (Python-side bucketing so SQLite
+    and Postgres share one code path).
+  - **Candidates by job** (top 10) + **by department** (top 10) rollups.
+  - **Pending interviews** (next 10 scheduled, joined to candidate +
+    job + interviewer) and **pending offers** (draft/sent, joined to
+    candidate + job).
+- `GET /api/v1/hr/audit-logs` — HR-scoped slice of the shared
+  `audit_logs` table with `action_prefix` filter.
+- Both routes mounted behind `require_hr_admin` — a website-admin
+  token is rejected with 403.
+- **5 new tests (58 total)** — scope guard, empty-state aggregations,
+  seeded-data aggregations, interview filtering (excludes past +
+  cancelled), unauthenticated rejection.
+
+**Frontend (HR shell + dashboard + stubs)**
+
+- New shell components (`components/hr/`):
+  - `HrShell` mirrors `AdminShell` but routes through `AuthGuard`
+    against the **hr** scope (separate localStorage slot from admin).
+  - `HrSidebar` with HR-branded "HR" pill on the logo, 4 nav groups
+    (Overview / Recruitment / Insights / System), and "Soon" badges
+    on modules deferred to later phases.
+  - `HrTopbar` + `HrEmptyState` helpers.
+- New typed client + types: `lib/hr/api.ts`, `lib/hr/types.ts`.
+- **`/hr` dashboard** — 13 KPI cards in a responsive grid, the pipeline
+  funnel (custom bar list), the monthly-trend area chart (Recharts),
+  pending interviews + pending offers tables with empty-state cards,
+  and two "applications by job / department" bar lists. All
+  brand-coloured (`pug-green-*` + `pug-gold-*`).
+- **`/hr/audit`** — HR-scoped audit log viewer with action-prefix
+  filter.
+- Stub pages with `HrEmptyState` cards for `/hr/jobs`, `/hr/candidates`,
+  `/hr/interviews`, `/hr/offers`, `/hr/reports`, `/hr/users` — each
+  explicitly labels which phase fills it in.
+
+The dashboard correctly shows empty / zero values today because
+candidates and interviews don't exist yet — they land in Phase 10 and
+Phase 15.
 
 ## Phase 7 deliverables
 
