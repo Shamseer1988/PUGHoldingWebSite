@@ -90,3 +90,103 @@ class JobOpeningList(BaseModel):
     to a paginated wrapper without touching consumers."""
 
     items: List[JobOpeningRead]
+
+
+# ---------------------------------------------------------------------------
+# Candidates (Phase 10)
+# ---------------------------------------------------------------------------
+
+
+class CandidateDocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    file_path: str
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    file_hash: Optional[str] = None
+    is_primary: bool
+    uploaded_by_id: Optional[int] = None
+    created_at: datetime
+
+
+class CandidateApplicationSummary(BaseModel):
+    """Application row shown alongside the candidate (e.g. in lists)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str
+    job_opening_id: Optional[int] = None
+    job_title: Optional[str] = None
+    applied_at: datetime
+    source: Optional[str] = None
+
+
+class CandidateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    nationality: Optional[str] = None
+    current_location: Optional[str] = None
+    current_designation: Optional[str] = None
+    current_company: Optional[str] = None
+    total_experience_years: Optional[float] = None
+    gcc_experience_years: Optional[float] = None
+    qatar_experience_years: Optional[float] = None
+    expected_salary: Optional[int] = None
+    notice_period: Optional[str] = None
+    visa_status: Optional[str] = None
+    availability: Optional[str] = None
+    is_blacklisted: bool
+    is_archived: bool
+    source: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    documents: List[CandidateDocumentRead] = Field(default_factory=list)
+
+
+class CandidateListItem(BaseModel):
+    """Trimmed candidate row for the HR list view."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    current_designation: Optional[str] = None
+    total_experience_years: Optional[float] = None
+    source: Optional[str] = None
+    is_blacklisted: bool
+    is_archived: bool
+    created_at: datetime
+
+
+class ApplicationSubmissionResponse(BaseModel):
+    """Returned from POST /public/candidate-applications and the HR
+    single-upload endpoint."""
+
+    candidate_id: int
+    application_id: int
+    was_existing_candidate: bool
+    job_title: Optional[str] = None
+    job_slug: Optional[str] = None
+
+
+class BulkUploadSkip(BaseModel):
+    name: str
+    reason: str
+
+
+class BulkUploadResult(BaseModel):
+    total_files: int
+    created_candidates: int
+    matched_existing_candidates: int
+    duplicate_applications_skipped: int
+    skipped_files: List[BulkUploadSkip] = Field(default_factory=list)
+    candidate_ids: List[int] = Field(default_factory=list)

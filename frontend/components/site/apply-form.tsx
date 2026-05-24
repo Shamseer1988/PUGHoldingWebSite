@@ -1,12 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, FileUp, Loader2 } from "lucide-react";
+import { CheckCircle2, FileUp, Info, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  PublicApiError,
+  submitCandidateApplication,
+} from "@/lib/public-api-client";
 
 interface ApplyFormProps {
   jobTitle: string;
@@ -23,12 +27,13 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
   const [salary, setSalary] = React.useState("");
   const [notice, setNotice] = React.useState("");
   const [cover, setCover] = React.useState("");
-  const [cvName, setCvName] = React.useState("");
+  const [cvFile, setCvFile] = React.useState<File | null>(null);
   const [consent, setConsent] = React.useState(false);
   const [state, setState] = React.useState<
-    "idle" | "submitting" | "success" | "error"
+    "idle" | "submitting" | "success" | "duplicate" | "error"
   >("idle");
   const [error, setError] = React.useState<string | null>(null);
+  const [wasExisting, setWasExisting] = React.useState(false);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,9 +42,44 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
       setError("Please confirm consent before submitting.");
       return;
     }
+    if (!cvFile) {
+      setError("Please attach your CV (PDF, DOC, or DOCX).");
+      return;
+    }
+
     setState("submitting");
-    await new Promise((r) => setTimeout(r, 900));
-    setState("success");
+    try {
+      const result = await submitCandidateApplication({
+        full_name: name.trim(),
+        email: email.trim(),
+        mobile: phone.trim(),
+        nationality: nationality.trim() || undefined,
+        current_location: location.trim() || undefined,
+        total_experience_years: experience ? Number(experience) : undefined,
+        expected_salary: salary ? Number(salary) : undefined,
+        notice_period: notice.trim() || undefined,
+        cover_letter: cover.trim() || undefined,
+        job_slug: jobSlug,
+        consent: true,
+        cv: cvFile,
+      });
+      setWasExisting(result.was_existing_candidate);
+      setState("success");
+    } catch (err) {
+      if (err instanceof PublicApiError && err.status === 409) {
+        setState("duplicate");
+        setError(err.message);
+      } else {
+        setState("error");
+        setError(
+          err instanceof PublicApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : "Unable to submit your application. Please try again."
+        );
+      }
+    }
   }
 
   if (state === "success") {
@@ -56,8 +96,29 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
           <p className="mt-1">
             HR will review your CV and reach out if there's a match.
           </p>
-          <p className="mt-2 text-xs opacity-70">
-            (Phase 10 wires this to the HR ATS candidate intake.)
+          {wasExisting && (
+            <p className="mt-2 text-xs opacity-80">
+              We recognised your details — your new CV has been attached to
+              your existing profile.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "duplicate") {
+    return (
+      <div
+        role="status"
+        className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200"
+      >
+        <Info className="mt-0.5 h-5 w-5" />
+        <div>
+          <p className="font-medium">You've already applied to this role.</p>
+          <p className="mt-1">
+            {error ??
+              "We've already received your application for this position. We'll get back to you on the existing one."}
           </p>
         </div>
       </div>
@@ -68,19 +129,44 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
     <form onSubmit={onSubmit} className="space-y-4" id={`apply-${jobSlug}`}>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Full name" required>
-          <Input value={name} onChange={(e) => setName(e.target.value)} required disabled={state === "submitting"} />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            disabled={state === "submitting"}
+          />
         </FormField>
         <FormField label="Email" required>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={state === "submitting"} />
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={state === "submitting"}
+          />
         </FormField>
         <FormField label="Phone" required>
-          <Input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required disabled={state === "submitting"} />
+          <Input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+            disabled={state === "submitting"}
+          />
         </FormField>
         <FormField label="Nationality">
-          <Input value={nationality} onChange={(e) => setNationality(e.target.value)} disabled={state === "submitting"} />
+          <Input
+            value={nationality}
+            onChange={(e) => setNationality(e.target.value)}
+            disabled={state === "submitting"}
+          />
         </FormField>
         <FormField label="Current location">
-          <Input value={location} onChange={(e) => setLocation(e.target.value)} disabled={state === "submitting"} />
+          <Input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            disabled={state === "submitting"}
+          />
         </FormField>
         <FormField label="Years of experience">
           <Input
@@ -93,10 +179,21 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
           />
         </FormField>
         <FormField label="Expected salary (QAR / month)">
-          <Input value={salary} onChange={(e) => setSalary(e.target.value)} disabled={state === "submitting"} />
+          <Input
+            type="number"
+            min={0}
+            value={salary}
+            onChange={(e) => setSalary(e.target.value)}
+            disabled={state === "submitting"}
+          />
         </FormField>
         <FormField label="Notice period">
-          <Input value={notice} onChange={(e) => setNotice(e.target.value)} disabled={state === "submitting"} placeholder="e.g. Immediate / 1 month" />
+          <Input
+            value={notice}
+            onChange={(e) => setNotice(e.target.value)}
+            disabled={state === "submitting"}
+            placeholder="e.g. Immediate / 1 month"
+          />
         </FormField>
       </div>
 
@@ -108,19 +205,19 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
         >
           <FileUp className="h-4 w-4 text-primary" />
           <span className="truncate">
-            {cvName ? cvName : "Click to choose a file"}
+            {cvFile ? cvFile.name : "Click to choose a file"}
           </span>
         </label>
         <input
           id={`${jobSlug}-cv`}
           type="file"
-          accept=".pdf,.doc,.docx"
+          accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
-          onChange={(e) => setCvName(e.target.files?.[0]?.name ?? "")}
+          onChange={(e) => setCvFile(e.target.files?.[0] ?? null)}
           disabled={state === "submitting"}
         />
         <p className="text-xs text-muted-foreground">
-          Phase 10 wires the upload to secure storage with duplicate detection.
+          Max 10 MB. Identical CVs are deduplicated automatically.
         </p>
       </div>
 

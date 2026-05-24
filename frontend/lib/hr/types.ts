@@ -99,6 +99,79 @@ export interface JobOpening {
   updated_at: string;
 }
 
+// Candidates (Phase 10) ---------------------------------------------------
+
+export interface CandidateListItem {
+  id: number;
+  full_name: string;
+  email: string | null;
+  mobile: string | null;
+  current_designation: string | null;
+  total_experience_years: number | null;
+  source: string | null;
+  is_blacklisted: boolean;
+  is_archived: boolean;
+  created_at: string;
+}
+
+export interface CandidateDocument {
+  id: number;
+  filename: string;
+  file_path: string;
+  mime_type: string | null;
+  file_size: number | null;
+  file_hash: string | null;
+  is_primary: boolean;
+  uploaded_by_id: number | null;
+  created_at: string;
+}
+
+export interface Candidate {
+  id: number;
+  full_name: string;
+  email: string | null;
+  mobile: string | null;
+  nationality: string | null;
+  current_location: string | null;
+  current_designation: string | null;
+  current_company: string | null;
+  total_experience_years: number | null;
+  gcc_experience_years: number | null;
+  qatar_experience_years: number | null;
+  expected_salary: number | null;
+  notice_period: string | null;
+  visa_status: string | null;
+  availability: string | null;
+  is_blacklisted: boolean;
+  is_archived: boolean;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
+  documents: CandidateDocument[];
+}
+
+export interface ApplicationSubmissionResponse {
+  candidate_id: number;
+  application_id: number;
+  was_existing_candidate: boolean;
+  job_title: string | null;
+  job_slug: string | null;
+}
+
+export interface BulkUploadSkip {
+  name: string;
+  reason: string;
+}
+
+export interface BulkUploadResult {
+  total_files: number;
+  created_candidates: number;
+  matched_existing_candidates: number;
+  duplicate_applications_skipped: number;
+  skipped_files: BulkUploadSkip[];
+  candidate_ids: number[];
+}
+
 export interface HrAuditEntry {
   id: number;
   action: string;
