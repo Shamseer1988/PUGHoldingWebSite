@@ -8,7 +8,7 @@ import { ArrowRight, ChevronDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { Company } from "@/lib/admin/types";
-import { type NavItem } from "@/lib/site-config";
+import { PRIMARY_CTA, type NavItem } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
 interface MobileMenuProps {
@@ -97,7 +97,17 @@ export function MobileMenu({ open, onClose, items, companies }: MobileMenuProps)
               </ul>
             </nav>
 
-            <footer className="border-t border-border/60 px-5 py-4">
+            <footer className="space-y-3 border-t border-border/60 px-5 py-4">
+              <Button
+                asChild
+                size="sm"
+                className="h-11 w-full rounded-full bg-gradient-to-r from-pug-gold-600 to-pug-gold-500 text-sm font-semibold text-pug-green-950 shadow-[0_6px_22px_-12px_rgba(166,124,58,0.55)] motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 hover:from-pug-gold-500 hover:to-pug-gold-400 hover:text-pug-green-950 hover:shadow-[0_10px_28px_-12px_rgba(166,124,58,0.6)] focus-visible:ring-pug-gold-500 dark:text-pug-green-950"
+              >
+                <Link href={PRIMARY_CTA.href} onClick={onClose}>
+                  {PRIMARY_CTA.label}
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+              </Button>
               <p className="text-xs text-muted-foreground">
                 © {new Date().getFullYear()} Paris United Group Holding
               </p>
