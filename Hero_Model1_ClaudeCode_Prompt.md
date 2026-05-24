@@ -8,7 +8,7 @@
 
 This prompt builds **Model 1** — a cinematic dark, full-bleed hero carousel where each slide can independently be a **video**, an **image**, or a **gradient**. It replaces the gradient-only `components/site/hero-slider.tsx` and extends the `HeroSlide` data model end-to-end (Pydantic schema → SQLAlchemy model → Alembic migration → admin CRUD → admin editor UI → public API client → frontend renderer).
 
-Sample media uses Mux's public test asset during development; the schema is identical for self-hosted media later.
+Sample media uses **assets already present in `frontend/public/`** (`public/video/home/paris_group_banner.mp4` and `public/images/home/home_banner.jpg`). A Mux public test URL is provided as a fallback. The schema is identical for self-hosted media or future CDN-hosted media.
 
 Style direction: cinematic dark, AA-contrast overlays, layered text card lower-left, dual CTA, slim progress bar, slide counter, source credit chip. Behaviour: respects `prefers-reduced-motion`, pauses on tab hidden, supports keyboard arrows and swipe, SSRs the first slide for LCP.
 
@@ -38,6 +38,76 @@ Replace the current gradient-only home hero with a cinematic dark, full-bleed ca
 - Touch: swipe left/right via `pointerdown` / `pointerup` delta (≥ 50 px)
 - Screen readers: wrap the rotating text in `<div aria-live="polite" aria-atomic="true">`; indicators get `focus-visible:ring-2 ring-white/80 ring-offset-2 ring-offset-transparent`
 - Per-slide auto-advance duration via `duration_ms` (fallback 6500 ms)
+
+# Asset locations & conventions (READ THIS BEFORE TOUCHING CODE)
+
+The repo uses **two distinct asset locations** — do not mix them up:
+
+## A. Frontend static assets (committed to git, manually placed)
+
+Path: `frontend/public/` — served by Next.js at the URL root (`/`). Use this for **default/baseline assets that ship with the codebase**.
+
+Existing convention (already populated):
+- `frontend/public/images/<section>/<subsection>/<file>` — e.g. `public/images/home/home_banner.jpg`, `public/images/home/about/`, `public/images/home/services/`
+- `frontend/public/video/<section>/<file>` — e.g. `public/video/home/paris_group_banner.mp4`, `public/video/our-company/about_banner.mp4`
+
+For the hero specifically, create and use these subfolders:
+- `frontend/public/video/home/hero/` — hero video files (`.mp4`, optional `.webm`)
+- `frontend/public/images/home/hero/` — hero still-image slides
+- `frontend/public/images/home/hero/posters/` — video poster frames (~120 KB JPEG, first frame at 70 % quality)
+
+In the database, store these as **absolute web paths starting with `/`** — e.g.:
+```
+video_url:  "/video/home/hero/paris_group_banner.mp4"
+poster_url: "/images/home/hero/posters/paris_group_banner.jpg"
+image_url:  "/images/home/hero/retail.jpg"
+```
+
+The frontend `<video>` / `<img>` tags consume these paths as-is — Next.js serves them statically. The `resolveAssetUrl()` helper in `lib/public-api.ts` already passes through any path that starts with `/` unchanged, so no client change is needed.
+
+## B. Admin-uploaded assets (runtime, content-hashed)
+
+Path: backend `<upload_dir>/cms/` — served via the existing `StaticFiles` mount at `/api/v1/uploads/cms/<filename>`. Used by `components/admin/image-upload.tsx` → `POST /api/v1/admin/cms/uploads/image` (see `app/api/endpoints/admin_cms.py` ~line 740). Files are deduped by SHA-256 hash, returned URLs look like `/api/v1/uploads/cms/abc123def.jpg`.
+
+For the hero, the admin editor must support **both**:
+1. **Pasting a path** to an asset that already lives in `frontend/public/` (e.g. `/video/home/hero/x.mp4`) — preferred for hero defaults that should ship with the build
+2. **Uploading a new asset** via the existing image-upload component (stores in backend, returns `/api/v1/uploads/cms/...`) — preferred for marketing-team-managed slides
+
+Both URL shapes work in the renderer — no special handling required.
+
+## C. New backend upload endpoint for video
+
+Extend `app/api/endpoints/admin_cms.py` with a sibling endpoint:
+
+```
+POST /api/v1/admin/cms/uploads/video
+```
+
+Mirror the existing `upload_image` handler but:
+- `ALLOWED_VIDEO_MIME = {"video/mp4": "mp4", "video/webm": "webm"}`
+- `MAX_VIDEO_BYTES = 25 * 1024 * 1024` (25 MB hard cap — corporate sites should never autoplay larger)
+- Same content-hash dedupe, same `<upload_dir>/cms/` location, returns `/api/v1/uploads/cms/<hash>.<ext>`
+- Same audit log entry (action `cms.upload.video`)
+
+Extend `components/admin/image-upload.tsx` (or fork into `media-upload.tsx`) so it accepts an `accept` prop (`"image/*"` or `"video/mp4,video/webm"`) and calls the matching backend endpoint based on which one is in use.
+
+## D. Path validation (frontend types)
+
+In `lib/admin/types.ts`, the new media URL fields are typed as `string | null` — but add a runtime helper:
+
+```ts
+// lib/hero-assets.ts
+export function isLocalAsset(url: string | null): boolean {
+  return !!url && url.startsWith("/") && !url.startsWith("//");
+}
+export function isUploadedAsset(url: string | null): boolean {
+  return !!url && url.startsWith("/api/v1/uploads/");
+}
+```
+
+Use these in the admin editor to show a small badge ("Local · `/public/video/...`" vs "Uploaded · CMS") so admins know what they're looking at.
+
+---
 
 # Backend — schema changes
 
@@ -82,16 +152,36 @@ Use `op.add_column` / `op.drop_column`. Reference the latest existing migration 
 
 ## 4. Seed data
 
-Update `backend/app/scripts/seed_cms.py` so the seeded hero slides include at least one of each type:
-- Slide 1: `media_type="video"`, `video_url="https://stream.mux.com/VZtzUzGRv02OhRnZCxcjVPJHo7YuNwJSq/low.mp4"`, `poster_url="https://image.mux.com/VZtzUzGRv02OhRnZCxcjVPJHo7YuNwJSq/thumbnail.jpg?time=2"`, `video_credit="Mux sample"`
-- Slide 2: `media_type="image"`, `image_url="/images/hero/retail.jpg"` (placeholder path — admin will replace via upload)
-- Slide 3: `media_type="gradient"` with the existing PUG gradient
+Update `backend/app/scripts/seed_cms.py` so the seeded hero slides include at least one of each `media_type`, **prioritizing assets that already exist in `frontend/public/`**:
+
+- **Slide 1 (video, local asset that already ships in the repo):**
+  - `media_type="video"`
+  - `video_url="/video/home/paris_group_banner.mp4"`  *(already exists)*
+  - `poster_url="/images/home/home_banner.jpg"`  *(already exists)*
+  - `video_credit="Paris United Group"`
+  - `duration_ms=8000`
+- **Slide 2 (image, local asset):**
+  - `media_type="image"`
+  - `image_url="/images/home/home_banner.jpg"`  *(already exists — replace with a hero-specific JPG dropped into `/images/home/hero/` when one is provided)*
+  - `focal_x=50`, `focal_y=40`
+- **Slide 3 (gradient fallback):**
+  - `media_type="gradient"`
+  - Keep the existing PUG gradient string (`from-pug-green-700 via-pug-green-500 to-pug-gold-500`)
+- **Optional Slide 4 (video, remote Mux sample — only seeded in non-production envs, gated by env var):**
+  - `media_type="video"`
+  - `video_url="https://stream.mux.com/VZtzUzGRv02OhRnZCxcjVPJHo7YuNwJSq/low.mp4"`
+  - `poster_url="https://image.mux.com/VZtzUzGRv02OhRnZCxcjVPJHo7YuNwJSq/thumbnail.jpg?time=2"`
+  - `video_credit="Mux sample"`
+
+Before adding more hero subfolders or new assets, **check `frontend/public/video/home/` and `frontend/public/images/home/` first** — reuse what already ships.
 
 Seed must be idempotent (upsert by `title` or clear-and-reseed depending on how the file already works).
 
 # Backend — endpoints
 
-`backend/app/api/endpoints/admin_cms.py` and `backend/app/api/endpoints/public.py` already expose `HeroSlide` CRUD via `HeroSlideRead`. No new endpoints required — the schema extension is enough.
+`backend/app/api/endpoints/admin_cms.py` and `backend/app/api/endpoints/public.py` already expose `HeroSlide` CRUD via `HeroSlideRead`. No new CRUD endpoints required — the schema extension is enough.
+
+**New endpoint required**: `POST /api/v1/admin/cms/uploads/video` (see "Asset locations & conventions" section above for full spec). Mirror the existing `upload_image` handler, accept `video/mp4` + `video/webm`, cap at 25 MB.
 
 Add server-side validation: if `media_type='video'` and no `video_url`, return 422; same for `image`.
 
@@ -177,8 +267,15 @@ Delete `frontend/components/site/hero-slider.tsx` after the new `Hero` is wired 
 - Add `theme` toggle (Dark / Light)
 - Add `align` toggle (Left / Center)
 - Add `duration_ms` number input (placeholder "6500", optional)
-- Reuse `components/admin/image-upload.tsx` for `poster_url` and `image_url` uploads (uploads land in `app/uploads`, see existing pattern)
-- For `video_url`, accept a URL (no upload UI in v1 — admin pastes a Mux or self-hosted URL)
+- For `poster_url` and `image_url`: reuse `components/admin/image-upload.tsx` (uploads to `/api/v1/admin/cms/uploads/image` → returned URL stored as-is)
+- For `video_url` and `video_webm_url`: use the **new** media-upload component (or extended `image-upload` with `accept` prop) that calls `/api/v1/admin/cms/uploads/video`. Also accept manual URL entry so admins can paste:
+  - a local `frontend/public/` path (e.g. `/video/home/hero/x.mp4`)
+  - a CDN URL (Mux / Cloudflare Stream / Vimeo Pro direct MP4)
+- Next to each URL field, render a small badge using the `isLocalAsset` / `isUploadedAsset` helpers from `lib/hero-assets.ts`:
+  - `/video/...` or `/images/...` → blue badge "Local · /public asset"
+  - `/api/v1/uploads/cms/...` → green badge "Uploaded via CMS"
+  - `http(s)://...` → gray badge "External"
+- Add a help line under the video URL field: *"Drop new videos in `frontend/public/video/home/hero/` and reference them as `/video/home/hero/filename.mp4`, or upload via the button above."*
 - Validate client-side: video type requires `video_url`; image type requires `image_url`. Disable Save until valid.
 
 # Performance + a11y acceptance criteria
@@ -206,10 +303,11 @@ Frontend:
 # Out of scope for this PR
 
 - Hero on non-home pages (those use `PageHero`, untouched)
-- Server-side video transcoding / poster generation
-- Mux/Cloudflare Stream account wiring (we paste raw URLs for now)
+- Server-side video transcoding / poster generation (admin must upload an already-encoded `.mp4` and a separate poster `.jpg`)
+- Mux/Cloudflare Stream account wiring (we paste raw URLs or use the local upload endpoint)
 - Per-slide focal point cropping for video (only images get focal point in v1)
 - Theme=light variant styling (schema field accepted, renderer only ships `dark` in v1 — log a TODO)
+- Migrating existing miscellaneous assets in `public/images/` and `public/video/` into the new `home/hero/` subfolders — only place *new* hero assets there; leave the rest of the tree as it is
 
 # Working agreement
 
@@ -225,6 +323,8 @@ Frontend:
 
 Paste the entire fenced block above (everything between the triple backticks under `## PROMPT TO PASTE INTO CLAUDE CODE`) into a fresh Claude Code session. Claude Code will read the relevant files itself, print a plan, and wait for confirmation before editing.
 
-The sample Mux URL (`stream.mux.com/VZtzUzGRv02OhRnZCxcjVPJHo7YuNwJSq`) is a public test asset and is safe to use during development. Swap to your own Mux/Vimeo Pro asset or a self-hosted MP4 in `public/video/` when going live.
+The repo already ships with `frontend/public/video/home/paris_group_banner.mp4` and `frontend/public/images/home/home_banner.jpg` — the seed data uses these as the default Slide 1 so the hero works out of the box with zero extra asset prep. Drop additional hero footage into `frontend/public/video/home/hero/` and posters into `frontend/public/images/home/hero/posters/` as you produce them.
+
+The sample Mux URL (`stream.mux.com/VZtzUzGRv02OhRnZCxcjVPJHo7YuNwJSq`) is a public test asset and is safe to use during development. Swap to your own Mux/Vimeo Pro asset or another self-hosted MP4 when going live.
 
 The schema is forward-compatible: adding more media providers later (HLS, DASH, Cloudflare Stream) only requires a new `media_type` literal and a renderer branch in `hero-media.tsx` — no migration.
