@@ -429,6 +429,7 @@ class CandidateJobApplication(Base, TimestampMixin):
         back_populates="application",
         cascade="all, delete-orphan",
         order_by="CandidateStatusHistory.created_at",
+        lazy="selectin",
     )
     interviews: Mapped[List["Interview"]] = relationship(
         back_populates="application",

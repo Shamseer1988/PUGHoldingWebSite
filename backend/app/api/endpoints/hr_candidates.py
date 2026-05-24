@@ -55,8 +55,23 @@ from app.schemas.hr_ats import (
     CandidateScoreBreakdownRead,
     CandidateScoreOverride,
     CandidateScoreRead,
+    CandidateStatusChange,
+    CandidateStatusHistoryRead,
     CandidateUpdate,
     CvReparseResult,
+    StatusOption,
+    StatusPipelineMeta,
+)
+from app.services.candidate_workflow import (
+    InvalidTransitionError,
+    MissingReasonError,
+    PermissionDeniedError,
+    ALLOWED_TRANSITIONS,
+    FINAL_STATUSES,
+    PIPELINE_ORDER,
+    STATUS_LABELS,
+    allowed_next_statuses,
+    change_status,
 )
 from app.ai.candidate_review import (
     AIConfigError,
@@ -92,7 +107,9 @@ from app.services.cv_storage import (
 # ---------------------------------------------------------------------------
 
 
-def _serialize_application(app: CandidateJobApplication) -> CandidateApplicationSummary:
+def _serialize_application(
+    app: CandidateJobApplication, *, actor: Optional[User] = None
+) -> CandidateApplicationSummary:
     score = (
         CandidateScoreRead.model_validate(app.score) if app.score is not None else None
     )
@@ -103,20 +120,30 @@ def _serialize_application(app: CandidateJobApplication) -> CandidateApplication
         if app.ai_review is not None
         else None
     )
+    is_superuser = bool(actor and actor.is_superuser)
+    next_statuses = sorted(
+        allowed_next_statuses(app.status, actor_is_superuser=is_superuser)
+    )
     return CandidateApplicationSummary(
         id=app.id,
         status=app.status,
+        status_label=STATUS_LABELS.get(app.status, app.status),
         job_opening_id=app.job_opening_id,
         job_title=app.job_opening.title if app.job_opening is not None else None,
         applied_at=app.applied_at,
         source=app.source,
+        last_rejection_reason=app.last_rejection_reason,
         score=score,
         ai_review=ai_preview,
+        history_count=len(app.status_history) if app.status_history is not None else 0,
+        allowed_next_statuses=next_statuses,
     )
 
 
-def _serialize_candidate(candidate: Candidate) -> CandidateRead:
-    applications = [_serialize_application(a) for a in candidate.applications]
+def _serialize_candidate(
+    candidate: Candidate, *, actor: Optional[User] = None
+) -> CandidateRead:
+    applications = [_serialize_application(a, actor=actor) for a in candidate.applications]
     scores = [a.score.total for a in candidate.applications if a.score is not None]
     return CandidateRead(
         id=candidate.id,
@@ -150,7 +177,11 @@ def _serialize_candidate(candidate: Candidate) -> CandidateRead:
     )
 
 
-def _serialize_list_item(candidate: Candidate, top_score: Optional[int]) -> CandidateListItem:
+def _serialize_list_item(
+    candidate: Candidate,
+    top_score: Optional[int],
+    latest_status: Optional[str] = None,
+) -> CandidateListItem:
     return CandidateListItem(
         id=candidate.id,
         full_name=candidate.full_name,
@@ -163,6 +194,8 @@ def _serialize_list_item(candidate: Candidate, top_score: Optional[int]) -> Cand
         is_archived=candidate.is_archived,
         created_at=candidate.created_at,
         top_score=top_score,
+        latest_status=latest_status,
+        latest_status_label=STATUS_LABELS.get(latest_status) if latest_status else None,
     )
 
 
@@ -200,6 +233,7 @@ def list_candidates(
     # do N+1 lookups.
     cand_ids = [c.id for c in candidates]
     top_score_by_candidate: dict[int, int] = {}
+    latest_status_by_candidate: dict[int, str] = {}
     if cand_ids:
         rows = (
             db.execute(
@@ -215,18 +249,48 @@ def list_candidates(
         )
         top_score_by_candidate = {cid: total for cid, total in rows}
 
+        # Latest status = the application with the newest applied_at.
+        # Dialect-agnostic: pull (candidate_id, applied_at, status) and
+        # bucket in Python.
+        app_rows = (
+            db.execute(
+                select(
+                    CandidateJobApplication.candidate_id,
+                    CandidateJobApplication.applied_at,
+                    CandidateJobApplication.status,
+                ).where(CandidateJobApplication.candidate_id.in_(cand_ids))
+            )
+            .all()
+        )
+        latest_applied: dict[int, object] = {}
+        for cid_row, applied_at, status_row in app_rows:
+            if (
+                cid_row not in latest_applied
+                or applied_at > latest_applied[cid_row]
+            ):
+                latest_applied[cid_row] = applied_at
+                latest_status_by_candidate[cid_row] = status_row
+
     return [
-        _serialize_list_item(c, top_score_by_candidate.get(c.id))
+        _serialize_list_item(
+            c,
+            top_score_by_candidate.get(c.id),
+            latest_status_by_candidate.get(c.id),
+        )
         for c in candidates
     ]
 
 
 @router.get("/{candidate_id}", response_model=CandidateRead)
-def get_candidate(candidate_id: int, db: Session = Depends(get_db)) -> CandidateRead:
+def get_candidate(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateRead:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return _serialize_candidate(candidate)
+    return _serialize_candidate(candidate, actor=user)
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +526,7 @@ def update_candidate(
     candidate = _get_candidate_or_404(db, candidate_id)
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
-        return _serialize_candidate(candidate)
+        return _serialize_candidate(candidate, actor=user)
 
     changed: list[str] = []
     for field_name, value in updates.items():
@@ -502,7 +566,7 @@ def update_candidate(
         )
     db.commit()
     db.refresh(candidate)
-    return _serialize_candidate(candidate)
+    return _serialize_candidate(candidate, actor=user)
 
 
 _SCORING_RELEVANT_FIELDS = {
@@ -612,7 +676,7 @@ def reparse_candidate_cv_endpoint(
     if parsed is None:
         db.rollback()
         return CvReparseResult(
-            candidate=_serialize_candidate(candidate),
+            candidate=_serialize_candidate(candidate, actor=user),
             parsed=False,
             detail=(
                 "CV could not be parsed. Confirm the file is a valid PDF, "
@@ -647,7 +711,7 @@ def reparse_candidate_cv_endpoint(
     db.commit()
     db.refresh(candidate)
     return CvReparseResult(
-        candidate=_serialize_candidate(candidate),
+        candidate=_serialize_candidate(candidate, actor=user),
         parsed=True,
         parser_version=parsed.parser_version,
     )
@@ -982,3 +1046,131 @@ def delete_application_ai_review(
     )
     db.commit()
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 — Workflow / status pipeline endpoints
+# ---------------------------------------------------------------------------
+
+
+def _serialize_history(
+    entries: List, *, email_by_id: dict[int, str]
+) -> List[CandidateStatusHistoryRead]:
+    return [
+        CandidateStatusHistoryRead(
+            id=h.id,
+            application_id=h.application_id,
+            old_status=h.old_status,
+            new_status=h.new_status,
+            changed_by_id=h.changed_by_id,
+            changed_by_email=email_by_id.get(h.changed_by_id) if h.changed_by_id else None,
+            remarks=h.remarks,
+            rejection_reason=h.rejection_reason,
+            blacklist_approval=h.blacklist_approval,
+            created_at=h.created_at,
+        )
+        for h in entries
+    ]
+
+
+def _email_lookup(db: Session, user_ids: List[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    rows = (
+        db.execute(select(User.id, User.email).where(User.id.in_(set(user_ids))))
+        .all()
+    )
+    return {uid: email for uid, email in rows}
+
+
+@router.get("/workflow/meta", response_model=StatusPipelineMeta)
+def get_workflow_meta() -> StatusPipelineMeta:
+    """Public-to-HR metadata used by the status changer UI."""
+    return StatusPipelineMeta(
+        statuses=[
+            StatusOption(
+                value=status,
+                label=STATUS_LABELS[status],
+                is_final=status in FINAL_STATUSES,
+            )
+            for status in PIPELINE_ORDER
+        ],
+        transitions={
+            current: sorted(targets)
+            for current, targets in ALLOWED_TRANSITIONS.items()
+        },
+    )
+
+
+@router.get(
+    "/{candidate_id}/applications/{application_id}/status-history",
+    response_model=List[CandidateStatusHistoryRead],
+)
+def list_status_history(
+    candidate_id: int,
+    application_id: int,
+    db: Session = Depends(get_db),
+) -> List[CandidateStatusHistoryRead]:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    user_ids = [h.changed_by_id for h in app.status_history if h.changed_by_id]
+    emails = _email_lookup(db, user_ids)
+    return _serialize_history(list(app.status_history), email_by_id=emails)
+
+
+@router.post(
+    "/{candidate_id}/applications/{application_id}/status",
+    response_model=CandidateRead,
+)
+def change_application_status(
+    candidate_id: int,
+    application_id: int,
+    payload: CandidateStatusChange,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateRead:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    previous = app.status
+
+    try:
+        result = change_status(
+            db,
+            application=app,
+            new_status=payload.new_status,
+            actor=user,
+            remarks=payload.remarks,
+            rejection_reason=payload.rejection_reason,
+            blacklist_approval=payload.blacklist_approval,
+        )
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except MissingReasonError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.status.change",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_application",
+        target_id=str(app.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": candidate_id,
+            "application_id": application_id,
+            "previous_status": previous,
+            "new_status": result.new_status,
+            "remarks": payload.remarks,
+            "rejection_reason": payload.rejection_reason,
+            "blacklist_approval": payload.blacklist_approval,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(app.candidate)
+    return _serialize_candidate(app.candidate, actor=user)
