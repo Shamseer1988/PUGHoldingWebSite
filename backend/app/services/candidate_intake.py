@@ -46,6 +46,7 @@ from app.models.hr_ats import (
 )
 from app.services.cv_parser import CvParseError, ParsedCv, parse_cv
 from app.services.cv_storage import CvFileMetadata
+from app.services.candidate_scoring import compute_score, upsert_score
 
 
 logger = logging.getLogger(__name__)
@@ -304,6 +305,14 @@ def ingest_candidate_application(
             _persist_extracted_data(db, candidate, parsed)
             _merge_parsed_into_candidate(candidate, parsed)
             db.flush()
+
+    # Phase 12 — compute the rule-based score for this application.
+    if job is not None:
+        try:
+            result = compute_score(candidate=candidate, job=job)
+            upsert_score(db, application=application, result=result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Candidate scoring failed: %s", exc)
 
     return IntakeResult(
         candidate=candidate,

@@ -414,7 +414,10 @@ class CandidateJobApplication(Base, TimestampMixin):
     job_opening: Mapped[Optional[JobOpening]] = relationship(back_populates="applications")
 
     score: Mapped[Optional["CandidateScore"]] = relationship(
-        back_populates="application", uselist=False, cascade="all, delete-orphan"
+        back_populates="application",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
     ai_review: Mapped[Optional["CandidateAIReview"]] = relationship(
         back_populates="application", uselist=False, cascade="all, delete-orphan"
@@ -469,7 +472,10 @@ class CandidateScore(Base, TimestampMixin):
 
     application: Mapped[CandidateJobApplication] = relationship(back_populates="score")
     breakdown: Mapped[Optional["CandidateScoreBreakdown"]] = relationship(
-        back_populates="score", uselist=False, cascade="all, delete-orphan"
+        back_populates="score",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
 
