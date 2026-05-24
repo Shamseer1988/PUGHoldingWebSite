@@ -1,267 +1,191 @@
 "use client";
 
 import * as React from "react";
-import {
-  motion,
-  useInView,
-  type Variants,
-} from "framer-motion";
+import { motion, useInView } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 
 import { STATS, type StatItem } from "@/lib/dummy-data/site-content";
 import { cn } from "@/lib/utils";
 
 /**
- * Homepage stats — bento layout.
+ * Homepage stats — uniform card row with GSAP scroll choreography.
+ *
+ * Replaces the prior bento (whose dark-green hero slab clashed with
+ * the warm cream brand surface) with five equal glass-style cards.
+ * The visual interest comes from typography + a per-card hairline
+ * gold accent that draws in after the card settles, not from a heavy
+ * coloured tile.
  *
  * Layout:
- *   - lg+ : 3-column grid. The "hero" tile spans column 1 and rows 1-2.
- *           The four supporting tiles live in a nested 2-column grid
- *           that occupies the remaining 2 columns.
- *   - md  : 2-column grid. Hero spans the full row, then 2x2.
- *   - sm  : single column. Hero first, then the rest stacked.
+ *   - lg+ : five-up row
+ *   - md  : 3 + 2 (two rows)
+ *   - sm  : single column stack
  *
- * The hero is selected by `tile_variant === "hero"` — its position in
- * the source array doesn't matter. If no entry is flagged hero, every
- * tile falls back to the supporting grid (graceful degradation).
+ * Each card sits on the same `bg-card`-style glass with a subtle
+ * brand border, so light + dark look like reflections of one another
+ * — no jarring colour swap.
+ *
+ * Animation:
+ *   - GSAP ScrollTrigger drives the entry: cards fade-up + scale-in
+ *     with 80ms stagger, then the hairline accents scaleX 0 → 1 in
+ *     sequence.
+ *   - The count-up uses the existing IntersectionObserver +
+ *     requestAnimationFrame pattern (preserved verbatim from the
+ *     prior implementation).
+ *   - Both layers respect `prefers-reduced-motion: reduce` — cards
+ *     and accents render at their final state on first paint, and
+ *     the count-up snaps to the final value.
+ *
+ * The `tile_variant` / `sparkline_points` fields on StatItem stay
+ * supported for back-compat but no longer affect the layout. The
+ * optional `trend_percent` / `trend_label` still surface as a small
+ * pill in the top-right of any card that has them.
  */
 export function StatsStrip() {
-  const hero = STATS.find((s) => s.tile_variant === "hero");
-  const rest = STATS.filter((s) => s !== hero);
+  const sectionRef = React.useRef<HTMLUListElement | null>(null);
+  const cardRefs = React.useRef<(HTMLLIElement | null)[]>([]);
+  const accentRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    if (reduced) return;
+
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+
+    (async () => {
+      const { gsap } = await import("gsap");
+      const { ScrollTrigger } = await import("gsap/ScrollTrigger");
+      if (cancelled) return;
+      gsap.registerPlugin(ScrollTrigger);
+
+      const section = sectionRef.current;
+      const cards = cardRefs.current.filter(Boolean) as HTMLElement[];
+      const accents = accentRefs.current.filter(Boolean) as HTMLElement[];
+      if (!section || cards.length === 0) return;
+
+      const ctx = gsap.context(() => {
+        // Hide everything until the timeline runs, so first paint
+        // matches the animation starting position.
+        gsap.set(cards, { y: 32, opacity: 0, scale: 0.97 });
+        gsap.set(accents, { scaleX: 0, transformOrigin: "left center" });
+
+        const tl = gsap.timeline({
+          scrollTrigger: {
+            trigger: section,
+            start: "top 80%",
+            once: true,
+          },
+          defaults: { ease: "power3.out" },
+        });
+
+        tl.to(cards, {
+          y: 0,
+          opacity: 1,
+          scale: 1,
+          duration: 0.7,
+          stagger: 0.08,
+        });
+        if (accents.length) {
+          tl.to(
+            accents,
+            {
+              scaleX: 1,
+              duration: 0.5,
+              stagger: 0.08,
+              ease: "power2.out",
+            },
+            "-=0.35"
+          );
+        }
+      }, section);
+
+      cleanup = () => ctx.revert();
+    })();
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, []);
 
   return (
     <ul
+      ref={sectionRef}
       role="list"
-      className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 lg:auto-rows-fr"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-5"
     >
-      {hero && <HeroTile stat={hero} />}
-      <li
-        className={cn(
-          "grid grid-cols-1 gap-3 sm:grid-cols-2",
-          hero ? "lg:col-span-2" : "md:col-span-2 lg:col-span-3"
-        )}
-      >
-        <ul role="list" className="contents">
-          {rest.map((stat) => (
-            <Tile key={stat.label} stat={stat} />
-          ))}
-        </ul>
-      </li>
+      {STATS.map((stat, idx) => (
+        <li
+          key={stat.label}
+          ref={(el) => {
+            cardRefs.current[idx] = el;
+          }}
+          aria-label={ariaLabelFor(stat)}
+          className={cn(
+            "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-pug-green-900/[0.08] bg-white/70 p-5 backdrop-blur-sm shadow-[0_1px_2px_rgba(15,42,28,0.04)] sm:p-6",
+            "dark:border-white/10 dark:bg-white/[0.04]",
+            // Hover lift gated by motion-safe so reduced-motion users
+            // see no transform.
+            "motion-safe:transition-shadow motion-safe:duration-200",
+            "motion-safe:hover:shadow-[0_8px_24px_-12px_rgba(15,42,28,0.18)]",
+            "dark:motion-safe:hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]"
+          )}
+          style={{ willChange: "transform, opacity" }}
+        >
+          <header className="flex items-start justify-between gap-3">
+            <span
+              aria-hidden
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-pug-gold-500/25 bg-pug-gold-500/10 text-pug-gold-700 dark:text-pug-gold-300"
+            >
+              <stat.icon className="h-4 w-4" />
+            </span>
+            <TrendPill percent={stat.trend_percent} label={stat.trend_label} />
+          </header>
+
+          <strong className="mt-6 block text-[2.5rem] font-medium leading-none tracking-tight tabular-nums text-pug-green-900 dark:text-foreground sm:text-5xl">
+            <Counter target={stat.value} suffix={stat.suffix} />
+          </strong>
+
+          <div className="mt-3 space-y-2">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {stat.label}
+            </p>
+            <span
+              aria-hidden
+              ref={(el) => {
+                accentRefs.current[idx] = el;
+              }}
+              className="block h-px w-12 bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0"
+              style={{ willChange: "transform" }}
+            />
+          </div>
+        </li>
+      ))}
     </ul>
   );
 }
 
 
 // ---------------------------------------------------------------------------
-// Tiles
-// ---------------------------------------------------------------------------
-
-
-function HeroTile({ stat }: { stat: StatItem }) {
-  const Icon = stat.icon;
-  return (
-    <li
-      aria-label={ariaLabelFor(stat)}
-      className="motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md md:col-span-2 lg:col-span-1 lg:row-span-2"
-    >
-      <div
-        className={cn(
-          "pug-dotgrid relative isolate flex h-full min-h-[220px] flex-col overflow-hidden rounded-2xl bg-gradient-to-br from-pug-green-700 to-pug-green-800 p-6 text-white shadow-[0_8px_30px_-12px_rgba(15,42,28,0.45)]"
-        )}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-pug-gold-500/40 bg-pug-gold-500/20 text-pug-gold-300"
-          >
-            <Icon className="h-5 w-5" />
-          </span>
-          <TrendPill
-            percent={stat.trend_percent}
-            label={stat.trend_label}
-            tone="dark"
-          />
-        </div>
-
-        <strong className="mt-6 block text-[56px] font-medium leading-none tracking-tighter tabular-nums">
-          <Counter target={stat.value} suffix={stat.suffix} />
-        </strong>
-        <span className="mt-2 inline-block text-[11px] font-medium uppercase tracking-[0.18em] text-white/70">
-          {stat.label}
-        </span>
-
-        {stat.sparkline_points && stat.sparkline_points.length > 1 && (
-          <Sparkline
-            points={stat.sparkline_points}
-            className="pointer-events-none absolute bottom-3 right-3 h-9 w-[140px] opacity-50"
-          />
-        )}
-      </div>
-    </li>
-  );
-}
-
-
-function Tile({ stat }: { stat: StatItem }) {
-  if (stat.tile_variant === "accent") {
-    return <AccentTile stat={stat} />;
-  }
-  if (stat.tile_variant === "sectors") {
-    return <SectorsTile stat={stat} />;
-  }
-  return <DefaultTile stat={stat} />;
-}
-
-
-function DefaultTile({ stat }: { stat: StatItem }) {
-  const Icon = stat.icon;
-  return (
-    <li
-      aria-label={ariaLabelFor(stat)}
-      className="motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md"
-    >
-      <div
-        className={cn(
-          "relative flex h-full flex-col rounded-2xl border border-pug-green-900/10 bg-white p-[18px] shadow-[0_1px_2px_rgba(15,42,28,0.04)]",
-          "dark:border-border/40 dark:bg-card"
-        )}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-pug-gold-500/12 text-pug-gold-700 dark:text-pug-gold-300"
-          >
-            <Icon className="h-4 w-4" />
-          </span>
-          <TrendPill
-            percent={stat.trend_percent}
-            label={stat.trend_label}
-            tone="muted"
-          />
-        </div>
-
-        <span className="mt-4 inline-block text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          {stat.label}
-        </span>
-        <strong className="mt-1 block text-[30px] font-medium leading-tight tabular-nums text-pug-green-900 dark:text-foreground">
-          <Counter target={stat.value} suffix={stat.suffix} />
-        </strong>
-      </div>
-    </li>
-  );
-}
-
-
-function AccentTile({ stat }: { stat: StatItem }) {
-  const Icon = stat.icon;
-  // Decision A: dark forest-green text on the gold background clears
-  // WCAG AA. White-on-gold-500 lands at ~3.4:1 which is below the 4.5
-  // floor for body text.
-  return (
-    <li
-      aria-label={ariaLabelFor(stat)}
-      className="motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md"
-    >
-      <div className="relative flex h-full flex-col rounded-2xl bg-gradient-to-br from-pug-gold-500 to-pug-gold-400 p-[18px] text-pug-green-900 shadow-[0_1px_2px_rgba(80,55,15,0.10)]">
-        <div className="flex items-start justify-between gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-pug-green-900/15 text-pug-green-900"
-          >
-            <Icon className="h-4 w-4" />
-          </span>
-          <TrendPill
-            percent={stat.trend_percent}
-            label={stat.trend_label}
-            tone="on-gold"
-          />
-        </div>
-        <span className="mt-4 inline-block text-[9.5px] font-medium uppercase tracking-[0.18em] text-pug-green-900/80">
-          {stat.label}
-        </span>
-        <strong className="mt-1 block text-[30px] font-medium leading-tight tabular-nums">
-          <Counter target={stat.value} suffix={stat.suffix} />
-        </strong>
-      </div>
-    </li>
-  );
-}
-
-
-function SectorsTile({ stat }: { stat: StatItem }) {
-  const Icon = stat.icon;
-  return (
-    <li
-      aria-label={ariaLabelFor(stat)}
-      className="motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md"
-    >
-      <div
-        className={cn(
-          "relative flex h-full flex-col rounded-2xl border border-pug-green-900/10 bg-white p-[18px] shadow-[0_1px_2px_rgba(15,42,28,0.04)]",
-          "dark:border-border/40 dark:bg-card"
-        )}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-pug-gold-500/12 text-pug-gold-700 dark:text-pug-gold-300"
-          >
-            <Icon className="h-4 w-4" />
-          </span>
-          <TrendPill
-            percent={stat.trend_percent}
-            label={stat.trend_label}
-            tone="muted"
-          />
-        </div>
-        <span className="mt-4 inline-block text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          {stat.label}
-        </span>
-        <strong className="mt-1 block text-[30px] font-medium leading-tight tabular-nums text-pug-green-900 dark:text-foreground">
-          <Counter target={stat.value} suffix={stat.suffix} />
-        </strong>
-        <div aria-hidden className="mt-3 flex h-1 gap-1">
-          <span className="flex-1 rounded-full bg-pug-green-700" />
-          <span className="flex-1 rounded-full bg-pug-gold-500" />
-          <span className="flex-1 rounded-full bg-pug-green-500" />
-        </div>
-      </div>
-    </li>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
-// Trend pill
+// Trend pill — used in any card that defines trend_percent or trend_label
 // ---------------------------------------------------------------------------
 
 
 function TrendPill({
   percent,
   label,
-  tone = "dark",
 }: {
   percent?: number;
   label?: string;
-  tone?: "dark" | "muted" | "on-gold";
 }) {
   const text = label ?? (percent != null ? `+${percent}% YoY` : null);
   if (!text) return null;
-
-  const classes = {
-    dark: "bg-pug-gold-500/20 text-pug-gold-300 text-[10px]",
-    muted:
-      "border border-border/60 bg-background/60 text-muted-foreground text-[9px]",
-    "on-gold": "bg-pug-green-900/15 text-pug-green-900 text-[10px]",
-  } as const;
-
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium tracking-wide",
-        classes[tone]
-      )}
-    >
+    <span className="inline-flex items-center gap-1 rounded-full border border-pug-gold-500/25 bg-pug-gold-500/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-pug-gold-700 dark:text-pug-gold-300">
       <ArrowUpRight className="h-3 w-3" aria-hidden />
       {text}
     </span>
@@ -270,88 +194,9 @@ function TrendPill({
 
 
 // ---------------------------------------------------------------------------
-// Sparkline
-// ---------------------------------------------------------------------------
-
-
-function Sparkline({
-  points,
-  className,
-}: {
-  points: number[];
-  className?: string;
-}) {
-  const reduced = usePrefersReducedMotion();
-  const w = 200;
-  const h = 50;
-  const stepX = w / Math.max(1, points.length - 1);
-  const path = points
-    .map((p, i) => {
-      const x = i * stepX;
-      const y = h - p * h * 0.85 - 4;
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  const fillPath = `${path} L${w},${h} L0,${h} Z`;
-
-  // `pathLength` normalises stroke length so we can animate 0 → 1 without
-  // needing `getTotalLength()` from JS.
-  const lineVariants: Variants = reduced
-    ? {
-        hidden: { pathLength: 1, opacity: 1 },
-        visible: { pathLength: 1, opacity: 1 },
-      }
-    : {
-        hidden: { pathLength: 0, opacity: 0 },
-        visible: {
-          pathLength: 1,
-          opacity: 1,
-          transition: { duration: 1.2, ease: "easeOut", delay: 0.2 },
-        },
-      };
-  const fillVariants: Variants = reduced
-    ? { hidden: { opacity: 1 }, visible: { opacity: 1 } }
-    : {
-        hidden: { opacity: 0 },
-        visible: {
-          opacity: 1,
-          transition: { duration: 0.8, ease: "easeOut", delay: 0.6 },
-        },
-      };
-
-  return (
-    <motion.svg
-      viewBox={`0 0 ${w} ${h}`}
-      preserveAspectRatio="none"
-      className={className}
-      aria-hidden
-      initial="hidden"
-      whileInView="visible"
-      viewport={{ once: true, amount: 0.5 }}
-    >
-      <motion.path
-        d={fillPath}
-        fill="rgba(196,153,99,0.12)"
-        variants={fillVariants}
-      />
-      <motion.path
-        d={path}
-        fill="none"
-        stroke="#D4A574"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        variants={lineVariants}
-      />
-    </motion.svg>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
-// Counter — copied verbatim from the previous implementation, with a
-// `prefers-reduced-motion` short-circuit so reduced-motion users see
-// the final value on first paint.
+// Counter — animated number with IntersectionObserver trigger.
+// Preserves the prior implementation and adds the local reduced-motion
+// short-circuit so the test mock works reliably.
 // ---------------------------------------------------------------------------
 
 
@@ -415,12 +260,10 @@ function ariaLabelFor(stat: StatItem): string {
 /**
  * Local `prefers-reduced-motion: reduce` hook.
  *
- * We deliberately avoid framer-motion's `useReducedMotion` here because
- * it caches `matchMedia` into a module-scoped singleton on first call,
- * which makes the test mock unreliable (the singleton would freeze the
- * value from whichever test ran first). This local version reads
- * `matchMedia` synchronously at every fresh render of the component
- * tree, and subscribes to changes via the standard `change` event.
+ * We deliberately avoid framer-motion's `useReducedMotion` because it
+ * caches `matchMedia` into a module-scoped singleton, which makes
+ * the test mock unreliable. This local version reads the live
+ * media-query on first render and subscribes to changes.
  */
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = React.useState<boolean>(() => {
@@ -435,7 +278,6 @@ function usePrefersReducedMotion(): boolean {
     }
     const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
     const handler = () => setReduced(mql.matches);
-    // Older Safari only supports the legacy `addListener` API.
     if (typeof mql.addEventListener === "function") {
       mql.addEventListener("change", handler);
       return () => mql.removeEventListener("change", handler);
