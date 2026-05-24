@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 
+import { CandidateScorePanel } from "@/components/hr/candidate-score-panel";
+import { ScoreBadge } from "@/components/hr/score-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -283,9 +285,14 @@ export function CandidateDetailDrawer({
       <div className="flex w-full max-w-3xl flex-col bg-background shadow-2xl">
         <header className="flex items-start justify-between gap-3 border-b border-border/60 px-5 py-3">
           <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold">
-              {candidate?.full_name ?? "Loading candidate…"}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-base font-semibold">
+                {candidate?.full_name ?? "Loading candidate…"}
+              </h2>
+              {candidate?.top_score != null && (
+                <ScoreBadge total={candidate.top_score} compact />
+              )}
+            </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {candidate?.source && (
                 <Badge variant="muted" className="capitalize">
@@ -513,6 +520,13 @@ export function CandidateDetailDrawer({
                   </Field>
                 </div>
               </section>
+
+              {/* --- Scoring --- */}
+              <CandidateScorePanel
+                candidateId={candidate.id}
+                applications={candidate.applications}
+                onChanged={() => void load(candidate.id)}
+              />
 
               {/* --- Extracted data --- */}
               <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5">

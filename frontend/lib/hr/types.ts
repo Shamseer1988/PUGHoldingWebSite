@@ -112,6 +112,42 @@ export interface CandidateListItem {
   is_blacklisted: boolean;
   is_archived: boolean;
   created_at: string;
+  top_score: number | null;
+}
+
+export interface CandidateScoreBreakdown {
+  relevant_experience: number;
+  required_skills: number;
+  education: number;
+  industry_experience: number;
+  gcc_qatar_experience: number;
+  salary_fit: number;
+  notice_period: number;
+  visa_status: number;
+  language_match: number;
+  notes: Record<string, string> | null;
+}
+
+export interface CandidateScore {
+  id: number;
+  application_id: number;
+  total: number;
+  is_manual_override: boolean;
+  override_reason: string | null;
+  overridden_by_id: number | null;
+  overridden_at: string | null;
+  breakdown: CandidateScoreBreakdown | null;
+  updated_at: string | null;
+}
+
+export interface CandidateApplicationSummary {
+  id: number;
+  status: string;
+  job_opening_id: number | null;
+  job_title: string | null;
+  applied_at: string;
+  source: string | null;
+  score: CandidateScore | null;
 }
 
 export interface CandidateDocument {
@@ -173,6 +209,8 @@ export interface Candidate {
   updated_at: string;
   documents: CandidateDocument[];
   extracted_data: CandidateExtractedData | null;
+  applications: CandidateApplicationSummary[];
+  top_score: number | null;
 }
 
 export interface CvReparseResult {

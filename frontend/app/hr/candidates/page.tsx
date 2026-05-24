@@ -16,6 +16,7 @@ import {
 import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
+import { ScoreBadge } from "@/components/hr/score-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -152,6 +153,7 @@ export default function HrCandidatesPage() {
                 <TableHead>Candidate</TableHead>
                 <TableHead className="hidden md:table-cell">Contact</TableHead>
                 <TableHead className="hidden lg:table-cell w-24">Exp.</TableHead>
+                <TableHead className="w-24">Score</TableHead>
                 <TableHead className="hidden md:table-cell w-32">Source</TableHead>
                 <TableHead className="hidden lg:table-cell w-36">Created</TableHead>
                 <TableHead className="w-24 text-right">CV</TableHead>
@@ -239,6 +241,9 @@ function CandidateRow({
         {c.total_experience_years !== null
           ? `${c.total_experience_years}y`
           : "—"}
+      </TableCell>
+      <TableCell>
+        <ScoreBadge total={c.top_score} compact />
       </TableCell>
       <TableCell className="hidden md:table-cell">
         {c.source ? (

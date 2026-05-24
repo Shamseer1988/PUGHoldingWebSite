@@ -111,6 +111,46 @@ class CandidateDocumentRead(BaseModel):
     created_at: datetime
 
 
+class CandidateScoreBreakdownRead(BaseModel):
+    """Per-component score breakdown (Phase 12)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    relevant_experience: int = 0
+    required_skills: int = 0
+    education: int = 0
+    industry_experience: int = 0
+    gcc_qatar_experience: int = 0
+    salary_fit: int = 0
+    notice_period: int = 0
+    visa_status: int = 0
+    language_match: int = 0
+    notes: Optional[Dict[str, str]] = None
+
+
+class CandidateScoreRead(BaseModel):
+    """Total + breakdown + override metadata (Phase 12)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    total: int
+    is_manual_override: bool = False
+    override_reason: Optional[str] = None
+    overridden_by_id: Optional[int] = None
+    overridden_at: Optional[datetime] = None
+    breakdown: Optional[CandidateScoreBreakdownRead] = None
+    updated_at: Optional[datetime] = None
+
+
+class CandidateScoreOverride(BaseModel):
+    """Payload for POST .../score/override — reason is mandatory."""
+
+    total: int = Field(ge=0, le=100)
+    reason: str = Field(min_length=4, max_length=2000)
+
+
 class CandidateApplicationSummary(BaseModel):
     """Application row shown alongside the candidate (e.g. in lists)."""
 
@@ -122,6 +162,7 @@ class CandidateApplicationSummary(BaseModel):
     job_title: Optional[str] = None
     applied_at: datetime
     source: Optional[str] = None
+    score: Optional[CandidateScoreRead] = None
 
 
 class CandidateExtractedDataRead(BaseModel):
@@ -194,6 +235,8 @@ class CandidateRead(BaseModel):
     updated_at: datetime
     documents: List[CandidateDocumentRead] = Field(default_factory=list)
     extracted_data: Optional[CandidateExtractedDataRead] = None
+    applications: List[CandidateApplicationSummary] = Field(default_factory=list)
+    top_score: Optional[int] = None
 
 
 class CvReparseResult(BaseModel):
@@ -218,6 +261,7 @@ class CandidateListItem(BaseModel):
     is_blacklisted: bool
     is_archived: bool
     created_at: datetime
+    top_score: Optional[int] = None
 
 
 class ApplicationSubmissionResponse(BaseModel):

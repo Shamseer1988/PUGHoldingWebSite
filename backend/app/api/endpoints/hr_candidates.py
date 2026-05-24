@@ -35,16 +35,22 @@ from app.models.hr_ats import (
     Candidate,
     CandidateExtractedData,
     CandidateJobApplication,
+    CandidateScore,
     JobOpening,
 )
 from app.schemas.hr_ats import (
     ApplicationSubmissionResponse,
     BulkUploadResult,
     BulkUploadSkip,
+    CandidateApplicationSummary,
+    CandidateDocumentRead,
     CandidateExtractedDataRead,
     CandidateExtractedDataUpdate,
     CandidateListItem,
     CandidateRead,
+    CandidateScoreBreakdownRead,
+    CandidateScoreOverride,
+    CandidateScoreRead,
     CandidateUpdate,
     CvReparseResult,
 )
@@ -55,11 +61,91 @@ from app.services.candidate_intake import (
     ingest_candidate_application,
     reparse_candidate_cv,
 )
+from app.services.candidate_scoring import (
+    TOTAL_MAX,
+    apply_manual_override,
+    clear_manual_override,
+    compute_score,
+    upsert_score,
+)
 from app.services.cv_storage import (
     CvUploadError,
     extract_cvs_from_zip,
     store_cv_bytes,
 )
+
+
+# ---------------------------------------------------------------------------
+# Serializers
+# ---------------------------------------------------------------------------
+
+
+def _serialize_application(app: CandidateJobApplication) -> CandidateApplicationSummary:
+    score = (
+        CandidateScoreRead.model_validate(app.score) if app.score is not None else None
+    )
+    if score is not None and app.score is not None and app.score.breakdown is not None:
+        score.breakdown = CandidateScoreBreakdownRead.model_validate(app.score.breakdown)
+    return CandidateApplicationSummary(
+        id=app.id,
+        status=app.status,
+        job_opening_id=app.job_opening_id,
+        job_title=app.job_opening.title if app.job_opening is not None else None,
+        applied_at=app.applied_at,
+        source=app.source,
+        score=score,
+    )
+
+
+def _serialize_candidate(candidate: Candidate) -> CandidateRead:
+    applications = [_serialize_application(a) for a in candidate.applications]
+    scores = [a.score.total for a in candidate.applications if a.score is not None]
+    return CandidateRead(
+        id=candidate.id,
+        full_name=candidate.full_name,
+        email=candidate.email,
+        mobile=candidate.mobile,
+        nationality=candidate.nationality,
+        current_location=candidate.current_location,
+        current_designation=candidate.current_designation,
+        current_company=candidate.current_company,
+        total_experience_years=candidate.total_experience_years,
+        gcc_experience_years=candidate.gcc_experience_years,
+        qatar_experience_years=candidate.qatar_experience_years,
+        expected_salary=candidate.expected_salary,
+        notice_period=candidate.notice_period,
+        visa_status=candidate.visa_status,
+        availability=candidate.availability,
+        is_blacklisted=candidate.is_blacklisted,
+        is_archived=candidate.is_archived,
+        source=candidate.source,
+        created_at=candidate.created_at,
+        updated_at=candidate.updated_at,
+        documents=[CandidateDocumentRead.model_validate(d) for d in candidate.documents],
+        extracted_data=(
+            CandidateExtractedDataRead.model_validate(candidate.extracted_data)
+            if candidate.extracted_data is not None
+            else None
+        ),
+        applications=applications,
+        top_score=max(scores) if scores else None,
+    )
+
+
+def _serialize_list_item(candidate: Candidate, top_score: Optional[int]) -> CandidateListItem:
+    return CandidateListItem(
+        id=candidate.id,
+        full_name=candidate.full_name,
+        email=candidate.email,
+        mobile=candidate.mobile,
+        current_designation=candidate.current_designation,
+        total_experience_years=candidate.total_experience_years,
+        source=candidate.source,
+        is_blacklisted=candidate.is_blacklisted,
+        is_archived=candidate.is_archived,
+        created_at=candidate.created_at,
+        top_score=top_score,
+    )
 
 
 router = APIRouter(
@@ -79,7 +165,7 @@ def list_candidates(
     db: Session = Depends(get_db),
     include_archived: bool = Query(default=False),
     q: Optional[str] = Query(default=None, max_length=200),
-) -> List[Candidate]:
+) -> List[CandidateListItem]:
     stmt = select(Candidate).order_by(desc(Candidate.created_at), desc(Candidate.id))
     if not include_archived:
         stmt = stmt.where(Candidate.is_archived.is_(False))
@@ -90,15 +176,39 @@ def list_candidates(
             | (func.lower(Candidate.email).like(like))
             | (Candidate.mobile.like(f"%{q}%"))
         )
-    return db.execute(stmt).scalars().all()
+    candidates = db.execute(stmt).scalars().all()
+
+    # Compute the top score per candidate in a single query so we don't
+    # do N+1 lookups.
+    cand_ids = [c.id for c in candidates]
+    top_score_by_candidate: dict[int, int] = {}
+    if cand_ids:
+        rows = (
+            db.execute(
+                select(
+                    CandidateJobApplication.candidate_id,
+                    func.max(CandidateScore.total),
+                )
+                .join(CandidateScore, CandidateScore.application_id == CandidateJobApplication.id)
+                .where(CandidateJobApplication.candidate_id.in_(cand_ids))
+                .group_by(CandidateJobApplication.candidate_id)
+            )
+            .all()
+        )
+        top_score_by_candidate = {cid: total for cid, total in rows}
+
+    return [
+        _serialize_list_item(c, top_score_by_candidate.get(c.id))
+        for c in candidates
+    ]
 
 
 @router.get("/{candidate_id}", response_model=CandidateRead)
-def get_candidate(candidate_id: int, db: Session = Depends(get_db)) -> Candidate:
+def get_candidate(candidate_id: int, db: Session = Depends(get_db)) -> CandidateRead:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return candidate
+    return _serialize_candidate(candidate)
 
 
 # ---------------------------------------------------------------------------
@@ -330,11 +440,11 @@ def update_candidate(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
-) -> Candidate:
+) -> CandidateRead:
     candidate = _get_candidate_or_404(db, candidate_id)
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
-        return candidate
+        return _serialize_candidate(candidate)
 
     changed: list[str] = []
     for field_name, value in updates.items():
@@ -343,6 +453,19 @@ def update_candidate(
         if getattr(candidate, field_name) != value:
             setattr(candidate, field_name, value)
             changed.append(field_name)
+
+    # Phase 12: when scoring inputs change, re-run the engine on each
+    # application that has an open job opening (manual overrides are
+    # preserved by upsert_score).
+    if changed and _changes_affect_score(changed):
+        for app in candidate.applications:
+            if app.job_opening is None:
+                continue
+            try:
+                result = compute_score(candidate=candidate, job=app.job_opening)
+                upsert_score(db, application=app, result=result)
+            except Exception:  # noqa: BLE001
+                pass
 
     if changed:
         ctx = get_request_context(request)
@@ -361,7 +484,25 @@ def update_candidate(
         )
     db.commit()
     db.refresh(candidate)
-    return candidate
+    return _serialize_candidate(candidate)
+
+
+_SCORING_RELEVANT_FIELDS = {
+    "nationality",
+    "current_location",
+    "current_designation",
+    "current_company",
+    "total_experience_years",
+    "gcc_experience_years",
+    "qatar_experience_years",
+    "expected_salary",
+    "notice_period",
+    "visa_status",
+}
+
+
+def _changes_affect_score(changed: list[str]) -> bool:
+    return any(field in _SCORING_RELEVANT_FIELDS for field in changed)
 
 
 @router.get(
@@ -453,13 +594,23 @@ def reparse_candidate_cv_endpoint(
     if parsed is None:
         db.rollback()
         return CvReparseResult(
-            candidate=CandidateRead.model_validate(candidate),
+            candidate=_serialize_candidate(candidate),
             parsed=False,
             detail=(
                 "CV could not be parsed. Confirm the file is a valid PDF, "
                 "DOCX, or image; legacy .doc files must be re-saved as DOCX."
             ),
         )
+
+    # Phase 12 — re-run scoring now that the extracted data has refreshed.
+    for app in candidate.applications:
+        if app.job_opening is None:
+            continue
+        try:
+            result = compute_score(candidate=candidate, job=app.job_opening)
+            upsert_score(db, application=app, result=result)
+        except Exception:  # noqa: BLE001
+            pass
 
     ctx = get_request_context(request)
     record_audit(
@@ -478,7 +629,210 @@ def reparse_candidate_cv_endpoint(
     db.commit()
     db.refresh(candidate)
     return CvReparseResult(
-        candidate=CandidateRead.model_validate(candidate),
+        candidate=_serialize_candidate(candidate),
         parsed=True,
         parser_version=parsed.parser_version,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 — Candidate score endpoints
+# ---------------------------------------------------------------------------
+
+
+def _get_application_or_404(
+    db: Session, candidate_id: int, application_id: int
+) -> CandidateJobApplication:
+    candidate = _get_candidate_or_404(db, candidate_id)
+    app = next((a for a in candidate.applications if a.id == application_id), None)
+    if app is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Application not found for this candidate.",
+        )
+    return app
+
+
+def _serialize_score(score: CandidateScore) -> CandidateScoreRead:
+    payload = CandidateScoreRead.model_validate(score)
+    if score.breakdown is not None:
+        payload.breakdown = CandidateScoreBreakdownRead.model_validate(score.breakdown)
+    return payload
+
+
+@router.get(
+    "/{candidate_id}/applications/{application_id}/score",
+    response_model=CandidateScoreRead,
+)
+def get_application_score(
+    candidate_id: int,
+    application_id: int,
+    db: Session = Depends(get_db),
+) -> CandidateScoreRead:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    if app.score is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No score yet — run POST .../score/recompute to generate one.",
+        )
+    return _serialize_score(app.score)
+
+
+@router.post(
+    "/{candidate_id}/applications/{application_id}/score/recompute",
+    response_model=CandidateScoreRead,
+)
+def recompute_application_score(
+    candidate_id: int,
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateScoreRead:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    if app.job_opening is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Application is not linked to a job opening — cannot score.",
+        )
+    result = compute_score(candidate=app.candidate, job=app.job_opening)
+    # When the score is currently manually overridden, recompute still
+    # refreshes the breakdown for transparency but keeps the override.
+    score = upsert_score(db, application=app, result=result)
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.score.recompute",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_score",
+        target_id=str(score.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": candidate_id,
+            "application_id": application_id,
+            "total": score.total,
+            "computed_total": result.total,
+            "kept_override": score.is_manual_override,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(score)
+    return _serialize_score(score)
+
+
+@router.post(
+    "/{candidate_id}/applications/{application_id}/score/override",
+    response_model=CandidateScoreRead,
+)
+def override_application_score(
+    candidate_id: int,
+    application_id: int,
+    payload: CandidateScoreOverride,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateScoreRead:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    if app.score is None:
+        # Compute first so the breakdown is populated for context.
+        if app.job_opening is not None:
+            result = compute_score(candidate=app.candidate, job=app.job_opening)
+            upsert_score(db, application=app, result=result)
+            db.flush()
+        else:
+            # No job → still create an empty score row so we can override it.
+            new = CandidateScore(application_id=app.id, total=0)
+            db.add(new)
+            db.flush()
+
+    previous_total = app.score.total if app.score else 0
+    try:
+        apply_manual_override(
+            db,
+            score=app.score,
+            new_total=payload.total,
+            reason=payload.reason,
+            overridden_by_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.score.override",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_score",
+        target_id=str(app.score.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": candidate_id,
+            "application_id": application_id,
+            "previous_total": previous_total,
+            "new_total": payload.total,
+            "reason": payload.reason,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(app.score)
+    return _serialize_score(app.score)
+
+
+@router.delete(
+    "/{candidate_id}/applications/{application_id}/score/override",
+    response_model=CandidateScoreRead,
+)
+def clear_application_score_override(
+    candidate_id: int,
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateScoreRead:
+    app = _get_application_or_404(db, candidate_id, application_id)
+    if app.score is None:
+        raise HTTPException(status_code=404, detail="No score to clear.")
+    if not app.score.is_manual_override:
+        return _serialize_score(app.score)
+
+    # Recompute fresh so we can restore the engine total.
+    auto_total: Optional[int] = None
+    if app.job_opening is not None:
+        result = compute_score(candidate=app.candidate, job=app.job_opening)
+        upsert_score(db, application=app, result=result, preserve_manual_override=True)
+        auto_total = result.total
+
+    previous_total = app.score.total
+    clear_manual_override(db, score=app.score, auto_total=auto_total)
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.score.override.clear",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_score",
+        target_id=str(app.score.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "candidate_id": candidate_id,
+            "application_id": application_id,
+            "previous_total": previous_total,
+            "restored_total": app.score.total,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(app.score)
+    return _serialize_score(app.score)
