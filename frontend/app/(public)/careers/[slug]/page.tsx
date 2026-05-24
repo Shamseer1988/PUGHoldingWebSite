@@ -18,34 +18,47 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   EMPLOYMENT_TYPE_LABELS,
-  getJobBySlug,
-  getJobs,
-} from "@/lib/dummy-data/jobs";
+  getPublicJobBySlug,
+  getPublicJobs,
+  splitLines,
+  splitSkills,
+} from "@/lib/public-api";
 
-export function generateStaticParams() {
-  return getJobs().map((j) => ({ slug: j.slug }));
+export const revalidate = 60;
+
+export async function generateStaticParams() {
+  const jobs = await getPublicJobs();
+  return jobs.map((j) => ({ slug: j.slug }));
 }
 
 interface JobDetailPageProps {
   params: { slug: string };
 }
 
-export function generateMetadata({ params }: JobDetailPageProps) {
-  const job = getJobBySlug(params.slug);
-  return { title: job ? job.title : "Job not found" };
+export async function generateMetadata({ params }: JobDetailPageProps) {
+  const job = await getPublicJobBySlug(params.slug);
+  return {
+    title: job ? job.title : "Job not found",
+    description: job?.description ?? undefined,
+  };
 }
 
-export default function JobDetailPage({ params }: JobDetailPageProps) {
-  const job = getJobBySlug(params.slug);
-  if (!job || job.status !== "open") notFound();
+export default async function JobDetailPage({ params }: JobDetailPageProps) {
+  const job = await getPublicJobBySlug(params.slug);
+  if (!job) notFound();
+
+  const responsibilities = splitLines(job.responsibilities);
+  const requirements = splitLines(job.requirements);
+  const requiredSkills = splitSkills(job.required_skills);
+  const preferredSkills = splitSkills(job.preferred_skills);
 
   return (
     <>
       <PageHero
         eyebrow={job.department}
         title={job.title}
-        description={job.description}
-        accent="from-sky-500 via-blue-500 to-indigo-500"
+        description={job.description ?? undefined}
+        accent="from-pug-green-500 via-pug-gold-500 to-pug-gold-700"
       >
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="muted" className="inline-flex items-center gap-1">
@@ -58,10 +71,10 @@ export default function JobDetailPage({ params }: JobDetailPageProps) {
           </Badge>
           <Badge variant="muted" className="inline-flex items-center gap-1">
             <Briefcase className="h-3 w-3" />
-            {job.minExperience}–{job.maxExperience} years
+            {job.min_experience}–{job.max_experience} years
           </Badge>
           <Badge variant="muted">
-            {EMPLOYMENT_TYPE_LABELS[job.employmentType]}
+            {EMPLOYMENT_TYPE_LABELS[job.employment_type]}
           </Badge>
         </div>
       </PageHero>
@@ -69,57 +82,65 @@ export default function JobDetailPage({ params }: JobDetailPageProps) {
       <Section className="pt-12">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
           <div className="space-y-6">
-            <GlassCard className="p-6 sm:p-8">
-              <h2 className="text-xl font-semibold tracking-tight">
-                Responsibilities
-              </h2>
-              <ul className="mt-4 space-y-2 text-sm text-foreground/90">
-                {job.responsibilities.map((r) => (
-                  <li
-                    key={r}
-                    className="flex items-start gap-2 before:mt-2 before:inline-block before:h-1.5 before:w-1.5 before:shrink-0 before:rounded-full before:bg-primary"
-                  >
-                    <span>{r}</span>
-                  </li>
-                ))}
-              </ul>
-            </GlassCard>
+            {responsibilities.length > 0 && (
+              <GlassCard className="p-6 sm:p-8">
+                <h2 className="text-xl font-semibold tracking-tight">
+                  Responsibilities
+                </h2>
+                <ul className="mt-4 space-y-2 text-sm text-foreground/90">
+                  {responsibilities.map((r) => (
+                    <li
+                      key={r}
+                      className="flex items-start gap-2 before:mt-2 before:inline-block before:h-1.5 before:w-1.5 before:shrink-0 before:rounded-full before:bg-primary"
+                    >
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </GlassCard>
+            )}
 
             <GlassCard className="p-6 sm:p-8">
               <h2 className="text-xl font-semibold tracking-tight">
                 Requirements
               </h2>
-              <ul className="mt-4 space-y-2 text-sm text-foreground/90">
-                {job.requirements.map((r) => (
-                  <li
-                    key={r}
-                    className="flex items-start gap-2 before:mt-2 before:inline-block before:h-1.5 before:w-1.5 before:shrink-0 before:rounded-full before:bg-primary"
-                  >
-                    <span>{r}</span>
-                  </li>
-                ))}
-              </ul>
+              {requirements.length > 0 && (
+                <ul className="mt-4 space-y-2 text-sm text-foreground/90">
+                  {requirements.map((r) => (
+                    <li
+                      key={r}
+                      className="flex items-start gap-2 before:mt-2 before:inline-block before:h-1.5 before:w-1.5 before:shrink-0 before:rounded-full before:bg-primary"
+                    >
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
-              <h3 className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Required skills
-              </h3>
-              <ul className="mt-2 flex flex-wrap gap-1.5">
-                {job.requiredSkills.map((skill) => (
-                  <li key={skill}>
-                    <Badge variant="soft" className="font-normal">
-                      {skill}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
+              {requiredSkills.length > 0 && (
+                <>
+                  <h3 className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Required skills
+                  </h3>
+                  <ul className="mt-2 flex flex-wrap gap-1.5">
+                    {requiredSkills.map((skill) => (
+                      <li key={skill}>
+                        <Badge variant="soft" className="font-normal">
+                          {skill}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
 
-              {job.preferredSkills && job.preferredSkills.length > 0 && (
+              {preferredSkills.length > 0 && (
                 <>
                   <h3 className="mt-5 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Nice to have
                   </h3>
                   <ul className="mt-2 flex flex-wrap gap-1.5">
-                    {job.preferredSkills.map((skill) => (
+                    {preferredSkills.map((skill) => (
                       <li key={skill}>
                         <Badge variant="outline" className="font-normal">
                           {skill}
@@ -161,24 +182,24 @@ export default function JobDetailPage({ params }: JobDetailPageProps) {
                 <Fact
                   icon={<Briefcase className="h-4 w-4" />}
                   label="Experience"
-                  value={`${job.minExperience}–${job.maxExperience} years`}
+                  value={`${job.min_experience}–${job.max_experience} years`}
                 />
-                {job.education && (
+                {job.required_education && (
                   <Fact
                     icon={<GraduationCap className="h-4 w-4" />}
                     label="Education"
-                    value={job.education}
+                    value={job.required_education}
                   />
                 )}
                 <Fact
                   icon={<Clock className="h-4 w-4" />}
                   label="Employment"
-                  value={EMPLOYMENT_TYPE_LABELS[job.employmentType]}
+                  value={EMPLOYMENT_TYPE_LABELS[job.employment_type]}
                 />
                 <Fact
                   icon={<CalendarDays className="h-4 w-4" />}
                   label="Posted"
-                  value={new Date(job.postedAt).toLocaleDateString(undefined, {
+                  value={new Date(job.posted_at).toLocaleDateString(undefined, {
                     year: "numeric",
                     month: "long",
                     day: "numeric",

@@ -63,6 +63,42 @@ export interface DashboardSummary {
   pending_offers: OfferSummary[];
 }
 
+// Job openings -----------------------------------------------------------
+
+export type JobStatus = "open" | "on_hold" | "closed";
+export type EmploymentType = "full_time" | "part_time" | "contract";
+
+export interface JobOpening {
+  id: number;
+  slug: string;
+  title: string;
+  department: string;
+  division: string | null;
+  company: string;
+  location: string;
+  employment_type: EmploymentType;
+  min_experience: number;
+  max_experience: number;
+  required_education: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  visa_requirement: string | null;
+  nationality_preference: string | null;
+  language_requirement: string | null;
+  notice_period_preference: string | null;
+  description: string | null;
+  responsibilities: string | null;
+  requirements: string | null;
+  required_skills: string | null;
+  preferred_skills: string | null;
+  status: JobStatus;
+  posted_at: string;
+  closed_at: string | null;
+  created_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface HrAuditEntry {
   id: number;
   action: string;

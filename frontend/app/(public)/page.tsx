@@ -12,27 +12,26 @@ import { SectorCards } from "@/components/site/sector-cards";
 import { StatsStrip } from "@/components/site/stats-strip";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/site/glass-card";
-import { getJobs } from "@/lib/dummy-data/jobs";
 import {
   getFeaturedCompaniesSection,
   getHeroSlides,
   getLeadership,
   getNews,
+  getPublicJobs,
   getSiteSettings,
 } from "@/lib/public-api";
 
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const [hero, featured, leadership, news, settings] = await Promise.all([
+  const [hero, featured, leadership, news, settings, openJobs] = await Promise.all([
     getHeroSlides(),
     getFeaturedCompaniesSection(),
     getLeadership(),
     getNews({ limit: 3 }),
     getSiteSettings(),
+    getPublicJobs(),
   ]);
-
-  const openJobs = getJobs(); // Phase 9 will wire jobs to the ATS API.
 
   const phone = settings.contact_phone ?? "+974 0000 0000";
   const whatsapp = settings.whatsapp_number ?? "+97400000000";

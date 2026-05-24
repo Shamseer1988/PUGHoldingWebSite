@@ -5,20 +5,23 @@ import { GlassCard } from "@/components/site/glass-card";
 import { Badge } from "@/components/ui/badge";
 import {
   EMPLOYMENT_TYPE_LABELS,
-  type JobOpening,
-} from "@/lib/dummy-data/jobs";
+  splitSkills,
+  type PublicJob,
+} from "@/lib/public-api";
 
 interface JobCardProps {
-  job: JobOpening;
+  job: PublicJob;
 }
 
 export function JobCard({ job }: JobCardProps) {
+  const requiredSkills = splitSkills(job.required_skills);
+
   return (
     <Link href={`/careers/${job.slug}`} className="group block h-full">
       <GlassCard className="flex h-full flex-col p-5 transition-transform group-hover:-translate-y-1">
         <div className="flex items-start justify-between gap-3">
           <Badge variant="soft">{job.department}</Badge>
-          <Badge variant="muted">{EMPLOYMENT_TYPE_LABELS[job.employmentType]}</Badge>
+          <Badge variant="muted">{EMPLOYMENT_TYPE_LABELS[job.employment_type]}</Badge>
         </div>
 
         <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight">
@@ -33,11 +36,12 @@ export function JobCard({ job }: JobCardProps) {
           </li>
           <li className="inline-flex items-center gap-1.5">
             <Briefcase className="h-3.5 w-3.5" />
-            {job.minExperience}–{job.maxExperience} years
+            {job.min_experience}–{job.max_experience} years
           </li>
           <li className="inline-flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5" />
-            Posted {new Date(job.postedAt).toLocaleDateString(undefined, {
+            Posted{" "}
+            {new Date(job.posted_at).toLocaleDateString(undefined, {
               year: "numeric",
               month: "short",
               day: "numeric",
@@ -45,9 +49,9 @@ export function JobCard({ job }: JobCardProps) {
           </li>
         </ul>
 
-        {job.requiredSkills.length > 0 && (
+        {requiredSkills.length > 0 && (
           <ul className="mt-4 flex flex-wrap gap-1.5">
-            {job.requiredSkills.slice(0, 4).map((skill) => (
+            {requiredSkills.slice(0, 4).map((skill) => (
               <li key={skill}>
                 <Badge variant="outline" className="font-normal">
                   {skill}

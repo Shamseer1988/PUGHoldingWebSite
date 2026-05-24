@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
   EMPLOYMENT_TYPE_LABELS,
+  splitSkills,
   type EmploymentType,
-  type JobOpening,
-} from "@/lib/dummy-data/jobs";
+  type PublicJob,
+} from "@/lib/public-api";
 
 export interface JobFilterState {
   query: string;
@@ -155,10 +156,14 @@ function FilterSelect({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Pure helpers — derive option lists + apply filters in memory.
+// ---------------------------------------------------------------------------
+
 export function applyJobFilters(
-  jobs: JobOpening[],
+  jobs: PublicJob[],
   filters: JobFilterState
-): JobOpening[] {
+): PublicJob[] {
   const q = filters.query.trim().toLowerCase();
   return jobs.filter((job) => {
     if (filters.department && job.department !== filters.department) return false;
@@ -166,7 +171,7 @@ export function applyJobFilters(
     if (filters.location && job.location !== filters.location) return false;
     if (
       filters.employmentType &&
-      job.employmentType !== filters.employmentType
+      job.employment_type !== filters.employmentType
     )
       return false;
     if (q) {
@@ -175,8 +180,8 @@ export function applyJobFilters(
         job.company,
         job.department,
         job.location,
-        ...job.requiredSkills,
-        ...(job.preferredSkills ?? []),
+        ...splitSkills(job.required_skills),
+        ...splitSkills(job.preferred_skills),
       ]
         .join(" ")
         .toLowerCase();
@@ -184,4 +189,16 @@ export function applyJobFilters(
     }
     return true;
   });
+}
+
+export function deriveDepartments(jobs: PublicJob[]): string[] {
+  return Array.from(new Set(jobs.map((j) => j.department))).sort();
+}
+
+export function deriveJobCompanies(jobs: PublicJob[]): string[] {
+  return Array.from(new Set(jobs.map((j) => j.company))).sort();
+}
+
+export function deriveJobLocations(jobs: PublicJob[]): string[] {
+  return Array.from(new Set(jobs.map((j) => j.location))).sort();
 }
