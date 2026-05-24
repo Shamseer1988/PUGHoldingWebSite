@@ -48,6 +48,33 @@ Manual:
 - [ ] Sign-out button on each portal returns you to the login page and
       clears the token from `localStorage`.
 
+## Phase 7 — HR ATS database and core models
+
+Automated (pytest):
+
+- [x] 12 new model tests pass (53 total).
+- [x] `SCORE_WEIGHTS` sums to 100.
+- [x] Job opening round-trip + slug uniqueness.
+- [x] Candidate + documents + extracted_data + tags + notes round-trip.
+- [x] Candidate cascade delete removes documents / extracted data / tags.
+- [x] (candidate_id, tag) unique constraint enforced.
+- [x] Application unique on (candidate_id, job_opening_id).
+- [x] Score + breakdown + AI review round-trip.
+- [x] Status history persists.
+- [x] Interview + feedback round-trip.
+- [x] Offer round-trip + uniqueness per application.
+
+Manual:
+
+- [ ] `alembic upgrade head` applies `20260524_0001_phase7_hr_ats_tables`
+      cleanly on the dev database.
+- [ ] `alembic current` reports `20260524_0001 (head)`.
+- [ ] `python -m app.scripts.seed_hr` reports `hr_job_openings : 8`.
+- [ ] In psql / pgAdmin, the 14 `hr_*` tables exist with the right
+      indexes and FKs.
+- [ ] `alembic downgrade -1` removes them cleanly (then `upgrade head`
+      brings them back).
+
 ## Phase 6 — Public website API integration
 
 Automated (pytest):

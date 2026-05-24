@@ -56,6 +56,9 @@ python -m app.scripts.seed_users
 # Phase 5: seed CMS content (hero slides, companies, leadership, news, settings).
 python -m app.scripts.seed_cms
 
+# Phase 7: seed HR ATS job openings.
+python -m app.scripts.seed_hr
+
 # Run the API
 python run.py
 ```
