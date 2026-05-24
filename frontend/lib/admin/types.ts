@@ -199,3 +199,63 @@ export interface AuditEntry {
   details: Record<string, unknown> | null;
   created_at: string | null;
 }
+
+// Media gallery + pages (Phase 5 follow-up) -----------------------------
+
+export type MediaKind = "image" | "video";
+
+export interface MediaAsset {
+  id: number;
+  kind: MediaKind | string;
+  filename: string;
+  original_name: string | null;
+  url: string;
+  mime_type: string | null;
+  file_size: number | null;
+  file_hash: string;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  title: string | null;
+  alt_text: string | null;
+  tags: string | null;
+  uploaded_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MediaUploadResult {
+  asset: MediaAsset;
+  deduped: boolean;
+}
+
+export interface CMSPageListItem {
+  id: number;
+  slug: string;
+  title: string;
+  summary: string | null;
+  is_published: boolean;
+  display_order: number;
+  published_at: string | null;
+  updated_at: string;
+}
+
+export interface CMSPage {
+  id: number;
+  slug: string;
+  title: string;
+  eyebrow: string | null;
+  summary: string | null;
+  body: string | null;
+  banner_image_url: string | null;
+  banner_mobile_url: string | null;
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string | null;
+  is_published: boolean;
+  display_order: number;
+  published_at: string | null;
+  updated_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}

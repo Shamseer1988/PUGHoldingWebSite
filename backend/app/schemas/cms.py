@@ -429,3 +429,115 @@ class DashboardSummary(BaseModel):
     news_per_month: List[MonthlyCount]
     latest_contact_messages: List[ContactMessageRead]
     latest_news: List[NewsRead]
+
+
+# ---------------------------------------------------------------------------
+# Media gallery (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+MEDIA_KIND_PATTERN = r"^(image|video)$"
+
+
+class MediaAssetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    filename: str
+    original_name: Optional[str] = None
+    url: str
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    file_hash: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    title: Optional[str] = None
+    alt_text: Optional[str] = None
+    tags: Optional[str] = None
+    uploaded_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MediaAssetUpdate(BaseModel):
+    """Manual metadata edit by an admin (does not touch the underlying file)."""
+
+    title: Optional[str] = Field(default=None, max_length=255)
+    alt_text: Optional[str] = Field(default=None, max_length=500)
+    tags: Optional[str] = Field(default=None, max_length=500)
+
+
+class MediaUploadResult(BaseModel):
+    """Returned by POST /admin/cms/media/upload — extends UploadResponse."""
+
+    asset: MediaAssetRead
+    deduped: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Free-form CMS pages (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+SLUG_PATTERN = r"^[a-z0-9-]+$"
+
+
+class CMSPageBase(BaseModel):
+    slug: str = Field(min_length=1, max_length=160, pattern=SLUG_PATTERN)
+    title: str = Field(min_length=1, max_length=255)
+    eyebrow: Optional[str] = Field(default=None, max_length=120)
+    summary: Optional[str] = Field(default=None, max_length=500)
+    body: Optional[str] = None
+    banner_image_url: Optional[str] = Field(default=None, max_length=500)
+    banner_mobile_url: Optional[str] = Field(default=None, max_length=500)
+    seo_title: Optional[str] = Field(default=None, max_length=255)
+    seo_description: Optional[str] = Field(default=None, max_length=500)
+    seo_keywords: Optional[str] = Field(default=None, max_length=500)
+    is_published: bool = False
+    display_order: int = 0
+
+
+class CMSPageCreate(CMSPageBase):
+    pass
+
+
+class CMSPageUpdate(BaseModel):
+    slug: Optional[str] = Field(default=None, pattern=SLUG_PATTERN)
+    title: Optional[str] = Field(default=None, max_length=255)
+    eyebrow: Optional[str] = Field(default=None, max_length=120)
+    summary: Optional[str] = Field(default=None, max_length=500)
+    body: Optional[str] = None
+    banner_image_url: Optional[str] = Field(default=None, max_length=500)
+    banner_mobile_url: Optional[str] = Field(default=None, max_length=500)
+    seo_title: Optional[str] = Field(default=None, max_length=255)
+    seo_description: Optional[str] = Field(default=None, max_length=500)
+    seo_keywords: Optional[str] = Field(default=None, max_length=500)
+    is_published: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+class CMSPageRead(CMSPageBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    published_at: Optional[datetime] = None
+    updated_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CMSPageListItem(BaseModel):
+    """Compact row for the admin pages table."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    title: str
+    summary: Optional[str] = None
+    is_published: bool
+    display_order: int
+    published_at: Optional[datetime] = None
+    updated_at: datetime

@@ -31,16 +31,24 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.auth import SCOPE_WEBSITE, AuditLog, User
 from app.models.cms import (
+    MEDIA_KIND_IMAGE,
+    MEDIA_KIND_VIDEO,
+    CMSPage,
     Company,
     CompanyService,
     ContactMessage,
     HeroSlide,
     LeadershipMessage,
+    MediaAsset,
     NewsItem,
     NewsletterSubscriber,
     SiteSetting,
 )
 from app.schemas.cms import (
+    CMSPageCreate,
+    CMSPageListItem,
+    CMSPageRead,
+    CMSPageUpdate,
     CompanyCreate,
     CompanyRead,
     CompanyUpdate,
@@ -53,6 +61,9 @@ from app.schemas.cms import (
     LeadershipCreate,
     LeadershipRead,
     LeadershipUpdate,
+    MediaAssetRead,
+    MediaAssetUpdate,
+    MediaUploadResult,
     NewsCreate,
     NewsRead,
     NewsUpdate,
@@ -782,6 +793,21 @@ async def upload_image(
     # Public URL — served by the StaticFiles mount in app/main.py.
     url = f"/api/v1/uploads/cms/{filename}"
 
+    # Phase 5 follow-up — persist a MediaAsset row so the gallery can
+    # list this file. Dedupe by file_hash; if a row already exists,
+    # return it instead of creating a duplicate.
+    _upsert_media_asset(
+        db,
+        kind=MEDIA_KIND_IMAGE,
+        filename=filename,
+        original_name=file.filename,
+        url=url,
+        mime_type=file.content_type,
+        file_size=len(data),
+        file_hash=content_hash,
+        uploaded_by_id=user.id,
+    )
+
     ctx = get_request_context(request)
     record_audit(
         db,
@@ -806,3 +832,400 @@ async def upload_image(
         size=len(data),
         mime_type=file.content_type or "",
     )
+
+
+# ---------------------------------------------------------------------------
+# Media gallery (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+ALLOWED_VIDEO_MIME = {
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/ogg": "ogv",
+    "video/quicktime": "mov",
+}
+MAX_VIDEO_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _upsert_media_asset(
+    db: Session,
+    *,
+    kind: str,
+    filename: str,
+    original_name: Optional[str],
+    url: str,
+    mime_type: Optional[str],
+    file_size: int,
+    file_hash: str,
+    uploaded_by_id: Optional[int],
+) -> tuple[MediaAsset, bool]:
+    """Persist (or fetch existing) media-asset row keyed by content hash."""
+    existing = db.execute(
+        select(MediaAsset).where(MediaAsset.file_hash == file_hash)
+    ).scalar_one_or_none()
+    if existing is not None:
+        # Update upload metadata that may have changed (e.g. original name)
+        # but keep title / alt / tags exactly as the admin left them.
+        if original_name and not existing.original_name:
+            existing.original_name = original_name
+        return existing, True
+
+    asset = MediaAsset(
+        kind=kind,
+        filename=filename,
+        original_name=original_name,
+        url=url,
+        mime_type=mime_type,
+        file_size=file_size,
+        file_hash=file_hash,
+        uploaded_by_id=uploaded_by_id,
+    )
+    db.add(asset)
+    db.flush()
+    return asset, False
+
+
+@router.post("/media/upload", response_model=MediaUploadResult, status_code=201)
+async def upload_media(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+    file: UploadFile = File(...),
+) -> MediaUploadResult:
+    """Accept either an image OR a video and add it to the media gallery."""
+    content_type = file.content_type or ""
+    if content_type in ALLOWED_IMAGE_MIME:
+        ext = ALLOWED_IMAGE_MIME[content_type]
+        kind = MEDIA_KIND_IMAGE
+        max_bytes = MAX_IMAGE_BYTES
+    elif content_type in ALLOWED_VIDEO_MIME:
+        ext = ALLOWED_VIDEO_MIME[content_type]
+        kind = MEDIA_KIND_VIDEO
+        max_bytes = MAX_VIDEO_BYTES
+    else:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Unsupported file type: {content_type}. Allowed images: "
+                f"{', '.join(sorted(ALLOWED_IMAGE_MIME))}; videos: "
+                f"{', '.join(sorted(ALLOWED_VIDEO_MIME))}"
+            ),
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({len(data)} bytes). Max {max_bytes}.",
+        )
+
+    settings = get_settings()
+    base = Path(settings.upload_dir) / "cms"
+    base.mkdir(parents=True, exist_ok=True)
+    content_hash = hashlib.sha256(data).hexdigest()
+    filename = f"{content_hash[:16]}.{ext}"
+    target = base / filename
+    if not target.exists():
+        target.write_bytes(data)
+    url = f"/api/v1/uploads/cms/{filename}"
+
+    asset, deduped = _upsert_media_asset(
+        db,
+        kind=kind,
+        filename=filename,
+        original_name=file.filename,
+        url=url,
+        mime_type=content_type,
+        file_size=len(data),
+        file_hash=content_hash,
+        uploaded_by_id=user.id,
+    )
+
+    if not deduped:
+        ctx = get_request_context(request)
+        record_audit(
+            db,
+            action="cms.media.upload",
+            actor_id=user.id,
+            actor_email=user.email,
+            scope=SCOPE_WEBSITE,
+            target_type="media_asset",
+            target_id=str(asset.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={
+                "kind": kind,
+                "size": len(data),
+                "mime_type": content_type,
+                "original_name": file.filename,
+            },
+            commit=False,
+        )
+    db.commit()
+    db.refresh(asset)
+    return MediaUploadResult(
+        asset=MediaAssetRead.model_validate(asset),
+        deduped=deduped,
+    )
+
+
+@router.get("/media", response_model=List[MediaAssetRead])
+def list_media(
+    db: Session = Depends(get_db),
+    kind: Optional[str] = Query(default=None, max_length=16),
+    q: Optional[str] = Query(default=None, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> List[MediaAsset]:
+    stmt = select(MediaAsset).order_by(desc(MediaAsset.created_at)).limit(limit)
+    if kind:
+        stmt = stmt.where(MediaAsset.kind == kind)
+    if q:
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(
+            (func.lower(MediaAsset.filename).like(like))
+            | (func.lower(MediaAsset.original_name).like(like))
+            | (func.lower(MediaAsset.title).like(like))
+            | (func.lower(MediaAsset.alt_text).like(like))
+            | (func.lower(MediaAsset.tags).like(like))
+        )
+    return db.execute(stmt).scalars().all()
+
+
+@router.patch("/media/{asset_id}", response_model=MediaAssetRead)
+def update_media(
+    asset_id: int,
+    payload: MediaAssetUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> MediaAsset:
+    asset = db.get(MediaAsset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    updates = payload.model_dump(exclude_unset=True)
+    changed: list[str] = []
+    for field, value in updates.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        if getattr(asset, field) != value:
+            setattr(asset, field, value)
+            changed.append(field)
+    if changed:
+        ctx = get_request_context(request)
+        record_audit(
+            db,
+            action="cms.media.update",
+            actor_id=user.id,
+            actor_email=user.email,
+            scope=SCOPE_WEBSITE,
+            target_type="media_asset",
+            target_id=str(asset.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={"fields": changed},
+            commit=False,
+        )
+    db.commit()
+    db.refresh(asset)
+    return asset
+
+
+@router.delete("/media/{asset_id}", status_code=204)
+def delete_media(
+    asset_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+):
+    asset = db.get(MediaAsset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    # Best-effort: remove the file on disk only if no other asset
+    # row references the same filename (defensive — uploads are dedupe-
+    # keyed by hash so this shouldn't happen, but we keep the check).
+    settings = get_settings()
+    target = Path(settings.upload_dir) / "cms" / asset.filename
+    other = db.execute(
+        select(MediaAsset)
+        .where(MediaAsset.filename == asset.filename, MediaAsset.id != asset.id)
+    ).scalar_one_or_none()
+    asset_id_val = asset.id
+    asset_url = asset.url
+    db.delete(asset)
+    if other is None and target.exists():
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.media.delete",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="media_asset",
+        target_id=str(asset_id_val),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"url": asset_url},
+        commit=False,
+    )
+    db.commit()
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Free-form CMS pages (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pages", response_model=List[CMSPageListItem])
+def list_pages(
+    db: Session = Depends(get_db),
+    include_drafts: bool = Query(default=True),
+) -> List[CMSPage]:
+    stmt = select(CMSPage).order_by(CMSPage.display_order, CMSPage.title)
+    if not include_drafts:
+        stmt = stmt.where(CMSPage.is_published.is_(True))
+    return db.execute(stmt).scalars().all()
+
+
+@router.get("/pages/{page_id}", response_model=CMSPageRead)
+def get_page(page_id: int, db: Session = Depends(get_db)) -> CMSPage:
+    page = db.get(CMSPage, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return page
+
+
+@router.post("/pages", response_model=CMSPageRead, status_code=201)
+def create_page(
+    payload: CMSPageCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> CMSPage:
+    page = CMSPage(
+        **payload.model_dump(),
+        updated_by_id=user.id,
+        published_at=(
+            datetime.now(timezone.utc) if payload.is_published else None
+        ),
+    )
+    db.add(page)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Page with slug '{payload.slug}' already exists.",
+        ) from exc
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.page.create",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="cms_page",
+        target_id=str(page.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"slug": page.slug, "is_published": page.is_published},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(page)
+    return page
+
+
+@router.patch("/pages/{page_id}", response_model=CMSPageRead)
+def update_page(
+    page_id: int,
+    payload: CMSPageUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> CMSPage:
+    page = db.get(CMSPage, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    updates = payload.model_dump(exclude_unset=True)
+    changed: list[str] = []
+    for field, value in updates.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        if getattr(page, field) != value:
+            setattr(page, field, value)
+            changed.append(field)
+    # Stamp published_at on first publish (and clear it on un-publish).
+    if "is_published" in updates:
+        if updates["is_published"] and page.published_at is None:
+            page.published_at = datetime.now(timezone.utc)
+        elif not updates["is_published"]:
+            page.published_at = None
+    if changed:
+        page.updated_by_id = user.id
+        ctx = get_request_context(request)
+        record_audit(
+            db,
+            action="cms.page.update",
+            actor_id=user.id,
+            actor_email=user.email,
+            scope=SCOPE_WEBSITE,
+            target_type="cms_page",
+            target_id=str(page.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={"fields": changed},
+            commit=False,
+        )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Another page with that slug already exists.",
+        ) from exc
+    db.refresh(page)
+    return page
+
+
+@router.delete("/pages/{page_id}", status_code=204)
+def delete_page(
+    page_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+):
+    page = db.get(CMSPage, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    pid, slug = page.id, page.slug
+    db.delete(page)
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.page.delete",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="cms_page",
+        target_id=str(pid),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"slug": slug},
+        commit=False,
+    )
+    db.commit()
+    return Response(status_code=204)

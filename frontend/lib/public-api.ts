@@ -101,6 +101,64 @@ export async function getNewsBySlug(slug: string): Promise<NewsItem | null> {
   return fetchPublic<NewsItem>(`/public/news/${encodeURIComponent(slug)}`);
 }
 
+// CMS pages + media gallery (Phase 5 follow-up) ---------------------------
+
+export interface PublicPage {
+  id: number;
+  slug: string;
+  title: string;
+  eyebrow: string | null;
+  summary: string | null;
+  body: string | null;
+  banner_image_url: string | null;
+  banner_mobile_url: string | null;
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string | null;
+  is_published: boolean;
+  display_order: number;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicMediaAsset {
+  id: number;
+  kind: "image" | "video" | string;
+  filename: string;
+  original_name: string | null;
+  url: string;
+  mime_type: string | null;
+  file_size: number | null;
+  file_hash: string;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  title: string | null;
+  alt_text: string | null;
+  tags: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getPages(): Promise<PublicPage[]> {
+  return (await fetchPublic<PublicPage[]>("/public/pages")) ?? [];
+}
+
+export async function getPageBySlug(slug: string): Promise<PublicPage | null> {
+  return fetchPublic<PublicPage>(`/public/pages/${encodeURIComponent(slug)}`);
+}
+
+export async function getMediaGallery(
+  options: { kind?: "image" | "video"; limit?: number } = {}
+): Promise<PublicMediaAsset[]> {
+  const params = new URLSearchParams();
+  if (options.kind) params.set("kind", options.kind);
+  if (options.limit) params.set("limit", String(options.limit));
+  const suffix = params.toString() ? `?${params}` : "";
+  return (await fetchPublic<PublicMediaAsset[]>(`/public/media${suffix}`)) ?? [];
+}
+
 const FALLBACK_SETTINGS: SiteSettings = {
   id: 1,
   site_name: "Paris United Group Holding",

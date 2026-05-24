@@ -16,15 +16,18 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import get_request_context
 from app.core.database import get_db
 from app.models.cms import (
+    CMSPage,
     Company,
     HeroSlide,
     LeadershipMessage,
+    MediaAsset,
     NewsItem,
     NewsletterSubscriber,
     SiteSetting,
 )
 from app.models.hr_ats import JOB_STATUS_OPEN, JobOpening
 from app.schemas.cms import (
+    CMSPageRead,
     CompanyRead,
     ContactMessageRead,
     ContactSubmit,
@@ -32,6 +35,7 @@ from app.schemas.cms import (
     FeaturedSection,
     HeroSlideRead,
     LeadershipRead,
+    MediaAssetRead,
     NewsRead,
     NewsletterSubscribe,
     NewsletterSubscriberRead,
@@ -227,6 +231,48 @@ def get_open_job(slug: str, db: Session = Depends(get_db)) -> JobOpening:
 # ---------------------------------------------------------------------------
 # Read: site settings
 # ---------------------------------------------------------------------------
+
+
+@router.get("/pages", response_model=List[CMSPageRead])
+def list_public_pages(db: Session = Depends(get_db)) -> List[CMSPage]:
+    return (
+        db.execute(
+            select(CMSPage)
+            .where(CMSPage.is_published.is_(True))
+            .order_by(CMSPage.display_order, CMSPage.title)
+        )
+        .scalars()
+        .all()
+    )
+
+
+@router.get("/pages/{slug}", response_model=CMSPageRead)
+def get_public_page(slug: str, db: Session = Depends(get_db)) -> CMSPage:
+    page = db.execute(
+        select(CMSPage).where(
+            CMSPage.slug == slug, CMSPage.is_published.is_(True)
+        )
+    ).scalar_one_or_none()
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return page
+
+
+@router.get("/media", response_model=List[MediaAssetRead])
+def list_public_media(
+    db: Session = Depends(get_db),
+    kind: Optional[str] = Query(default=None, max_length=16),
+    limit: int = Query(default=60, ge=1, le=200),
+) -> List[MediaAsset]:
+    """Read-only gallery feed used by the public Media page."""
+    stmt = (
+        select(MediaAsset)
+        .order_by(desc(MediaAsset.created_at))
+        .limit(limit)
+    )
+    if kind:
+        stmt = stmt.where(MediaAsset.kind == kind)
+    return db.execute(stmt).scalars().all()
 
 
 @router.get("/site-settings", response_model=SiteSettingRead)

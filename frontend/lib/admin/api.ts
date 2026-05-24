@@ -116,4 +116,9 @@ export const adminApi = {
     fd.append("file", file);
     return postMultipart<UploadedImage>("/admin/cms/uploads/image", fd);
   },
+  uploadMedia<T>(file: File): Promise<T> {
+    const fd = new FormData();
+    fd.append("file", file);
+    return postMultipart<T>("/admin/cms/media/upload", fd);
+  },
 };

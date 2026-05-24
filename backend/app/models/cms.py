@@ -325,3 +325,91 @@ class SiteSetting(Base, TimestampMixin):
     # Trusted-brands strip -------------------------------------------------
     home_brand_logos: Mapped[Optional[str]] = mapped_column(Text)
     home_brand_strip_title: Mapped[Optional[str]] = mapped_column(String(255))
+
+
+# ---------------------------------------------------------------------------
+# Media gallery (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+MEDIA_KIND_IMAGE = "image"
+MEDIA_KIND_VIDEO = "video"
+MEDIA_KINDS = (MEDIA_KIND_IMAGE, MEDIA_KIND_VIDEO)
+
+
+class MediaAsset(Base, TimestampMixin):
+    """A single asset stored in the CMS media gallery.
+
+    A row is created automatically when an image or video is uploaded
+    through the admin upload endpoints. Beyond browsing, the row carries
+    optional metadata (title, alt text, tags) so HR / website admins can
+    organise files even after upload.
+    """
+
+    __tablename__ = "cms_media_assets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=MEDIA_KIND_IMAGE, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_name: Mapped[Optional[str]] = mapped_column(String(255))
+    url: Mapped[str] = mapped_column(String(500), nullable=False, unique=True, index=True)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(120))
+    file_size: Mapped[Optional[int]] = mapped_column(Integer)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    width: Mapped[Optional[int]] = mapped_column(Integer)
+    height: Mapped[Optional[int]] = mapped_column(Integer)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+
+    title: Mapped[Optional[str]] = mapped_column(String(255))
+    alt_text: Mapped[Optional[str]] = mapped_column(String(500))
+    # Comma-separated free-form tags (kept simple — no relation table).
+    tags: Mapped[Optional[str]] = mapped_column(String(500))
+
+    uploaded_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Free-form CMS pages (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+class CMSPage(Base, TimestampMixin):
+    """A free-form CMS page.
+
+    Used for ad-hoc content like "About us", "Privacy policy", etc. that
+    doesn't belong in a typed model. The ``body`` is plain text or
+    markdown — the frontend renders it inside a Tailwind ``prose``
+    container, so basic markdown formatting works out of the box.
+    """
+
+    __tablename__ = "cms_pages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(
+        String(160), nullable=False, unique=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    eyebrow: Mapped[Optional[str]] = mapped_column(String(120))
+    summary: Mapped[Optional[str]] = mapped_column(String(500))
+    body: Mapped[Optional[str]] = mapped_column(Text)
+    banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
+
+    seo_title: Mapped[Optional[str]] = mapped_column(String(255))
+    seo_description: Mapped[Optional[str]] = mapped_column(String(500))
+    seo_keywords: Mapped[Optional[str]] = mapped_column(String(500))
+
+    is_published: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    updated_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
