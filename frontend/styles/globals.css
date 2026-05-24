@@ -218,6 +218,46 @@
     50%      { background-position: 100% 50%; }
   }
 
+  /* Brand-gold shifting text used on body-section headings (e.g.
+     "Paris United Group" inside "A snapshot of …"). Same shimmer as
+     the hero, but tuned to stay legible on both the warm cream light
+     surface and the deep emerald dark surface — gold-dominant in
+     light mode, brightened with an ivory mid-stop in dark mode.
+
+     Uses HSL stops sourced from the existing pug-gold-* palette so
+     the colour stays in lockstep with the brand tokens. */
+  .brand-gold-shift-text {
+    background: linear-gradient(
+      100deg,
+      hsl(32 45% 36%) 0%,
+      hsl(36 48% 55%) 30%,
+      hsl(36 60% 65%) 55%,
+      hsl(36 48% 55%) 80%,
+      hsl(32 45% 36%) 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-gradient-shift 9s ease-in-out infinite;
+  }
+  .dark .brand-gold-shift-text {
+    background: linear-gradient(
+      100deg,
+      hsl(36 50% 60%) 0%,
+      hsl(36 70% 75%) 30%,
+      hsl(40 80% 92%) 55%,
+      hsl(36 70% 75%) 80%,
+      hsl(36 50% 60%) 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
   /* Floating accent blobs that bob softly behind the hero. Two
      variants with slightly different rhythms so they never sync up. */
   .hero-orb {
@@ -252,9 +292,11 @@
     50%      { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
   }
 
-  /* Honour the user's motion preference — kill every hero CSS animation. */
+  /* Honour the user's motion preference — kill every hero CSS animation
+     plus any other shimmer that reuses the hero keyframes. */
   @media (prefers-reduced-motion: reduce) {
     .hero-gradient-text,
+    .brand-gold-shift-text,
     .hero-orb,
     .hero-scroll-mouse,
     .hero-scroll-dot {

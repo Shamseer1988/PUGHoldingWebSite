@@ -45,7 +45,12 @@ export default async function HomePage() {
 
       <Section
         eyebrow="Business overview"
-        title="A snapshot of Paris United Group"
+        title={
+          <>
+            A snapshot of{" "}
+            <span className="brand-gold-shift-text">Paris United Group</span>
+          </>
+        }
         description="Operating at scale across distribution, retail, and services — these numbers grow with every new store, new partnership, and new hire."
         centered
       >
