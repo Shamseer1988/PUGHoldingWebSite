@@ -48,6 +48,8 @@ class HeroSlide(Base, TimestampMixin):
     cta_href: Mapped[Optional[str]] = mapped_column(String(255))
     secondary_cta_label: Mapped[Optional[str]] = mapped_column(String(120))
     secondary_cta_href: Mapped[Optional[str]] = mapped_column(String(255))
+    background_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    background_video_url: Mapped[Optional[str]] = mapped_column(String(500))
     gradient: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -149,6 +151,7 @@ class LeadershipMessage(Base, TimestampMixin):
         server_default="from-pug-green-600 to-pug-gold-500",
     )
     initials: Mapped[str] = mapped_column(String(8), nullable=False)
+    photo_url: Mapped[Optional[str]] = mapped_column(String(500))
     signature: Mapped[Optional[str]] = mapped_column(String(120))
     display_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
@@ -179,6 +182,7 @@ class NewsItem(Base, TimestampMixin):
         default="from-pug-green-600 to-pug-gold-500",
         server_default="from-pug-green-600 to-pug-gold-500",
     )
+    cover_image_url: Mapped[Optional[str]] = mapped_column(String(500))
     published_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -298,3 +302,26 @@ class SiteSetting(Base, TimestampMixin):
         default=True,
         server_default="true",
     )
+
+    # Page banner imagery -------------------------------------------------
+    about_banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    about_banner_video_url: Mapped[Optional[str]] = mapped_column(String(500))
+    careers_banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    careers_banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
+    contact_banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    contact_banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
+    news_banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    news_banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # Homepage "About" + "Founder" sections -------------------------------
+    home_about_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    home_about_title: Mapped[Optional[str]] = mapped_column(String(255))
+    home_about_body: Mapped[Optional[str]] = mapped_column(Text)
+    home_founder_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    home_founder_name: Mapped[Optional[str]] = mapped_column(String(255))
+    home_founder_role: Mapped[Optional[str]] = mapped_column(String(255))
+    home_founder_message: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Trusted-brands strip -------------------------------------------------
+    home_brand_logos: Mapped[Optional[str]] = mapped_column(Text)
+    home_brand_strip_title: Mapped[Optional[str]] = mapped_column(String(255))

@@ -5,6 +5,7 @@ import { CheckCircle2, Edit3, Loader2, MessageSquareQuote, Plus, Trash2, X } fro
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
+import { ImageUpload } from "@/components/admin/image-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ interface LeaderForm {
   full_message: string;
   accent: string;
   initials: string;
+  photo_url: string;
   signature: string;
   display_order: number;
   is_active: boolean;
@@ -43,6 +45,7 @@ const EMPTY: LeaderForm = {
   full_message: "",
   accent: "from-pug-green-600 to-pug-gold-500",
   initials: "",
+  photo_url: "",
   signature: "",
   display_order: 0,
   is_active: true,
@@ -79,6 +82,7 @@ export default function LeadershipAdminPage() {
       full_message: item.full_message ?? "",
       accent: item.accent,
       initials: item.initials,
+      photo_url: item.photo_url ?? "",
       signature: item.signature ?? "",
       display_order: item.display_order,
       is_active: item.is_active,
@@ -100,6 +104,7 @@ export default function LeadershipAdminPage() {
         signature: form.signature.trim() || null,
         initials: form.initials.trim(),
         accent: form.accent.trim(),
+        photo_url: form.photo_url.trim() || null,
         display_order: Number(form.display_order) || 0,
       };
       if (editing) {
@@ -203,11 +208,23 @@ export default function LeadershipAdminPage() {
                   <Field label="Role" required><Input required value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} disabled={saving} /></Field>
                   <Field label="Initials" required><Input required maxLength={8} value={form.initials} onChange={(e) => setForm({ ...form, initials: e.target.value.toUpperCase() })} disabled={saving} /></Field>
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Portrait photo</Label>
+                  <ImageUpload
+                    value={form.photo_url}
+                    onChange={(url) => setForm({ ...form, photo_url: url ?? "" })}
+                    disabled={saving}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Square portrait recommended. The gradient initials circle
+                    is shown only when no photo is set.
+                  </p>
+                </div>
                 <Field label="Short message"><Input value={form.short_message} onChange={(e) => setForm({ ...form, short_message: e.target.value })} disabled={saving} /></Field>
                 <Field label="Full message"><Textarea rows={5} value={form.full_message} onChange={(e) => setForm({ ...form, full_message: e.target.value })} disabled={saving} /></Field>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Signature"><Input value={form.signature} onChange={(e) => setForm({ ...form, signature: e.target.value })} disabled={saving} /></Field>
-                  <Field label="Portrait gradient" hint="from-… to-…"><Input value={form.accent} onChange={(e) => setForm({ ...form, accent: e.target.value })} disabled={saving} /></Field>
+                  <Field label="Portrait gradient" hint="from-… to-… (fallback when no photo)"><Input value={form.accent} onChange={(e) => setForm({ ...form, accent: e.target.value })} disabled={saving} /></Field>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Order"><Input type="number" value={form.display_order} onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) || 0 })} disabled={saving} /></Field>

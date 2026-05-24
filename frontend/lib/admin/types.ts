@@ -14,6 +14,8 @@ export interface HeroSlide {
   cta_href: string | null;
   secondary_cta_label: string | null;
   secondary_cta_href: string | null;
+  background_image_url: string | null;
+  background_video_url: string | null;
   gradient: string;
   display_order: number;
   is_active: boolean;
@@ -61,6 +63,7 @@ export interface LeadershipMessage {
   full_message: string | null;
   accent: string;
   initials: string;
+  photo_url: string | null;
   signature: string | null;
   display_order: number;
   is_active: boolean;
@@ -77,6 +80,7 @@ export interface NewsItem {
   category: NewsCategory;
   author: string | null;
   cover: string;
+  cover_image_url: string | null;
   published_at: string;
   is_featured: boolean;
   is_published: boolean;
@@ -132,6 +136,29 @@ export interface SiteSettings {
   featured_companies_cta_label: string | null;
   featured_companies_cta_url: string | null;
   featured_companies_animation_enabled: boolean;
+
+  // Page banners
+  about_banner_image_url: string | null;
+  about_banner_video_url: string | null;
+  careers_banner_image_url: string | null;
+  careers_banner_mobile_url: string | null;
+  contact_banner_image_url: string | null;
+  contact_banner_mobile_url: string | null;
+  news_banner_image_url: string | null;
+  news_banner_mobile_url: string | null;
+
+  // Homepage About + Founder
+  home_about_image_url: string | null;
+  home_about_title: string | null;
+  home_about_body: string | null;
+  home_founder_image_url: string | null;
+  home_founder_name: string | null;
+  home_founder_role: string | null;
+  home_founder_message: string | null;
+
+  // Trusted-brands strip
+  home_brand_logos: string | null;
+  home_brand_strip_title: string | null;
 }
 
 export interface UploadResponse {

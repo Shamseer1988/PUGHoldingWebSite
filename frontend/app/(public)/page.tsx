@@ -3,6 +3,9 @@ import { ArrowRight, Briefcase, MessageSquare, Phone } from "lucide-react";
 
 import { FeaturedCompaniesShowcase } from "@/components/site/featured-companies-showcase";
 import { HeroSlider } from "@/components/site/hero-slider";
+import { HomeAboutSection } from "@/components/site/home-about-section";
+import { HomeBrandStrip } from "@/components/site/home-brand-strip";
+import { HomeFounderMessage } from "@/components/site/home-founder-message";
 import { JobCard } from "@/components/site/job-card";
 import { LeadershipCard } from "@/components/site/leadership-card";
 import { NewsCard } from "@/components/site/news-card";
@@ -49,6 +52,12 @@ export default async function HomePage() {
         <StatsStrip />
       </Section>
 
+      <HomeAboutSection
+        imageUrl={settings.home_about_image_url}
+        title={settings.home_about_title}
+        body={settings.home_about_body}
+      />
+
       <Section
         eyebrow="Our business sectors"
         title="Three pillars, one group"
@@ -61,6 +70,18 @@ export default async function HomePage() {
       <FeaturedCompaniesShowcase
         section={featured.section}
         companies={featured.companies}
+      />
+
+      <HomeFounderMessage
+        imageUrl={settings.home_founder_image_url}
+        name={settings.home_founder_name}
+        role={settings.home_founder_role}
+        message={settings.home_founder_message}
+      />
+
+      <HomeBrandStrip
+        logos={settings.home_brand_logos}
+        title={settings.home_brand_strip_title}
       />
 
       {leadership.length > 0 && (

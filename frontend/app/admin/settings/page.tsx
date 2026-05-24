@@ -4,6 +4,7 @@ import * as React from "react";
 import { CheckCircle2, Loader2, Save } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { ImageUpload } from "@/components/admin/image-upload";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -41,6 +42,23 @@ const EMPTY_FORM: Form = {
   featured_companies_cta_label: "",
   featured_companies_cta_url: "",
   featured_companies_animation_enabled: true,
+  about_banner_image_url: "",
+  about_banner_video_url: "",
+  careers_banner_image_url: "",
+  careers_banner_mobile_url: "",
+  contact_banner_image_url: "",
+  contact_banner_mobile_url: "",
+  news_banner_image_url: "",
+  news_banner_mobile_url: "",
+  home_about_image_url: "",
+  home_about_title: "",
+  home_about_body: "",
+  home_founder_image_url: "",
+  home_founder_name: "",
+  home_founder_role: "",
+  home_founder_message: "",
+  home_brand_logos: "",
+  home_brand_strip_title: "",
 };
 
 export default function SiteSettingsAdminPage() {
@@ -267,6 +285,213 @@ export default function SiteSettingsAdminPage() {
                   />
                 </Field>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Page banners</CardTitle>
+              <CardDescription>
+                Background imagery and video for each top-level page banner.
+                Mobile variants replace the desktop image below the sm
+                breakpoint.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold">About page</h3>
+                <div className="space-y-1.5">
+                  <Label>Background image</Label>
+                  <ImageUpload
+                    value={form.about_banner_image_url}
+                    onChange={(url) => set("about_banner_image_url", url ?? "")}
+                    disabled={saving}
+                  />
+                </div>
+                <Field label="Background video URL">
+                  <Input
+                    value={form.about_banner_video_url ?? ""}
+                    onChange={(e) => set("about_banner_video_url", e.target.value)}
+                    disabled={saving}
+                    placeholder="/video/our-company/about_banner.mp4"
+                  />
+                </Field>
+              </section>
+
+              <section className="space-y-3 border-t border-border/60 pt-5">
+                <h3 className="text-sm font-semibold">Careers page</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Desktop banner</Label>
+                    <ImageUpload
+                      value={form.careers_banner_image_url}
+                      onChange={(url) => set("careers_banner_image_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Mobile banner</Label>
+                    <ImageUpload
+                      value={form.careers_banner_mobile_url}
+                      onChange={(url) => set("careers_banner_mobile_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 border-t border-border/60 pt-5">
+                <h3 className="text-sm font-semibold">Contact page</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Desktop banner</Label>
+                    <ImageUpload
+                      value={form.contact_banner_image_url}
+                      onChange={(url) => set("contact_banner_image_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Mobile banner</Label>
+                    <ImageUpload
+                      value={form.contact_banner_mobile_url}
+                      onChange={(url) => set("contact_banner_mobile_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 border-t border-border/60 pt-5">
+                <h3 className="text-sm font-semibold">News page</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Desktop banner</Label>
+                    <ImageUpload
+                      value={form.news_banner_image_url}
+                      onChange={(url) => set("news_banner_image_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Mobile banner</Label>
+                    <ImageUpload
+                      value={form.news_banner_mobile_url}
+                      onChange={(url) => set("news_banner_mobile_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+              </section>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Homepage · About + Founder</CardTitle>
+              <CardDescription>
+                The "About the group" intro and the Founder's message panel
+                rendered between the snapshot and the featured companies.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold">About the group</h3>
+                <div className="space-y-1.5">
+                  <Label>Image</Label>
+                  <ImageUpload
+                    value={form.home_about_image_url}
+                    onChange={(url) => set("home_about_image_url", url ?? "")}
+                    disabled={saving}
+                  />
+                </div>
+                <Field label="Title">
+                  <Input
+                    value={form.home_about_title ?? ""}
+                    onChange={(e) => set("home_about_title", e.target.value)}
+                    disabled={saving}
+                    placeholder="Building everyday life across the GCC"
+                  />
+                </Field>
+                <Field label="Body">
+                  <Textarea
+                    rows={4}
+                    value={form.home_about_body ?? ""}
+                    onChange={(e) => set("home_about_body", e.target.value)}
+                    disabled={saving}
+                  />
+                </Field>
+              </section>
+
+              <section className="space-y-3 border-t border-border/60 pt-5">
+                <h3 className="text-sm font-semibold">Founder's message</h3>
+                <div className="space-y-1.5">
+                  <Label>Portrait photo</Label>
+                  <ImageUpload
+                    value={form.home_founder_image_url}
+                    onChange={(url) => set("home_founder_image_url", url ?? "")}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Name">
+                    <Input
+                      value={form.home_founder_name ?? ""}
+                      onChange={(e) => set("home_founder_name", e.target.value)}
+                      disabled={saving}
+                      placeholder="Mr. A. Al Hassan"
+                    />
+                  </Field>
+                  <Field label="Role">
+                    <Input
+                      value={form.home_founder_role ?? ""}
+                      onChange={(e) => set("home_founder_role", e.target.value)}
+                      disabled={saving}
+                      placeholder="Chairman & Founder"
+                    />
+                  </Field>
+                </div>
+                <Field label="Message">
+                  <Textarea
+                    rows={4}
+                    value={form.home_founder_message ?? ""}
+                    onChange={(e) => set("home_founder_message", e.target.value)}
+                    disabled={saving}
+                  />
+                </Field>
+              </section>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Homepage · Trusted brands strip</CardTitle>
+              <CardDescription>
+                A horizontal logo wall rendered above the leadership section.
+                Paste one logo URL per line — either uploaded
+                <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">/api/v1/uploads/…</code>
+                paths or public assets like
+                <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">/images/home/brands/brand_01.png</code>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="Section title">
+                <Input
+                  value={form.home_brand_strip_title ?? ""}
+                  onChange={(e) => set("home_brand_strip_title", e.target.value)}
+                  disabled={saving}
+                  placeholder="Trusted brands we work with"
+                />
+              </Field>
+              <Field label="Logo URLs (one per line)">
+                <Textarea
+                  rows={6}
+                  value={form.home_brand_logos ?? ""}
+                  onChange={(e) => set("home_brand_logos", e.target.value)}
+                  disabled={saving}
+                  placeholder={"/images/home/brands/brand_01.png\n/images/home/brands/brand_02.png"}
+                />
+              </Field>
             </CardContent>
           </Card>
         </div>

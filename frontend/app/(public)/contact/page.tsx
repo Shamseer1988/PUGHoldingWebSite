@@ -60,6 +60,8 @@ export default async function ContactPage() {
         title="Talk to Paris United Group"
         description="Reach the right department fast. Use the form below or any of the quick actions on the right."
         accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
+        imageUrl={settings.contact_banner_image_url}
+        mobileImageUrl={settings.contact_banner_mobile_url}
       />
 
       <Section className="pt-12">

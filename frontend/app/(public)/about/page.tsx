@@ -9,13 +9,16 @@ import {
   MISSION,
   VISION,
 } from "@/lib/dummy-data/site-content";
-import { getLeadership } from "@/lib/public-api";
+import { getLeadership, getSiteSettings } from "@/lib/public-api";
 
 export const metadata = { title: "About Us" };
 export const revalidate = 60;
 
 export default async function AboutPage() {
-  const leadership = await getLeadership();
+  const [leadership, settings] = await Promise.all([
+    getLeadership(),
+    getSiteSettings(),
+  ]);
 
   return (
     <>
@@ -24,6 +27,8 @@ export default async function AboutPage() {
         title={ABOUT_INTRO.title}
         description={ABOUT_INTRO.description}
         accent="from-pug-green-700 via-pug-green-500 to-pug-gold-500"
+        imageUrl={settings.about_banner_image_url}
+        videoUrl={settings.about_banner_video_url}
       />
 
       <Section

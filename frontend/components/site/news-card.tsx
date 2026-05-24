@@ -4,6 +4,7 @@ import { ArrowUpRight, CalendarDays } from "lucide-react";
 import { GlassCard } from "@/components/site/glass-card";
 import { Badge } from "@/components/ui/badge";
 import type { NewsItem } from "@/lib/admin/types";
+import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 const NEWS_CATEGORY_LABELS: Record<NewsItem["category"], string> = {
@@ -20,6 +21,7 @@ interface NewsCardProps {
 
 export function NewsCard({ item, variant = "default" }: NewsCardProps) {
   const featured = variant === "featured";
+  const coverImage = resolveAssetUrl(item.cover_image_url);
   return (
     <Link href={`/news/${item.slug}`} className="group block h-full">
       <GlassCard
@@ -31,12 +33,22 @@ export function NewsCard({ item, variant = "default" }: NewsCardProps) {
         <div
           aria-hidden
           className={cn(
-            "relative w-full bg-gradient-to-br",
-            item.cover,
+            "relative w-full overflow-hidden",
+            !coverImage && "bg-gradient-to-br",
+            !coverImage && item.cover,
             featured ? "aspect-[16/9] lg:aspect-auto lg:w-1/2" : "aspect-[16/9]"
           )}
         >
-          <span className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+          {coverImage && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={coverImage}
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            />
+          )}
+          <span className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
           <span className="absolute left-3 top-3">
             <Badge variant="default" className="bg-white/90 text-foreground">
               {NEWS_CATEGORY_LABELS[item.category]}

@@ -123,6 +123,23 @@ const FALLBACK_SETTINGS: SiteSettings = {
   featured_companies_cta_label: null,
   featured_companies_cta_url: null,
   featured_companies_animation_enabled: true,
+  about_banner_image_url: null,
+  about_banner_video_url: null,
+  careers_banner_image_url: null,
+  careers_banner_mobile_url: null,
+  contact_banner_image_url: null,
+  contact_banner_mobile_url: null,
+  news_banner_image_url: null,
+  news_banner_mobile_url: null,
+  home_about_image_url: null,
+  home_about_title: null,
+  home_about_body: null,
+  home_founder_image_url: null,
+  home_founder_name: null,
+  home_founder_role: null,
+  home_founder_message: null,
+  home_brand_logos: null,
+  home_brand_strip_title: null,
 };
 
 export async function getSiteSettings(): Promise<SiteSettings> {
