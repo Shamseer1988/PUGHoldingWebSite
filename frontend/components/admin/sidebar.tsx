@@ -51,8 +51,8 @@ const NAV: NavGroup[] = [
       { label: "Companies", href: "/admin/companies", icon: Building2 },
       { label: "Leadership", href: "/admin/leadership", icon: MessageSquareQuote },
       { label: "News & events", href: "/admin/news", icon: Megaphone },
-      { label: "Media gallery", href: "/admin/media", icon: ImageIcon, badge: "Soon" },
-      { label: "Pages", href: "/admin/pages", icon: FileText, badge: "Soon" },
+      { label: "Media gallery", href: "/admin/media", icon: ImageIcon },
+      { label: "Pages", href: "/admin/pages", icon: FileText },
     ],
   },
   {
