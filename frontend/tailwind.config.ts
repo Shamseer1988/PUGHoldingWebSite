@@ -52,6 +52,36 @@ const config: Config = {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
         },
+        // Paris United Group brand palette — anchored to the logo's
+        // deep forest green wordmark and warm tan/gold mandala.
+        pug: {
+          green: {
+            DEFAULT: "hsl(145 45% 20%)",
+            50: "hsl(145 30% 96%)",
+            100: "hsl(145 32% 92%)",
+            200: "hsl(145 32% 82%)",
+            300: "hsl(145 35% 65%)",
+            400: "hsl(145 40% 45%)",
+            500: "hsl(145 45% 30%)",
+            600: "hsl(145 50% 22%)",
+            700: "hsl(145 55% 16%)",
+            800: "hsl(145 60% 12%)",
+            900: "hsl(145 60% 8%)",
+          },
+          gold: {
+            DEFAULT: "hsl(36 45% 55%)",
+            50: "hsl(40 60% 96%)",
+            100: "hsl(40 55% 90%)",
+            200: "hsl(38 50% 80%)",
+            300: "hsl(36 50% 70%)",
+            400: "hsl(36 48% 62%)",
+            500: "hsl(36 45% 55%)",
+            600: "hsl(34 45% 45%)",
+            700: "hsl(32 45% 36%)",
+            800: "hsl(30 40% 28%)",
+            900: "hsl(28 38% 20%)",
+          },
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

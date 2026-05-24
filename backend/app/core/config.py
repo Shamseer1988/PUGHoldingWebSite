@@ -1,11 +1,23 @@
 """Application configuration loaded from environment variables."""
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import List, Optional
 
-from pydantic import Field, field_validator
+from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Load the .env file into os.environ *before* `Settings()` is
+# instantiated. pydantic-settings also reads the .env file, but the
+# `cors_origins` property below reads via `os.getenv` so we need
+# python-dotenv to populate it too.
+load_dotenv()
+
+
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 
 
 class Settings(BaseSettings):
@@ -39,10 +51,14 @@ class Settings(BaseSettings):
     postgres_db: str = Field(default="pug_holding")
     database_url: Optional[str] = Field(default=None)
 
-    # --- CORS ---
-    cors_origins: List[str] = Field(
-        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
-    )
+    # NOTE: CORS_ORIGINS is intentionally NOT declared as a field.
+    # pydantic-settings 2.x tries to JSON-decode env values when the
+    # matched field is a complex type (List[str]) — and with some
+    # interpreter/dotenv combinations that pre-decode still fires for
+    # aliased string fields, blowing up on the comma-separated value.
+    # We read it via os.getenv in the `cors_origins` property below,
+    # and `extra="ignore"` keeps pydantic-settings from raising on the
+    # otherwise-unmatched env var.
 
     # --- Uploads ---
     upload_dir: str = Field(default="app/uploads")
@@ -63,13 +79,15 @@ class Settings(BaseSettings):
     smtp_from_email: Optional[str] = Field(default=None)
     smtp_use_tls: bool = Field(default=True)
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def split_cors_origins(cls, value: object) -> object:
-        """Allow CORS_ORIGINS to be supplied as a comma-separated string."""
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @property
+    def cors_origins(self) -> List[str]:
+        """Return CORS origins parsed from a comma-separated env value.
+
+        Read directly from os.environ so pydantic-settings never tries
+        to JSON-decode the comma-separated string.
+        """
+        raw = os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
     @property
     def sqlalchemy_database_uri(self) -> str:

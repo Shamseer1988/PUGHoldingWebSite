@@ -1,0 +1,570 @@
+"use client";
+
+import * as React from "react";
+import {
+  Building2,
+  CheckCircle2,
+  Edit3,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+
+import { AdminShell } from "@/components/admin/admin-shell";
+import { EmptyState } from "@/components/admin/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { adminApi, AdminApiError } from "@/lib/admin/api";
+import type { Company, CompanyCategory } from "@/lib/admin/types";
+import { cn } from "@/lib/utils";
+
+interface CompanyFormState {
+  slug: string;
+  name: string;
+  category: CompanyCategory;
+  short_description: string;
+  long_description: string;
+  branches: string;
+  accent: string;
+  initials: string;
+  phone: string;
+  email: string;
+  address: string;
+  website: string;
+  display_order: number;
+  is_active: boolean;
+  services: string;
+}
+
+const EMPTY_FORM: CompanyFormState = {
+  slug: "",
+  name: "",
+  category: "retail",
+  short_description: "",
+  long_description: "",
+  branches: "",
+  accent: "from-pug-green-500 to-pug-gold-500",
+  initials: "",
+  phone: "",
+  email: "",
+  address: "",
+  website: "",
+  display_order: 0,
+  is_active: true,
+  services: "",
+};
+
+export default function CompaniesAdminPage() {
+  const [items, setItems] = React.useState<Company[] | null>(null);
+  const [editing, setEditing] = React.useState<Company | null>(null);
+  const [form, setForm] = React.useState<CompanyFormState>(EMPTY_FORM);
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    refresh();
+  }, []);
+
+  async function refresh() {
+    setItems(null);
+    try {
+      const data = await adminApi.get<Company[]>("/admin/cms/companies");
+      setItems(data);
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    }
+  }
+
+  function openNew() {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setError(null);
+    setDrawerOpen(true);
+  }
+
+  function openEdit(item: Company) {
+    setEditing(item);
+    setForm({
+      slug: item.slug,
+      name: item.name,
+      category: item.category,
+      short_description: item.short_description ?? "",
+      long_description: item.long_description ?? "",
+      branches: item.branches ?? "",
+      accent: item.accent,
+      initials: item.initials,
+      phone: item.phone ?? "",
+      email: item.email ?? "",
+      address: item.address ?? "",
+      website: item.website ?? "",
+      display_order: item.display_order,
+      is_active: item.is_active,
+      services: item.services.map((s) => s.name).join(", "),
+    });
+    setError(null);
+    setDrawerOpen(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const body = {
+        slug: form.slug.trim(),
+        name: form.name.trim(),
+        category: form.category,
+        short_description: form.short_description.trim() || null,
+        long_description: form.long_description.trim() || null,
+        branches: form.branches.trim() || null,
+        accent: form.accent.trim(),
+        initials: form.initials.trim(),
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        address: form.address.trim() || null,
+        website: form.website.trim() || null,
+        display_order: Number(form.display_order) || 0,
+        is_active: form.is_active,
+        services: form.services
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      };
+      if (editing) {
+        await adminApi.patch<Company>(
+          `/admin/cms/companies/${editing.id}`,
+          body
+        );
+        setToast(`Updated “${body.name}”.`);
+      } else {
+        await adminApi.post<Company>("/admin/cms/companies", body);
+        setToast(`Created “${body.name}”.`);
+      }
+      setDrawerOpen(false);
+      await refresh();
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(item: Company) {
+    if (!confirm(`Delete “${item.name}”? This cannot be undone.`)) return;
+    try {
+      await adminApi.delete(`/admin/cms/companies/${item.id}`);
+      setToast(`Deleted “${item.name}”.`);
+      await refresh();
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    }
+  }
+
+  return (
+    <AdminShell
+      title="Group companies"
+      description="Manage the company portfolio shown on the public site."
+      actions={
+        <Button onClick={openNew} size="sm">
+          <Plus className="h-4 w-4" />
+          New company
+        </Button>
+      }
+    >
+      <Toast message={toast} onClose={() => setToast(null)} />
+
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-200"
+        >
+          {error}
+        </div>
+      )}
+
+      {items === null ? (
+        <p className="text-sm text-muted-foreground">
+          <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
+          Loading companies…
+        </p>
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={Building2}
+          title="No companies yet"
+          description="Add the first group company to populate the public website's portfolio page."
+          action={<Button onClick={openNew} size="sm"><Plus className="h-4 w-4" />New company</Button>}
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead className="hidden md:table-cell">Services</TableHead>
+                <TableHead className="hidden lg:table-cell w-32">Order</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                <TableHead className="w-32 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-xs font-bold text-white",
+                          item.accent
+                        )}
+                        aria-hidden
+                      >
+                        {item.initials}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{item.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          /{item.slug}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="capitalize">{item.category}</TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    <div className="flex flex-wrap gap-1">
+                      {item.services.slice(0, 3).map((s) => (
+                        <Badge key={s.id} variant="muted" className="font-normal">
+                          {s.name}
+                        </Badge>
+                      ))}
+                      {item.services.length > 3 && (
+                        <span className="text-xs text-muted-foreground">
+                          +{item.services.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    {item.display_order}
+                  </TableCell>
+                  <TableCell>
+                    {item.is_active ? (
+                      <Badge variant="success">Active</Badge>
+                    ) : (
+                      <Badge variant="muted">Hidden</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openEdit(item)}
+                      aria-label={`Edit ${item.name}`}
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => remove(item)}
+                      aria-label={`Delete ${item.name}`}
+                      className="text-rose-600 hover:text-rose-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      <CompanyDrawer
+        open={drawerOpen}
+        title={editing ? "Edit company" : "New company"}
+        form={form}
+        onChange={setForm}
+        onClose={() => setDrawerOpen(false)}
+        onSave={save}
+        saving={saving}
+      />
+    </AdminShell>
+  );
+}
+
+function CompanyDrawer({
+  open,
+  title,
+  form,
+  onChange,
+  onClose,
+  onSave,
+  saving,
+}: {
+  open: boolean;
+  title: string;
+  form: CompanyFormState;
+  onChange: (next: CompanyFormState) => void;
+  onClose: () => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  function set<K extends keyof CompanyFormState>(
+    key: K,
+    value: CompanyFormState[K]
+  ) {
+    onChange({ ...form, [key]: value });
+  }
+
+  if (!open) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-40 flex"
+    >
+      <div
+        className="flex-1 bg-background/50 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div className="flex w-full max-w-xl flex-col bg-background shadow-2xl">
+        <header className="flex items-center justify-between border-b border-border/60 px-5 py-3">
+          <h2 className="text-base font-semibold">{title}</h2>
+          <Button size="icon" variant="ghost" onClick={onClose} aria-label="Close">
+            <X className="h-4 w-4" />
+          </Button>
+        </header>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave();
+          }}
+          className="flex flex-1 flex-col overflow-y-auto"
+        >
+          <div className="flex-1 space-y-4 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Name" required>
+                <Input
+                  required
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Slug" required hint="lowercase, dashes only">
+                <Input
+                  required
+                  pattern="^[a-z0-9-]+$"
+                  value={form.slug}
+                  onChange={(e) => set("slug", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Category" required>
+                <Select
+                  value={form.category}
+                  onChange={(e) =>
+                    set("category", e.target.value as CompanyCategory)
+                  }
+                  disabled={saving}
+                >
+                  <option value="distribution">Distribution</option>
+                  <option value="retail">Retail</option>
+                  <option value="services">Services</option>
+                </Select>
+              </Field>
+              <Field label="Initials" required hint="2–3 chars on the logo tile">
+                <Input
+                  required
+                  maxLength={8}
+                  value={form.initials}
+                  onChange={(e) => set("initials", e.target.value.toUpperCase())}
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+
+            <Field label="Short description" hint="Shown on cards">
+              <Input
+                value={form.short_description}
+                onChange={(e) => set("short_description", e.target.value)}
+                disabled={saving}
+              />
+            </Field>
+
+            <Field label="Long description">
+              <Textarea
+                rows={5}
+                value={form.long_description}
+                onChange={(e) => set("long_description", e.target.value)}
+                disabled={saving}
+              />
+            </Field>
+
+            <Field label="Services" hint="comma-separated">
+              <Input
+                value={form.services}
+                onChange={(e) => set("services", e.target.value)}
+                disabled={saving}
+                placeholder="Grocery, Fresh food, Household"
+              />
+            </Field>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Branches" hint="Optional">
+                <Input
+                  value={form.branches}
+                  onChange={(e) => set("branches", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+              <Field
+                label="Accent gradient"
+                hint="Tailwind from-… via-… to-… classes"
+              >
+                <Input
+                  value={form.accent}
+                  onChange={(e) => set("accent", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Phone">
+                <Input
+                  value={form.phone}
+                  onChange={(e) => set("phone", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => set("email", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Address">
+                <Input
+                  value={form.address}
+                  onChange={(e) => set("address", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Website">
+                <Input
+                  value={form.website}
+                  onChange={(e) => set("website", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Display order">
+                <Input
+                  type="number"
+                  value={form.display_order}
+                  onChange={(e) =>
+                    set("display_order", Number(e.target.value) || 0)
+                  }
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Active">
+                <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                    checked={form.is_active}
+                    onChange={(e) => set("is_active", e.target.checked)}
+                    disabled={saving}
+                  />
+                  Show on public site
+                </label>
+              </Field>
+            </div>
+          </div>
+
+          <footer className="flex items-center justify-end gap-2 border-t border-border/60 bg-background px-5 py-3">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </footer>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+  hint,
+  required,
+}: {
+  label: string;
+  children: React.ReactNode;
+  hint?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>
+        {label}
+        {required && <span className="ml-0.5 text-rose-500">*</span>}
+      </Label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function Toast({
+  message,
+  onClose,
+}: {
+  message: string | null;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [message, onClose]);
+
+  if (!message) return null;
+  return (
+    <div
+      role="status"
+      className="mb-4 inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200"
+    >
+      <CheckCircle2 className="h-4 w-4" />
+      {message}
+    </div>
+  );
+}
