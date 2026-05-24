@@ -36,6 +36,10 @@ export interface Company {
   category: CompanyCategory;
   short_description: string | null;
   long_description: string | null;
+  /** Short premium description used only on the homepage Group Companies panel. */
+  homepage_highlight_description: string | null;
+  /** Newline-separated bullet points rendered as chips on the homepage panel. */
+  homepage_highlight_points: string | null;
   branches: string | null;
   accent: string;
   initials: string;

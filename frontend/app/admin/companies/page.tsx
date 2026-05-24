@@ -38,6 +38,8 @@ interface CompanyFormState {
   category: CompanyCategory;
   short_description: string;
   long_description: string;
+  homepage_highlight_description: string;
+  homepage_highlight_points: string;
   branches: string;
   accent: string;
   initials: string;
@@ -60,6 +62,8 @@ const EMPTY_FORM: CompanyFormState = {
   category: "retail",
   short_description: "",
   long_description: "",
+  homepage_highlight_description: "",
+  homepage_highlight_points: "",
   branches: "",
   accent: "from-pug-green-500 to-pug-gold-500",
   initials: "",
@@ -114,6 +118,8 @@ export default function CompaniesAdminPage() {
       category: item.category,
       short_description: item.short_description ?? "",
       long_description: item.long_description ?? "",
+      homepage_highlight_description: item.homepage_highlight_description ?? "",
+      homepage_highlight_points: item.homepage_highlight_points ?? "",
       branches: item.branches ?? "",
       accent: item.accent,
       initials: item.initials,
@@ -143,6 +149,12 @@ export default function CompaniesAdminPage() {
         category: form.category,
         short_description: form.short_description.trim() || null,
         long_description: form.long_description.trim() || null,
+        homepage_highlight_description:
+          form.homepage_highlight_description.trim() || null,
+        // Preserve user-entered line breaks for the points field —
+        // trim leading/trailing whitespace only.
+        homepage_highlight_points:
+          form.homepage_highlight_points.replace(/^\s+|\s+$/g, "") || null,
         branches: form.branches.trim() || null,
         accent: form.accent.trim(),
         initials: form.initials.trim(),
@@ -438,6 +450,37 @@ function CompanyDrawer({
                 value={form.long_description}
                 onChange={(e) => set("long_description", e.target.value)}
                 disabled={saving}
+              />
+            </Field>
+
+            <Field
+              label="Homepage Highlight Description"
+              hint="Short premium description used only in the homepage Group Companies section. If empty, the system will use the long description or short description as fallback."
+            >
+              <Textarea
+                rows={3}
+                value={form.homepage_highlight_description}
+                onChange={(e) =>
+                  set("homepage_highlight_description", e.target.value)
+                }
+                disabled={saving}
+              />
+            </Field>
+
+            <Field
+              label="Homepage Highlight Points"
+              hint="One per line — e.g. FMCG wholesale and distribution. Rendered as chips below the homepage description; if empty the section falls back to the company's services."
+            >
+              <Textarea
+                rows={4}
+                value={form.homepage_highlight_points}
+                onChange={(e) =>
+                  set("homepage_highlight_points", e.target.value)
+                }
+                disabled={saving}
+                placeholder={
+                  "FMCG wholesale and distribution\nDepartment store retail supply\nHORECA and institutional support"
+                }
               />
             </Field>
 

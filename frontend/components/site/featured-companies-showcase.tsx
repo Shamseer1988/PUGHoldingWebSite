@@ -3,7 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, Building2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building2, Sparkles } from "lucide-react";
 
 import type { Company } from "@/lib/admin/types";
 import type { FeaturedSectionPayload } from "@/lib/public-api";
@@ -76,6 +76,52 @@ export function FeaturedCompaniesShowcase({
             },
           })
         );
+
+        // Highlight reveal: separate per-panel timeline that targets
+        // the new "Company Highlight" card. Runs once when the panel
+        // enters the viewport (start: "top 70%"). Stays independent
+        // from the active-state trigger above so the two never fight.
+        const eyebrow = panel.querySelector<HTMLElement>("[data-highlight-eyebrow]");
+        const text = panel.querySelector<HTMLElement>("[data-highlight-text]");
+        const chips = panel.querySelectorAll<HTMLElement>("[data-highlight-chip]");
+        const accent = panel.querySelector<HTMLElement>("[data-highlight-accent]");
+        const targets = [eyebrow, text, accent, ...Array.from(chips)].filter(
+          (el): el is HTMLElement => Boolean(el)
+        );
+        if (targets.length === 0) return;
+
+        gsap.set(targets, { opacity: 0, y: 18 });
+        if (accent) gsap.set(accent, { scaleX: 0, transformOrigin: "left center" });
+
+        const tl = gsap.timeline({
+          scrollTrigger: {
+            trigger: panel,
+            start: "top 70%",
+            end: "bottom 40%",
+            once: true,
+          },
+          defaults: { ease: "power3.out" },
+        });
+        if (eyebrow) tl.to(eyebrow, { opacity: 1, y: 0, duration: 0.5 }, 0);
+        if (text) tl.to(text, { opacity: 1, y: 0, duration: 0.55 }, 0.08);
+        if (chips.length) {
+          tl.to(
+            chips,
+            { opacity: 1, y: 0, duration: 0.45, stagger: 0.08 },
+            0.18
+          );
+        }
+        if (accent) {
+          tl.to(
+            accent,
+            { opacity: 1, scaleX: 1, duration: 0.55, ease: "power2.out" },
+            "-=0.25"
+          );
+        }
+        // Hook the timeline's ScrollTrigger into the same cleanup
+        // pool so unmount kills it alongside the active-panel
+        // triggers above. Killing the trigger also stops the tween.
+        if (tl.scrollTrigger) triggers.push(tl.scrollTrigger);
       });
 
       // Force initial evaluation so the active panel is correct
@@ -323,9 +369,131 @@ const CompanyPanel = React.forwardRef<
           <ArrowUpRight className="h-3.5 w-3.5" />
         </Link>
       </div>
+
+      <CompanyHighlight company={company} className="mt-8" />
     </article>
   );
 });
+
+
+// ---------------------------------------------------------------------------
+// Company highlight card
+// Fills the previously-empty space below the CTA inside every panel.
+// Backend-controlled: prefers `homepage_highlight_description`, falls
+// back to a trimmed `long_description`, then `short_description`.
+// Chips prefer `homepage_highlight_points` (newline list), fall back
+// to the company's services. Returns null when there's nothing to
+// show so the panel still renders cleanly.
+// ---------------------------------------------------------------------------
+
+const HIGHLIGHT_MAX_CHARS = 280;
+
+function trimLongDescription(value: string): string {
+  if (value.length <= HIGHLIGHT_MAX_CHARS) return value;
+  const slice = value.slice(0, HIGHLIGHT_MAX_CHARS);
+  // Cut on the last sentence boundary if possible, else on the last
+  // word boundary, else hard-cut. Append an ellipsis only when we
+  // actually shortened.
+  const lastSentence = Math.max(
+    slice.lastIndexOf(". "),
+    slice.lastIndexOf("! "),
+    slice.lastIndexOf("? ")
+  );
+  if (lastSentence > HIGHLIGHT_MAX_CHARS * 0.6) {
+    return `${slice.slice(0, lastSentence + 1).trimEnd()}`;
+  }
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > 0) return `${slice.slice(0, lastSpace).trimEnd()}…`;
+  return `${slice.trimEnd()}…`;
+}
+
+function resolveHighlightDescription(company: Company): string | null {
+  const explicit = company.homepage_highlight_description?.trim();
+  if (explicit) return explicit;
+  const long = company.long_description?.trim();
+  if (long) return trimLongDescription(long);
+  const short = company.short_description?.trim();
+  if (short) return short;
+  return null;
+}
+
+function resolveHighlightPoints(company: Company): string[] {
+  const explicit = company.homepage_highlight_points?.trim();
+  if (explicit) {
+    return explicit
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+  return company.services.slice(0, 3).map((s) => s.name);
+}
+
+function CompanyHighlight({
+  company,
+  className,
+}: {
+  company: Company;
+  className?: string;
+}) {
+  const description = resolveHighlightDescription(company);
+  const points = resolveHighlightPoints(company);
+  if (!description && points.length === 0) return null;
+
+  return (
+    <aside
+      aria-label="Company highlight"
+      className={cn(
+        // Glassmorphism card — same surface language as the rest of
+        // the public site. Light/dark via existing tokens.
+        "relative overflow-hidden rounded-3xl border border-pug-gold-500/15 bg-white/70 p-5 shadow-[0_4px_30px_-18px_rgba(15,42,28,0.18)] backdrop-blur-sm sm:p-6",
+        "dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_4px_30px_-18px_rgba(0,0,0,0.6)]",
+        className
+      )}
+    >
+      <p
+        data-highlight-eyebrow
+        className="inline-flex items-center gap-1.5 rounded-full border border-pug-gold-500/25 bg-pug-gold-500/10 px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] text-pug-gold-700 dark:text-pug-gold-300"
+      >
+        <Sparkles className="h-3 w-3" aria-hidden />
+        Company Highlight
+      </p>
+
+      {description && (
+        <p
+          data-highlight-text
+          className="mt-4 text-pretty text-sm leading-relaxed text-foreground/80 sm:text-base"
+        >
+          {description}
+        </p>
+      )}
+
+      {points.length > 0 && (
+        <ul className="mt-4 flex flex-wrap gap-1.5">
+          {points.map((point) => (
+            <li
+              key={point}
+              data-highlight-chip
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-pug-green-900/[0.08] bg-background/60 px-3 py-1 text-xs font-medium text-foreground/80 dark:border-white/10"
+            >
+              <span
+                aria-hidden
+                className="inline-block h-1 w-1 shrink-0 rounded-full bg-pug-gold-500"
+              />
+              <span className="truncate">{point}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <span
+        aria-hidden
+        data-highlight-accent
+        className="mt-5 block h-px w-20 bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0"
+      />
+    </aside>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sticky preview frame on the right
@@ -501,6 +669,14 @@ function MobileCompanyCard({
             <ArrowUpRight className="h-3.5 w-3.5" />
           </Link>
         </div>
+
+        {/* Mobile: render the highlight card too. No GSAP reveal here
+            — the section uses CSS-only fade-in to keep scroll perf
+            cheap on phones; targets behind data-highlight-* still
+            get the GSAP setup on desktop but on mobile the effect
+            short-circuits because reducedMotion / !isDesktop returns
+            early up top. */}
+        <CompanyHighlight company={company} className="mt-5" />
       </div>
     </article>
   );

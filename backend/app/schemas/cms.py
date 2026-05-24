@@ -76,6 +76,9 @@ class CompanyBase(BaseModel):
     category: str = Field(pattern=r"^(distribution|retail|services)$")
     short_description: Optional[str] = Field(default=None, max_length=500)
     long_description: Optional[str] = None
+    # Homepage Group Companies overrides — see model docstring.
+    homepage_highlight_description: Optional[str] = None
+    homepage_highlight_points: Optional[str] = None
     branches: Optional[str] = Field(default=None, max_length=255)
     accent: str = Field(
         default="from-pug-green-500 to-pug-gold-500", max_length=255
@@ -105,6 +108,8 @@ class CompanyUpdate(BaseModel):
     )
     short_description: Optional[str] = None
     long_description: Optional[str] = None
+    homepage_highlight_description: Optional[str] = None
+    homepage_highlight_points: Optional[str] = None
     branches: Optional[str] = None
     accent: Optional[str] = None
     initials: Optional[str] = None
