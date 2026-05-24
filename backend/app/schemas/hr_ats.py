@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -124,6 +124,51 @@ class CandidateApplicationSummary(BaseModel):
     source: Optional[str] = None
 
 
+class CandidateExtractedDataRead(BaseModel):
+    """Structured CV extraction (Phase 11)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    skills: Optional[str] = None
+    education: Optional[List[Dict[str, Any]]] = None
+    certifications: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    previous_companies: Optional[List[Dict[str, Any]]] = None
+    full_text: Optional[str] = None
+    parser_version: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class CandidateExtractedDataUpdate(BaseModel):
+    """Manual HR correction of the structured CV data."""
+
+    skills: Optional[str] = None
+    education: Optional[List[Dict[str, Any]]] = None
+    certifications: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    previous_companies: Optional[List[Dict[str, Any]]] = None
+    full_text: Optional[str] = None
+
+
+class CandidateUpdate(BaseModel):
+    """HR manual edit of the headline candidate fields (Phase 11)."""
+
+    full_name: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[str] = Field(default=None, max_length=255)
+    mobile: Optional[str] = Field(default=None, max_length=40)
+    nationality: Optional[str] = Field(default=None, max_length=120)
+    current_location: Optional[str] = Field(default=None, max_length=255)
+    current_designation: Optional[str] = Field(default=None, max_length=255)
+    current_company: Optional[str] = Field(default=None, max_length=255)
+    total_experience_years: Optional[float] = Field(default=None, ge=0, le=70)
+    gcc_experience_years: Optional[float] = Field(default=None, ge=0, le=70)
+    qatar_experience_years: Optional[float] = Field(default=None, ge=0, le=70)
+    expected_salary: Optional[int] = Field(default=None, ge=0)
+    notice_period: Optional[str] = Field(default=None, max_length=120)
+    visa_status: Optional[str] = Field(default=None, max_length=120)
+    availability: Optional[str] = Field(default=None, max_length=120)
+
+
 class CandidateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -148,6 +193,14 @@ class CandidateRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     documents: List[CandidateDocumentRead] = Field(default_factory=list)
+    extracted_data: Optional[CandidateExtractedDataRead] = None
+
+
+class CvReparseResult(BaseModel):
+    candidate: CandidateRead
+    parsed: bool
+    parser_version: Optional[str] = None
+    detail: Optional[str] = None
 
 
 class CandidateListItem(BaseModel):
