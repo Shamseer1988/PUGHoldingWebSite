@@ -88,6 +88,16 @@ class Company(Base, TimestampMixin):
     email: Mapped[Optional[str]] = mapped_column(String(255))
     address: Mapped[Optional[str]] = mapped_column(String(500))
     website: Mapped[Optional[str]] = mapped_column(String(255))
+    featured_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    cta_label: Mapped[Optional[str]] = mapped_column(String(120))
+    cta_url: Mapped[Optional[str]] = mapped_column(String(500))
+    is_highlighted: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+    )
     display_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -269,3 +279,22 @@ class SiteSetting(Base, TimestampMixin):
     seo_default_title: Mapped[Optional[str]] = mapped_column(String(255))
     seo_default_description: Mapped[Optional[str]] = mapped_column(String(500))
     seo_keywords: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # Homepage "Featured Companies" section settings.
+    featured_companies_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
+    featured_companies_eyebrow: Mapped[Optional[str]] = mapped_column(String(120))
+    featured_companies_title: Mapped[Optional[str]] = mapped_column(String(255))
+    featured_companies_subtitle: Mapped[Optional[str]] = mapped_column(String(500))
+    featured_companies_cta_label: Mapped[Optional[str]] = mapped_column(String(120))
+    featured_companies_cta_url: Mapped[Optional[str]] = mapped_column(String(500))
+    featured_companies_animation_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )

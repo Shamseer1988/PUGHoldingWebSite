@@ -348,11 +348,23 @@ def _upsert_hero_slides(db: Session) -> int:
     return len(HERO_SLIDES)
 
 
+HIGHLIGHTED_SLUGS = {
+    "paris-hyper-market",
+    "paris-food-international",
+    "yellowtech-garage",
+    "greentech-real-estate",
+}
+
+
 def _upsert_companies(db: Session) -> int:
     existing = {c.slug: c for c in db.execute(select(Company)).scalars()}
-    for data in COMPANIES:
+    for idx, data in enumerate(COMPANIES):
         services = data.pop("services")
         slug = data["slug"]
+        # Mark the curated highlighted slugs (idempotent — admin can
+        # toggle later from the UI without us reverting it on re-seed).
+        data.setdefault("is_highlighted", slug in HIGHLIGHTED_SLUGS)
+        data.setdefault("display_order", idx)
         company = existing.get(slug)
         if company is None:
             company = Company(**data)

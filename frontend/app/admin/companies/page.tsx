@@ -13,6 +13,7 @@ import {
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
+import { ImageUpload } from "@/components/admin/image-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,10 @@ interface CompanyFormState {
   email: string;
   address: string;
   website: string;
+  featured_image_url: string | null;
+  cta_label: string;
+  cta_url: string;
+  is_highlighted: boolean;
   display_order: number;
   is_active: boolean;
   services: string;
@@ -62,6 +67,10 @@ const EMPTY_FORM: CompanyFormState = {
   email: "",
   address: "",
   website: "",
+  featured_image_url: null,
+  cta_label: "",
+  cta_url: "",
+  is_highlighted: false,
   display_order: 0,
   is_active: true,
   services: "",
@@ -112,6 +121,10 @@ export default function CompaniesAdminPage() {
       email: item.email ?? "",
       address: item.address ?? "",
       website: item.website ?? "",
+      featured_image_url: item.featured_image_url ?? null,
+      cta_label: item.cta_label ?? "",
+      cta_url: item.cta_url ?? "",
+      is_highlighted: item.is_highlighted,
       display_order: item.display_order,
       is_active: item.is_active,
       services: item.services.map((s) => s.name).join(", "),
@@ -137,6 +150,10 @@ export default function CompaniesAdminPage() {
         email: form.email.trim() || null,
         address: form.address.trim() || null,
         website: form.website.trim() || null,
+        featured_image_url: form.featured_image_url || null,
+        cta_label: form.cta_label.trim() || null,
+        cta_url: form.cta_url.trim() || null,
+        is_highlighted: form.is_highlighted,
         display_order: Number(form.display_order) || 0,
         is_active: form.is_active,
         services: form.services
@@ -262,11 +279,16 @@ export default function CompaniesAdminPage() {
                     {item.display_order}
                   </TableCell>
                   <TableCell>
-                    {item.is_active ? (
-                      <Badge variant="success">Active</Badge>
-                    ) : (
-                      <Badge variant="muted">Hidden</Badge>
-                    )}
+                    <div className="flex flex-wrap gap-1">
+                      {item.is_active ? (
+                        <Badge variant="success">Active</Badge>
+                      ) : (
+                        <Badge variant="muted">Hidden</Badge>
+                      )}
+                      {item.is_highlighted && (
+                        <Badge variant="warning">Featured</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
@@ -477,6 +499,52 @@ function CompanyDrawer({
                   onChange={(e) => set("website", e.target.value)}
                   disabled={saving}
                 />
+              </Field>
+            </div>
+
+            {/* Homepage "Featured Companies" section settings */}
+            <div className="space-y-3 rounded-xl border border-border/60 bg-muted/30 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Homepage showcase
+              </p>
+
+              <ImageUpload
+                label="Featured image"
+                value={form.featured_image_url}
+                onChange={(url) => set("featured_image_url", url)}
+                disabled={saving}
+              />
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="CTA label" hint="Optional · shown on the card">
+                  <Input
+                    value={form.cta_label}
+                    onChange={(e) => set("cta_label", e.target.value)}
+                    disabled={saving}
+                    placeholder="Visit the brand"
+                  />
+                </Field>
+                <Field label="CTA URL" hint="Internal or external link">
+                  <Input
+                    value={form.cta_url}
+                    onChange={(e) => set("cta_url", e.target.value)}
+                    disabled={saving}
+                    placeholder="https://… or /companies/slug"
+                  />
+                </Field>
+              </div>
+
+              <Field label="Highlight on homepage" hint="Featured Companies section">
+                <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                    checked={form.is_highlighted}
+                    onChange={(e) => set("is_highlighted", e.target.checked)}
+                    disabled={saving}
+                  />
+                  Include in the scroll showcase
+                </label>
               </Field>
             </div>
 
