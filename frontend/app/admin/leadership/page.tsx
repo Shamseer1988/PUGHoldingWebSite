@@ -170,7 +170,12 @@ export default function LeadershipAdminPage() {
     <AdminShell
       title="Leadership messages"
       description="Chairman, MD, and Executive Directors messages shown on About and Home."
-      actions={<Button onClick={openNew} size="sm"><Plus className="h-4 w-4" />New leader</Button>}
+      actions={
+        <Button onClick={openNew} size="sm" aria-label="Add a new leader">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">New leader</span>
+        </Button>
+      }
     >
       <Toast message={toast} onClose={() => setToast(null)} />
       {error && <div role="alert" className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-200">{error}</div>}

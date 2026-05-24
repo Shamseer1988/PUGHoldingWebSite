@@ -150,9 +150,9 @@ export default function HeroSlidesAdminPage() {
       title="Hero slides"
       description="Auto-rotating banners on the public home page."
       actions={
-        <Button onClick={openNew} size="sm">
+        <Button onClick={openNew} size="sm" aria-label="Add a new slide">
           <Plus className="h-4 w-4" />
-          New slide
+          <span className="hidden sm:inline">New slide</span>
         </Button>
       }
     >

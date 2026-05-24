@@ -189,9 +189,9 @@ export default function PagesAdminPage() {
       title="Pages"
       description="Free-form content pages like About us, Privacy policy, etc."
       actions={
-        <Button onClick={openNew} size="sm">
+        <Button onClick={openNew} size="sm" aria-label="Add a new page">
           <Plus className="h-4 w-4" />
-          New page
+          <span className="hidden sm:inline">New page</span>
         </Button>
       }
     >

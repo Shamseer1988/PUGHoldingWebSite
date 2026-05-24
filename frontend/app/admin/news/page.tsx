@@ -148,9 +148,9 @@ export default function NewsAdminPage() {
       title="News & events"
       description="Manage articles, announcements, and CSR updates."
       actions={
-        <Button onClick={openNew} size="sm">
+        <Button onClick={openNew} size="sm" aria-label="Add a new article">
           <Plus className="h-4 w-4" />
-          New article
+          <span className="hidden sm:inline">New article</span>
         </Button>
       }
     >

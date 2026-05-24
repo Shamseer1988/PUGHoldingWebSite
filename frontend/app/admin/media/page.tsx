@@ -126,13 +126,14 @@ export default function MediaAdminPage() {
             size="sm"
             onClick={() => fileRef.current?.click()}
             disabled={uploading}
+            aria-label="Upload media files"
           >
             {uploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Upload className="h-4 w-4" />
             )}
-            Upload
+            <span className="hidden sm:inline">Upload</span>
           </Button>
         </>
       }

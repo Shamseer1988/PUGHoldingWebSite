@@ -208,9 +208,9 @@ export default function CompaniesAdminPage() {
       title="Group companies"
       description="Manage the company portfolio shown on the public site."
       actions={
-        <Button onClick={openNew} size="sm">
+        <Button onClick={openNew} size="sm" aria-label="Add a new company">
           <Plus className="h-4 w-4" />
-          New company
+          <span className="hidden sm:inline">New company</span>
         </Button>
       }
     >

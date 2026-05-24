@@ -138,13 +138,18 @@ export default function AISettingsAdminPage() {
       title="AI settings"
       description="Configure the Azure OpenAI integration used by HR for advisory candidate reviews."
       actions={
-        <Button onClick={save} disabled={!form || saving} size="sm">
+        <Button
+          onClick={save}
+          disabled={!form || saving}
+          size="sm"
+          aria-label="Save AI settings"
+        >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save changes
+          <span className="hidden sm:inline">Save changes</span>
         </Button>
       }
     >
@@ -503,8 +508,8 @@ function PublicAILogsCard() {
             No public questions have been logged yet.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border/60">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <table className="w-full min-w-[36rem] text-left text-xs">
               <thead className="bg-muted/30 text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 font-medium">When</th>

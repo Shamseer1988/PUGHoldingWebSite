@@ -259,9 +259,9 @@ export default function HrJobsPage() {
       title="Job openings"
       description="Manage active, on-hold, and closed job postings."
       actions={
-        <Button onClick={openNew} size="sm">
+        <Button onClick={openNew} size="sm" aria-label="Add a new job opening">
           <Plus className="h-4 w-4" />
-          New job
+          <span className="hidden sm:inline">New job</span>
         </Button>
       }
     >

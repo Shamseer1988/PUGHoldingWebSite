@@ -122,9 +122,14 @@ export default function SiteSettingsAdminPage() {
       title="Site settings"
       description="Brand name, contact details, social links, and default SEO metadata."
       actions={
-        <Button onClick={save} disabled={!form || saving} size="sm">
+        <Button
+          onClick={save}
+          disabled={!form || saving}
+          size="sm"
+          aria-label="Save site settings"
+        >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save changes
+          <span className="hidden sm:inline">Save changes</span>
         </Button>
       }
     >
