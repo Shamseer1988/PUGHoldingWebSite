@@ -118,6 +118,28 @@ class CompanyServiceRead(BaseModel):
     display_order: int = 0
 
 
+class CompanyBrandLogoRead(BaseModel):
+    """Logo image displayed inside the Group Companies marquee."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    image_url: str
+    name: Optional[str] = None
+    link_url: Optional[str] = None
+    display_order: int = 0
+
+
+class CompanyBrandLogoInput(BaseModel):
+    """Admin-side payload — `id` is omitted because the relation is
+    replaced wholesale on every save (same pattern as ``services``)."""
+
+    image_url: str = Field(min_length=1, max_length=500)
+    name: Optional[str] = Field(default=None, max_length=120)
+    link_url: Optional[str] = Field(default=None, max_length=500)
+    display_order: int = 0
+
+
 class CompanyBase(BaseModel):
     slug: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=1, max_length=255)
@@ -153,6 +175,7 @@ class CompanyBase(BaseModel):
 
 class CompanyCreate(CompanyBase):
     services: List[str] = Field(default_factory=list)
+    brand_logos: List[CompanyBrandLogoInput] = Field(default_factory=list)
 
 
 class CompanyUpdate(BaseModel):
@@ -183,6 +206,7 @@ class CompanyUpdate(BaseModel):
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
     services: Optional[List[str]] = None
+    brand_logos: Optional[List[CompanyBrandLogoInput]] = None
 
 
 class CompanyRead(CompanyBase):
@@ -190,6 +214,7 @@ class CompanyRead(CompanyBase):
 
     id: int
     services: List[CompanyServiceRead] = Field(default_factory=list)
+    brand_logos: List[CompanyBrandLogoRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

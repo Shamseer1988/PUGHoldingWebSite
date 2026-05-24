@@ -35,6 +35,7 @@ from app.models.cms import (
     MEDIA_KIND_VIDEO,
     CMSPage,
     Company,
+    CompanyBrandLogo,
     CompanyService,
     ContactMessage,
     HeroSlide,
@@ -309,9 +310,19 @@ def create_company(
 ) -> Company:
     data = payload.model_dump()
     service_names = data.pop("services", [])
+    brand_logos = data.pop("brand_logos", [])
     company = Company(**data)
     for i, name in enumerate(service_names):
         company.services.append(CompanyService(name=name, display_order=i))
+    for i, logo in enumerate(brand_logos):
+        company.brand_logos.append(
+            CompanyBrandLogo(
+                image_url=logo["image_url"],
+                name=logo.get("name"),
+                link_url=logo.get("link_url"),
+                display_order=logo.get("display_order") or i,
+            )
+        )
     db.add(company)
     try:
         db.flush()
@@ -337,17 +348,36 @@ def update_company(
         raise HTTPException(status_code=404, detail="Company not found")
     changes = payload.model_dump(exclude_unset=True)
     service_names = changes.pop("services", None)
+    brand_logos = changes.pop("brand_logos", None)
     for k, v in changes.items():
         setattr(company, k, v)
     if service_names is not None:
         company.services.clear()
         for i, name in enumerate(service_names):
             company.services.append(CompanyService(name=name, display_order=i))
+    if brand_logos is not None:
+        # Wholesale replace — admin form posts the full ordered list on
+        # every save so we don't need to diff individual rows.
+        company.brand_logos.clear()
+        for i, logo in enumerate(brand_logos):
+            company.brand_logos.append(
+                CompanyBrandLogo(
+                    image_url=logo["image_url"],
+                    name=logo.get("name"),
+                    link_url=logo.get("link_url"),
+                    display_order=logo.get("display_order") or i,
+                )
+            )
     try:
         db.flush()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Slug already exists") from exc
+    changed_keys = list(changes.keys())
+    if service_names is not None:
+        changed_keys.append("services")
+    if brand_logos is not None:
+        changed_keys.append("brand_logos")
     _audit(
         db,
         user,
@@ -355,7 +385,7 @@ def update_company(
         action="cms.company.update",
         target_type="company",
         target_id=company.id,
-        details={"changed_keys": list(changes.keys()) + (["services"] if service_names is not None else [])},
+        details={"changed_keys": changed_keys},
     )
     db.commit()
     db.refresh(company)

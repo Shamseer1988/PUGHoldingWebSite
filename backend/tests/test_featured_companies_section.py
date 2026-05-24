@@ -283,3 +283,71 @@ def test_company_group_homepage_video_fields_roundtrip(client, seed_auth):
     # featured_image_url is preserved so the public section still shows
     # a sensible poster.
     assert patched.json()["featured_image_url"] == "/api/v1/uploads/cms/poster.png"
+
+
+def test_company_brand_logos_roundtrip(client, seed_auth):
+    """Admins can attach multiple brand-logo images to a company; the
+    marquee on the public side reads them back in display order."""
+    headers = _admin_headers(client, seed_auth["password"])
+
+    create = client.post(
+        "/api/v1/admin/cms/companies",
+        headers=headers,
+        json={
+            "slug": "logo-co",
+            "name": "Logo Co",
+            "category": "distribution",
+            "initials": "LC",
+            "is_highlighted": True,
+            "brand_logos": [
+                {
+                    "image_url": "/api/v1/uploads/cms/logo-a.png",
+                    "name": "Brand A",
+                    "link_url": "https://example.com/a",
+                    "display_order": 1,
+                },
+                {
+                    "image_url": "/api/v1/uploads/cms/logo-b.png",
+                    "name": "Brand B",
+                    "display_order": 2,
+                },
+            ],
+        },
+    )
+    assert create.status_code == 201, create.text
+    body = create.json()
+    assert len(body["brand_logos"]) == 2
+    assert [l["name"] for l in body["brand_logos"]] == ["Brand A", "Brand B"]
+    assert body["brand_logos"][0]["link_url"] == "https://example.com/a"
+
+    # Public payload exposes the same list.
+    public = client.get(PUBLIC).json()
+    payload = next(c for c in public["companies"] if c["slug"] == "logo-co")
+    assert len(payload["brand_logos"]) == 2
+
+    # PATCH wholesale-replaces the list — supplying a single logo wipes
+    # the previous two.
+    patched = client.patch(
+        f"/api/v1/admin/cms/companies/{body['id']}",
+        headers=headers,
+        json={
+            "brand_logos": [
+                {
+                    "image_url": "/api/v1/uploads/cms/logo-c.png",
+                    "name": "Brand C",
+                }
+            ]
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    assert len(patched.json()["brand_logos"]) == 1
+    assert patched.json()["brand_logos"][0]["name"] == "Brand C"
+
+    # Sending [] clears the list entirely.
+    cleared = client.patch(
+        f"/api/v1/admin/cms/companies/{body['id']}",
+        headers=headers,
+        json={"brand_logos": []},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["brand_logos"] == []

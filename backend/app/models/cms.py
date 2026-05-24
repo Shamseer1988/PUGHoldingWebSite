@@ -138,6 +138,12 @@ class Company(Base, TimestampMixin):
         lazy="selectin",
         order_by="CompanyService.display_order",
     )
+    brand_logos: Mapped[List["CompanyBrandLogo"]] = relationship(
+        back_populates="company",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="CompanyBrandLogo.display_order",
+    )
 
 
 class CompanyService(Base):
@@ -153,6 +159,32 @@ class CompanyService(Base):
     )
 
     company: Mapped[Company] = relationship(back_populates="services")
+
+
+class CompanyBrandLogo(Base):
+    """Logo image displayed inside the Group Companies showcase marquee.
+
+    Each company can attach several brand or partner logos that scroll
+    inside the homepage card. Each row is just an image URL with
+    optional alt text + click-through link — uploads land via the
+    standard CMS image endpoint, the admin only stores the returned
+    URL here.
+    """
+
+    __tablename__ = "company_brand_logos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    image_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(120))
+    link_url: Mapped[Optional[str]] = mapped_column(String(500))
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+
+    company: Mapped[Company] = relationship(back_populates="brand_logos")
 
 
 # ---------------------------------------------------------------------------
