@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -426,9 +426,21 @@ def get_public_page(slug: str, db: Session = Depends(get_db)) -> CMSPage:
 def list_public_media(
     db: Session = Depends(get_db),
     kind: Optional[str] = Query(default=None, max_length=16),
+    tag: Optional[str] = Query(
+        default=None,
+        max_length=120,
+        description=(
+            "Case-insensitive token match against the asset's "
+            "comma-separated `tags` field. Use a company slug "
+            "(e.g. `paris-food-international`) or a category like "
+            "`stores`, `events`, `team`, `campaigns`."
+        ),
+    ),
     limit: int = Query(default=60, ge=1, le=200),
 ) -> List[MediaAsset]:
-    """Read-only gallery feed used by the public Media page."""
+    """Read-only gallery feed used by every public surface that shows
+    uploaded images / videos (the public Media page + per-company
+    galleries)."""
     stmt = (
         select(MediaAsset)
         .order_by(desc(MediaAsset.created_at))
@@ -436,6 +448,27 @@ def list_public_media(
     )
     if kind:
         stmt = stmt.where(MediaAsset.kind == kind)
+    if tag:
+        # `tags` is a free-form comma-separated string. Match the
+        # token at any position without bleeding into longer words
+        # (so `team` matches `team,doha` and `stores,team` but NOT
+        # `teammate` or `stores,teamwork`). Stripping whitespace +
+        # lower-casing the column on the fly keeps the match
+        # case-insensitive and tolerant of "stores, team" vs
+        # "stores,team". Stays dialect-agnostic for SQLite + PG.
+        needle = tag.strip().lower()
+        if needle:
+            normalised = func.lower(
+                func.replace(func.coalesce(MediaAsset.tags, ""), " ", "")
+            )
+            stmt = stmt.where(
+                or_(
+                    normalised == needle,
+                    normalised.like(f"{needle},%"),
+                    normalised.like(f"%,{needle}"),
+                    normalised.like(f"%,{needle},%"),
+                )
+            )
     return db.execute(stmt).scalars().all()
 
 

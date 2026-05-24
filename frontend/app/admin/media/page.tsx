@@ -429,9 +429,25 @@ function EditDialog({
           <Input
             value={tags}
             onChange={(e) => setTags(e.target.value)}
-            placeholder="brand, hero, retail"
+            placeholder="stores, events, team, campaigns, paris-food-international"
             disabled={saving}
           />
+          <p className="text-[11px] text-muted-foreground">
+            Tagging controls where the asset appears on the public site:
+            <br />
+            &nbsp;&bull; Use{" "}
+            <code className="rounded bg-muted px-1">stores</code>,{" "}
+            <code className="rounded bg-muted px-1">events</code>,{" "}
+            <code className="rounded bg-muted px-1">team</code>, or{" "}
+            <code className="rounded bg-muted px-1">campaigns</code> to file
+            this image under the matching tab on <em>/media</em>.
+            <br />
+            &nbsp;&bull; Add a company slug like{" "}
+            <code className="rounded bg-muted px-1">
+              paris-food-international
+            </code>{" "}
+            to make it appear inside that company&rsquo;s Gallery section.
+          </p>
         </div>
 
         {error && (

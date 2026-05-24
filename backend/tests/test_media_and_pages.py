@@ -186,6 +186,53 @@ def test_media_search_filter(client, db_session: Session, seed_auth):
     assert missing == []
 
 
+def test_public_media_tag_filter(client, db_session: Session, seed_auth):
+    """Public /media endpoint accepts a `?tag=` query and matches the
+    exact tag token in the asset's comma-separated `tags` field — so
+    `?tag=team` doesn't bleed into `teammate`."""
+    headers = _admin_auth(client, seed_auth["password"])
+
+    # Three uploads with overlapping + unrelated tags.
+    a = client.post(
+        MEDIA_UPLOAD,
+        headers=headers,
+        files={"file": ("a.png", io.BytesIO(TINY_PNG), "image/png")},
+    ).json()["asset"]
+    b = client.post(
+        MEDIA_UPLOAD,
+        headers=headers,
+        # tiny dedupe-buster so this row exists separately
+        files={"file": ("b.png", io.BytesIO(TINY_PNG + b"\x00"), "image/png")},
+    ).json()["asset"]
+    c = client.post(
+        MEDIA_UPLOAD,
+        headers=headers,
+        files={"file": ("c.png", io.BytesIO(TINY_PNG + b"\x01"), "image/png")},
+    ).json()["asset"]
+
+    client.patch(f"{MEDIA_LIST}/{a['id']}", headers=headers,
+                 json={"tags": "team, paris-food-international"})
+    client.patch(f"{MEDIA_LIST}/{b['id']}", headers=headers,
+                 json={"tags": "stores,paris-hyper-market"})
+    client.patch(f"{MEDIA_LIST}/{c['id']}", headers=headers,
+                 # `teammate` would match a naive LIKE %team% — the
+                 # tokenised matcher must skip it.
+                 json={"tags": "teammate,events"})
+
+    by_team = client.get("/api/v1/public/media?tag=team").json()
+    ids = {row["id"] for row in by_team}
+    assert a["id"] in ids
+    assert c["id"] not in ids  # teammate must NOT match team
+
+    by_company = client.get(
+        "/api/v1/public/media?tag=paris-food-international"
+    ).json()
+    assert {row["id"] for row in by_company} == {a["id"]}
+
+    none = client.get("/api/v1/public/media?tag=nothing-here").json()
+    assert none == []
+
+
 # ---------------------------------------------------------------------------
 # CMS pages
 # ---------------------------------------------------------------------------

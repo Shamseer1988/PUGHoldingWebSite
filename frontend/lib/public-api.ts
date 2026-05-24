@@ -197,10 +197,20 @@ export async function getHomepageLeadership(): Promise<HomepageLeadershipSection
 }
 
 export async function getMediaGallery(
-  options: { kind?: "image" | "video"; limit?: number } = {}
+  options: {
+    kind?: "image" | "video";
+    /**
+     * Match a single tag token in the asset's comma-separated `tags`
+     * field. Use a company slug (per-company gallery) or a category
+     * like `stores` / `events` / `team` / `campaigns`.
+     */
+    tag?: string;
+    limit?: number;
+  } = {}
 ): Promise<PublicMediaAsset[]> {
   const params = new URLSearchParams();
   if (options.kind) params.set("kind", options.kind);
+  if (options.tag) params.set("tag", options.tag);
   if (options.limit) params.set("limit", String(options.limit));
   const suffix = params.toString() ? `?${params}` : "";
   return (await fetchPublic<PublicMediaAsset[]>(`/public/media${suffix}`)) ?? [];

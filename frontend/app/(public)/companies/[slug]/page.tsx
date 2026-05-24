@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Building2, Mail, MapPin, Phone } from "lucide-react";
+import { ArrowLeft, Building2, Mail, MapPin, Phone, Play } from "lucide-react";
 
 import { CATEGORY_LABELS, CompanyCard } from "@/components/site/company-card";
 import { GlassCard } from "@/components/site/glass-card";
@@ -8,7 +8,12 @@ import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getCompanies, getCompanyBySlug } from "@/lib/public-api";
+import {
+  getCompanies,
+  getCompanyBySlug,
+  getMediaGallery,
+  resolveAssetUrl,
+} from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 export const revalidate = 60;
@@ -34,7 +39,13 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
   const company = await getCompanyBySlug(params.slug);
   if (!company) notFound();
 
-  const all = await getCompanies({ category: company.category });
+  // Per-company gallery: pull every CMS media asset tagged with this
+  // company's slug. Admin tags them under /admin/media. When nothing
+  // is tagged the section hides itself instead of showing placeholders.
+  const [all, gallery] = await Promise.all([
+    getCompanies({ category: company.category }),
+    getMediaGallery({ tag: company.slug, limit: 12 }),
+  ]);
   const related = all.filter((c) => c.slug !== company.slug).slice(0, 3);
 
   return (
@@ -104,23 +115,66 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
               </>
             )}
 
-            <h3 className="mt-8 text-base font-semibold">Gallery</h3>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <span
-                  key={i}
-                  aria-hidden
-                  className={cn(
-                    "block aspect-[4/3] rounded-lg bg-gradient-to-br opacity-70",
-                    company.accent
-                  )}
-                />
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Gallery placeholders — media uploads land in the Phase 5
-              follow-up CMS module.
-            </p>
+            {gallery.length > 0 ? (
+              <>
+                <h3 className="mt-8 text-base font-semibold">Gallery</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Images and videos uploaded under <em>Admin → Media gallery</em>
+                  {" "}and tagged with{" "}
+                  <code className="rounded bg-muted px-1">
+                    {company.slug}
+                  </code>
+                  .
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {gallery.map((asset) => {
+                    const url = resolveAssetUrl(asset.url) ?? asset.url;
+                    const alt =
+                      asset.alt_text ??
+                      asset.title ??
+                      `${company.name} media`;
+                    return (
+                      <div
+                        key={asset.id}
+                        className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-border/60 bg-muted"
+                      >
+                        {asset.kind === "video" ? (
+                          <>
+                            <video
+                              src={url}
+                              muted
+                              playsInline
+                              preload="metadata"
+                              className="h-full w-full object-cover"
+                            />
+                            <span
+                              aria-hidden
+                              className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30 text-white opacity-90"
+                            >
+                              <Play className="h-6 w-6" />
+                            </span>
+                          </>
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={url}
+                            alt={alt}
+                            loading="lazy"
+                            decoding="async"
+                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                        )}
+                        {asset.title && (
+                          <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-xs font-medium text-white">
+                            {asset.title}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
           </GlassCard>
 
           <aside className="space-y-4">
