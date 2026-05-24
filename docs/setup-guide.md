@@ -44,7 +44,7 @@ python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env
+copy .env.example .env
 # Edit .env if your PostgreSQL credentials differ.
 
 # Apply migrations (Phase 2 creates the auth tables).
@@ -91,7 +91,7 @@ In a separate terminal:
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local
+copy .env.example .env.local
 # Adjust NEXT_PUBLIC_API_BASE_URL if your backend isn't on :8000.
 npm run dev
 ```
