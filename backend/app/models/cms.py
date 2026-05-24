@@ -379,6 +379,15 @@ class SiteSetting(Base, TimestampMixin):
         Boolean, nullable=False, default=True, server_default="true"
     )
 
+    # Theme settings (Phase 5 follow-up) ----------------------------------
+    # Free-form hex strings injected as CSS variables in the root
+    # layout so admins can tune the brand palette without a rebuild.
+    # Leaving any of these NULL keeps the existing Tailwind tokens.
+    theme_primary_hex: Mapped[Optional[str]] = mapped_column(String(9))
+    theme_accent_hex: Mapped[Optional[str]] = mapped_column(String(9))
+    theme_heading_font: Mapped[Optional[str]] = mapped_column(String(120))
+    theme_body_font: Mapped[Optional[str]] = mapped_column(String(120))
+
 
 # ---------------------------------------------------------------------------
 # Media gallery (Phase 5 follow-up)

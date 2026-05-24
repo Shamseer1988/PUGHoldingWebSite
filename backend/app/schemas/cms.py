@@ -370,6 +370,12 @@ class SiteSettingRead(BaseModel):
     home_leadership_section_subtitle: Optional[str] = None
     home_leadership_animation_enabled: bool = True
 
+    # Theme settings (Phase 5 follow-up)
+    theme_primary_hex: Optional[str] = Field(default=None, max_length=9)
+    theme_accent_hex: Optional[str] = Field(default=None, max_length=9)
+    theme_heading_font: Optional[str] = Field(default=None, max_length=120)
+    theme_body_font: Optional[str] = Field(default=None, max_length=120)
+
 
 class SiteSettingUpdate(BaseModel):
     site_name: Optional[str] = None
@@ -419,6 +425,11 @@ class SiteSettingUpdate(BaseModel):
     home_leadership_section_title: Optional[str] = None
     home_leadership_section_subtitle: Optional[str] = None
     home_leadership_animation_enabled: Optional[bool] = None
+
+    theme_primary_hex: Optional[str] = None
+    theme_accent_hex: Optional[str] = None
+    theme_heading_font: Optional[str] = None
+    theme_body_font: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

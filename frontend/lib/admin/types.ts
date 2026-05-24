@@ -183,6 +183,12 @@ export interface SiteSettings {
   home_leadership_section_title: string | null;
   home_leadership_section_subtitle: string | null;
   home_leadership_animation_enabled: boolean;
+
+  // Theme overrides (Phase 5 follow-up)
+  theme_primary_hex: string | null;
+  theme_accent_hex: string | null;
+  theme_heading_font: string | null;
+  theme_body_font: string | null;
 }
 
 export interface UploadResponse {

@@ -5,6 +5,8 @@ import { Inter } from "next/font/google";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { env } from "@/lib/env";
+import { getSiteSettings } from "@/lib/public-api";
+import { buildThemeStyle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 const inter = Inter({
@@ -51,13 +53,18 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Pull theme overrides server-side so the CSS variables ship in the
+  // initial HTML — no flash of un-themed content on hard reload.
+  const settings = await getSiteSettings().catch(() => null);
+  const themeStyle = settings ? buildThemeStyle(settings) : undefined;
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning style={themeStyle}>
       <body className={cn("font-sans antialiased", inter.variable)}>
         <ThemeProvider
           attribute="class"

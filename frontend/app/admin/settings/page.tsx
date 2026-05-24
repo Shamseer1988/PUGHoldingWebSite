@@ -67,6 +67,10 @@ const EMPTY_FORM: Form = {
   home_leadership_section_title: "",
   home_leadership_section_subtitle: "",
   home_leadership_animation_enabled: true,
+  theme_primary_hex: "",
+  theme_accent_hex: "",
+  theme_heading_font: "",
+  theme_body_font: "",
 };
 
 export default function SiteSettingsAdminPage() {
@@ -205,6 +209,73 @@ export default function SiteSettingsAdminPage() {
               <Field label="Default title"><Input value={form.seo_default_title ?? ""} onChange={(e) => set("seo_default_title", e.target.value)} disabled={saving} /></Field>
               <Field label="Default description"><Textarea rows={3} value={form.seo_default_description ?? ""} onChange={(e) => set("seo_default_description", e.target.value)} disabled={saving} /></Field>
               <Field label="Keywords"><Input value={form.seo_keywords ?? ""} onChange={(e) => set("seo_keywords", e.target.value)} disabled={saving} placeholder="comma, separated" /></Field>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Theme</CardTitle>
+              <CardDescription>
+                Override the public site&rsquo;s primary + accent colours and fonts
+                without a deploy. Leave any field blank to keep the default Paris
+                United Group palette (deep green + warm gold) and Inter font.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Primary colour"
+                  hint="Hex code (e.g. #16432A) — drives buttons + accents."
+                >
+                  <ColorField
+                    value={form.theme_primary_hex ?? ""}
+                    onChange={(v) => set("theme_primary_hex", v)}
+                    disabled={saving}
+                    fallbackHex="#1F5236"
+                  />
+                </Field>
+                <Field
+                  label="Accent colour"
+                  hint="Hex code (e.g. #C89B3C) — used for highlights + gold pills."
+                >
+                  <ColorField
+                    value={form.theme_accent_hex ?? ""}
+                    onChange={(v) => set("theme_accent_hex", v)}
+                    disabled={saving}
+                    fallbackHex="#C89B3C"
+                  />
+                </Field>
+                <Field
+                  label="Heading font family"
+                  hint="CSS font family (e.g. 'Inter', 'Playfair Display')."
+                >
+                  <Input
+                    value={form.theme_heading_font ?? ""}
+                    onChange={(e) =>
+                      set("theme_heading_font", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="Inter"
+                  />
+                </Field>
+                <Field
+                  label="Body font family"
+                  hint="CSS font family for the rest of the site."
+                >
+                  <Input
+                    value={form.theme_body_font ?? ""}
+                    onChange={(e) => set("theme_body_font", e.target.value)}
+                    disabled={saving}
+                    placeholder="Inter"
+                  />
+                </Field>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Font family changes assume the font is already loaded by the
+                browser. To ship custom typefaces, upload them to the project
+                and add a <code className="rounded bg-muted px-1">@font-face</code> rule
+                in <code className="rounded bg-muted px-1">styles/globals.css</code>.
+              </p>
             </CardContent>
           </Card>
 
@@ -554,11 +625,73 @@ export default function SiteSettingsAdminPage() {
   );
 }
 
-function Field({ label, children, required }: { label: string; children: React.ReactNode; required?: boolean }) {
+function Field({
+  label,
+  children,
+  required,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  hint?: string;
+}) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}{required && <span className="ml-0.5 text-rose-500">*</span>}</Label>
+      <Label>
+        {label}
+        {required && <span className="ml-0.5 text-rose-500">*</span>}
+      </Label>
       {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function ColorField({
+  value,
+  onChange,
+  disabled,
+  fallbackHex,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  fallbackHex: string;
+}) {
+  // <input type="color"> requires a valid hex; if the admin has cleared
+  // the field we still show the picker pre-set to the fallback so they
+  // have a starting point, but we don't write that fallback back into
+  // the form unless they actually pick.
+  const pickerValue = /^#[0-9a-f]{6}$/i.test(value) ? value : fallbackHex;
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="color"
+        value={pickerValue}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        aria-label="Pick colour"
+        className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-border bg-background p-0.5"
+      />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={fallbackHex}
+        className="font-mono uppercase"
+      />
+      {value && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onChange("")}
+          disabled={disabled}
+        >
+          Clear
+        </Button>
+      )}
     </div>
   );
 }

@@ -250,6 +250,10 @@ const FALLBACK_SETTINGS: SiteSettings = {
   home_leadership_section_title: null,
   home_leadership_section_subtitle: null,
   home_leadership_animation_enabled: true,
+  theme_primary_hex: null,
+  theme_accent_hex: null,
+  theme_heading_font: null,
+  theme_body_font: null,
 };
 
 export async function getSiteSettings(): Promise<SiteSettings> {
