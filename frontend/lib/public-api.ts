@@ -223,6 +223,7 @@ const FALLBACK_SETTINGS: SiteSettings = {
   contact_phone: null,
   contact_email: null,
   contact_address: null,
+  contact_map_embed: null,
   whatsapp_number: null,
   social_linkedin: null,
   social_instagram: null,

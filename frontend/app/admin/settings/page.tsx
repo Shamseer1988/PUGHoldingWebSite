@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
 import type { SiteSettings } from "@/lib/admin/types";
+import { parseContactMapEmbed } from "@/lib/contact-map";
 
 type Form = Omit<SiteSettings, "id">;
 
@@ -27,6 +28,7 @@ const EMPTY_FORM: Form = {
   contact_phone: "",
   contact_email: "",
   contact_address: "",
+  contact_map_embed: "",
   whatsapp_number: "",
   social_linkedin: "",
   social_instagram: "",
@@ -184,6 +186,11 @@ export default function SiteSettingsAdminPage() {
               <Field label="WhatsApp number">
                 <Input value={form.whatsapp_number ?? ""} onChange={(e) => set("whatsapp_number", e.target.value)} disabled={saving} />
               </Field>
+              <MapEmbedField
+                value={form.contact_map_embed ?? ""}
+                onChange={(next) => set("contact_map_embed", next)}
+                disabled={saving}
+              />
             </CardContent>
           </Card>
 
@@ -693,6 +700,81 @@ function ColorField({
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * Map embed field for the Contact card.
+ *
+ * Accepts a Google Maps / OpenStreetMap iframe snippet OR a bare
+ * embed URL. The same `parseContactMapEmbed` sanitiser the public
+ * Contact page runs is used here to:
+ *   - show a live iframe preview when the input parses cleanly, and
+ *   - surface a short error message + tip when it doesn't (wrong
+ *     host, bad protocol, missing src, etc.).
+ *
+ * The textarea always edits the raw admin string — sanitisation only
+ * happens at render time, so admins can paste freely and copy out
+ * what they entered.
+ */
+function MapEmbedField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+}) {
+  const parsed = React.useMemo(() => parseContactMapEmbed(value), [value]);
+  const hasInput = value.trim().length > 0;
+
+  return (
+    <Field label="Map embed (Google Maps / OpenStreetMap)">
+      <Textarea
+        rows={4}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={
+          'Paste a full <iframe> from Google Maps → Share → Embed a map.\n' +
+          'Or just the https://www.google.com/maps/embed?pb=... URL.'
+        }
+        className="font-mono text-xs"
+      />
+      <p className="text-[11px] text-muted-foreground">
+        Open Google Maps, find your office, click <strong>Share</strong> →
+        <strong> Embed a map</strong>, copy the full HTML, and paste it
+        above. The Contact page hides this card automatically until a
+        valid embed is saved. Allowed hosts: google.com, maps.google.com,
+        openstreetmap.org, bing.com.
+      </p>
+      {hasInput && parsed.error && (
+        <p
+          role="alert"
+          className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-700 dark:text-rose-200"
+        >
+          {parsed.error}
+        </p>
+      )}
+      {parsed.safeSrc && (
+        <div className="mt-2 space-y-1.5">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Preview
+          </p>
+          <div className="relative aspect-[16/9] w-full overflow-hidden rounded-lg border border-border/60 bg-muted">
+            <iframe
+              title="Map embed preview"
+              src={parsed.safeSrc}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+              className="absolute inset-0 h-full w-full border-0"
+            />
+          </div>
+        </div>
+      )}
+    </Field>
   );
 }
 

@@ -152,6 +152,14 @@ export interface SiteSettings {
   contact_phone: string | null;
   contact_email: string | null;
   contact_address: string | null;
+  /**
+   * Admin-pasted map embed shown on the public Contact page. May be
+   * either a bare embed URL (Google Maps / OpenStreetMap) or a full
+   * `<iframe>` snippet. The frontend sanitises the value at render
+   * time and only honours iframes whose `src` resolves to a trusted
+   * maps host.
+   */
+  contact_map_embed: string | null;
   whatsapp_number: string | null;
   social_linkedin: string | null;
   social_instagram: string | null;

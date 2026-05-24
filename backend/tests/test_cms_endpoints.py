@@ -198,6 +198,36 @@ def test_site_settings_auto_create_and_update(client, seed_auth):
     assert patched.json()["contact_phone"] == "+974 1234"
 
 
+def test_site_settings_contact_map_embed_round_trip(client, seed_auth):
+    """`contact_map_embed` survives PATCH → GET and reaches the public
+    /site-settings payload so the Contact page can render it."""
+    headers = _auth(client, "webadmin@pug.example.com", seed_auth["password"])
+
+    embed = (
+        '<iframe src="https://www.google.com/maps/embed?pb=!1m18!demo" '
+        'width="600" height="450" style="border:0;"></iframe>'
+    )
+    patched = client.patch(
+        f"{CMS}/site-settings",
+        json={"contact_map_embed": embed},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["contact_map_embed"] == embed
+
+    public = client.get("/api/v1/public/site-settings")
+    assert public.status_code == 200
+    assert public.json()["contact_map_embed"] == embed
+
+    cleared = client.patch(
+        f"{CMS}/site-settings",
+        json={"contact_map_embed": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["contact_map_embed"] is None
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------

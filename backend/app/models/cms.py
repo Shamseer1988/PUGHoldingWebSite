@@ -349,6 +349,7 @@ class SiteSetting(Base, TimestampMixin):
     contact_phone: Mapped[Optional[str]] = mapped_column(String(40))
     contact_email: Mapped[Optional[str]] = mapped_column(String(255))
     contact_address: Mapped[Optional[str]] = mapped_column(String(500))
+    contact_map_embed: Mapped[Optional[str]] = mapped_column(Text)
     whatsapp_number: Mapped[Optional[str]] = mapped_column(String(40))
     social_linkedin: Mapped[Optional[str]] = mapped_column(String(255))
     social_instagram: Mapped[Optional[str]] = mapped_column(String(255))

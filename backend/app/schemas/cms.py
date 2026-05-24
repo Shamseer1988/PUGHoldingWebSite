@@ -396,6 +396,7 @@ class SiteSettingRead(BaseModel):
     contact_phone: Optional[str] = None
     contact_email: Optional[str] = None
     contact_address: Optional[str] = None
+    contact_map_embed: Optional[str] = None
     whatsapp_number: Optional[str] = None
     social_linkedin: Optional[str] = None
     social_instagram: Optional[str] = None
@@ -456,6 +457,7 @@ class SiteSettingUpdate(BaseModel):
     contact_phone: Optional[str] = None
     contact_email: Optional[str] = None
     contact_address: Optional[str] = None
+    contact_map_embed: Optional[str] = None
     whatsapp_number: Optional[str] = None
     social_linkedin: Optional[str] = None
     social_instagram: Optional[str] = None

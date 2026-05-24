@@ -12,6 +12,7 @@ import { GlassCard } from "@/components/site/glass-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
+import { parseContactMapEmbed } from "@/lib/contact-map";
 import { getSiteSettings } from "@/lib/public-api";
 
 export const metadata = { title: "Contact Us" };
@@ -19,6 +20,7 @@ export const revalidate = 60;
 
 export default async function ContactPage() {
   const settings = await getSiteSettings();
+  const mapEmbed = parseContactMapEmbed(settings.contact_map_embed);
 
   const contactRows = [
     settings.contact_address && {
@@ -140,14 +142,26 @@ export default async function ContactPage() {
             </GlassCard>
 
             <GlassCard className="overflow-hidden p-0">
-              <div
-                aria-hidden
-                className="aspect-[4/3] w-full bg-gradient-to-br from-pug-green-500/30 via-pug-gold-500/30 to-pug-green-700/30"
-              >
-                <div className="flex h-full w-full items-center justify-center text-sm font-medium text-muted-foreground">
-                  Map placeholder · embed in admin Site Settings
+              {mapEmbed.safeSrc ? (
+                <div className="relative aspect-[4/3] w-full">
+                  <iframe
+                    title="Office location map"
+                    src={mapEmbed.safeSrc}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                    className="absolute inset-0 h-full w-full border-0"
+                  />
                 </div>
-              </div>
+              ) : (
+                <div
+                  aria-hidden
+                  className="flex aspect-[4/3] w-full items-center justify-center bg-gradient-to-br from-pug-green-500/30 via-pug-gold-500/30 to-pug-green-700/30 p-6 text-center text-sm font-medium text-muted-foreground"
+                >
+                  Map will appear here once an embed is added under
+                  Admin&nbsp;&rarr;&nbsp;Site&nbsp;Settings&nbsp;&rarr;&nbsp;Contact.
+                </div>
+              )}
             </GlassCard>
           </aside>
         </div>
