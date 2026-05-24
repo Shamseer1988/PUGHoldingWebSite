@@ -222,9 +222,14 @@ function ReportRunner({
       title={report.title}
       description={report.description}
       actions={
-        <Button variant="ghost" size="sm" onClick={onBack}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          aria-label="Back to all reports"
+        >
           <ArrowLeft className="h-3.5 w-3.5" />
-          All reports
+          <span className="hidden sm:inline">All reports</span>
         </Button>
       }
     >
