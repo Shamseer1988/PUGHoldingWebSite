@@ -57,6 +57,9 @@ const EMPTY_FORM: Form = {
   home_founder_name: "",
   home_founder_role: "",
   home_founder_message: "",
+  // ^ legacy fields — kept in the form payload only to satisfy
+  //   the TypeScript shape; the UI no longer surfaces them. They were
+  //   replaced by per-leader fields managed under /admin/leadership.
   home_brand_logos: "",
   home_brand_strip_title: "",
   home_leadership_section_enabled: true,
@@ -393,78 +396,40 @@ export default function SiteSettingsAdminPage() {
 
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Homepage · About + Founder</CardTitle>
+              <CardTitle className="text-base">Homepage · About the group</CardTitle>
               <CardDescription>
-                The "About the group" intro and the Founder's message panel
-                rendered between the snapshot and the featured companies.
+                The intro panel rendered between the business snapshot and
+                the featured companies showcase. The Chairman + MD messages
+                that used to live below this card are now managed from the{" "}
+                <strong>Leadership</strong> sidebar entry — each leader
+                carries their own photo, role label, quote, and paragraphs.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <section className="space-y-3">
-                <h3 className="text-sm font-semibold">About the group</h3>
-                <div className="space-y-1.5">
-                  <Label>Image</Label>
-                  <ImageUpload
-                    value={form.home_about_image_url}
-                    onChange={(url) => set("home_about_image_url", url ?? "")}
-                    disabled={saving}
-                  />
-                </div>
-                <Field label="Title">
-                  <Input
-                    value={form.home_about_title ?? ""}
-                    onChange={(e) => set("home_about_title", e.target.value)}
-                    disabled={saving}
-                    placeholder="Building everyday life across the GCC"
-                  />
-                </Field>
-                <Field label="Body">
-                  <Textarea
-                    rows={4}
-                    value={form.home_about_body ?? ""}
-                    onChange={(e) => set("home_about_body", e.target.value)}
-                    disabled={saving}
-                  />
-                </Field>
-              </section>
-
-              <section className="space-y-3 border-t border-border/60 pt-5">
-                <h3 className="text-sm font-semibold">Founder's message</h3>
-                <div className="space-y-1.5">
-                  <Label>Portrait photo</Label>
-                  <ImageUpload
-                    value={form.home_founder_image_url}
-                    onChange={(url) => set("home_founder_image_url", url ?? "")}
-                    disabled={saving}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Name">
-                    <Input
-                      value={form.home_founder_name ?? ""}
-                      onChange={(e) => set("home_founder_name", e.target.value)}
-                      disabled={saving}
-                      placeholder="Mr. A. Al Hassan"
-                    />
-                  </Field>
-                  <Field label="Role">
-                    <Input
-                      value={form.home_founder_role ?? ""}
-                      onChange={(e) => set("home_founder_role", e.target.value)}
-                      disabled={saving}
-                      placeholder="Chairman & Founder"
-                    />
-                  </Field>
-                </div>
-                <Field label="Message">
-                  <Textarea
-                    rows={4}
-                    value={form.home_founder_message ?? ""}
-                    onChange={(e) => set("home_founder_message", e.target.value)}
-                    disabled={saving}
-                  />
-                </Field>
-              </section>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Image</Label>
+                <ImageUpload
+                  value={form.home_about_image_url}
+                  onChange={(url) => set("home_about_image_url", url ?? "")}
+                  disabled={saving}
+                />
+              </div>
+              <Field label="Title">
+                <Input
+                  value={form.home_about_title ?? ""}
+                  onChange={(e) => set("home_about_title", e.target.value)}
+                  disabled={saving}
+                  placeholder="Building everyday life across the GCC"
+                />
+              </Field>
+              <Field label="Body">
+                <Textarea
+                  rows={4}
+                  value={form.home_about_body ?? ""}
+                  onChange={(e) => set("home_about_body", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
             </CardContent>
           </Card>
 
