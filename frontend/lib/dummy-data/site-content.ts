@@ -24,19 +24,71 @@ import {
 // Statistics
 // ---------------------------------------------------------------------------
 
+/**
+ * Tile role inside the homepage bento stats grid.
+ *
+ *  - "hero"     → large dark-green tile spanning the left column on
+ *                 desktop; gets the sparkline + trend pill treatment.
+ *  - "accent"   → gold gradient tile, used once for visual rhythm.
+ *  - "sectors"  → white tile with a 3-segment progress bar under the
+ *                 number (so a value like "3" still has visual weight).
+ *  - "default"  → plain white tile — the fallback when the field is
+ *                 omitted or unknown.
+ */
+export type StatTileVariant = "default" | "hero" | "accent" | "sectors";
+
 export interface StatItem {
   label: string;
   value: number;
   suffix?: string;
   icon: LucideIcon;
+  /** Optional layout role for the bento grid. Defaults to "default". */
+  tile_variant?: StatTileVariant;
+  /** Optional trend percentage (e.g. 12 → "+12% YoY"). */
+  trend_percent?: number;
+  /** Optional override for trend label (e.g. "+4 in Q2"). */
+  trend_label?: string;
+  /** Optional sparkline data — 6 to 12 normalised values 0..1. */
+  sparkline_points?: number[];
 }
 
 export const STATS: StatItem[] = [
-  { label: "Group companies", value: 14, icon: Building2 },
-  { label: "Retail branches", value: 56, suffix: "+", icon: ShoppingBag },
-  { label: "Employees", value: 2500, suffix: "+", icon: Users },
-  { label: "Business sectors", value: 3, icon: Briefcase },
-  { label: "Customers served daily", value: 100000, suffix: "+", icon: HandHeart },
+  {
+    label: "Group companies",
+    value: 14,
+    icon: Building2,
+    tile_variant: "default",
+  },
+  {
+    label: "Retail branches",
+    value: 56,
+    suffix: "+",
+    icon: ShoppingBag,
+    tile_variant: "default",
+    trend_label: "+4 in Q2",
+  },
+  {
+    label: "Employees",
+    value: 2500,
+    suffix: "+",
+    icon: Users,
+    tile_variant: "accent",
+  },
+  {
+    label: "Business sectors",
+    value: 3,
+    icon: Briefcase,
+    tile_variant: "sectors",
+  },
+  {
+    label: "Customers served daily",
+    value: 100000,
+    suffix: "+",
+    icon: HandHeart,
+    tile_variant: "hero",
+    trend_percent: 12,
+    sparkline_points: [0.2, 0.25, 0.35, 0.4, 0.55, 0.65, 0.78, 0.9, 1.0],
+  },
 ];
 
 // ---------------------------------------------------------------------------
