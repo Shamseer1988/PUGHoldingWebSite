@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   KeyRound,
   Loader2,
+  MessageCircle,
+  RefreshCw,
   Save,
   Server,
   Sparkles,
@@ -26,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
-import type { AISettings } from "@/lib/hr/types";
+import type { AISettings, PublicAIQueryLog } from "@/lib/hr/types";
 
 type Form = Pick<
   AISettings,
@@ -39,6 +41,8 @@ type Form = Pick<
   | "max_output_tokens"
   | "request_timeout_seconds"
   | "extra_system_prompt"
+  | "public_enabled"
+  | "public_extra_system_prompt"
 >;
 
 export default function AISettingsAdminPage() {
@@ -66,6 +70,8 @@ export default function AISettingsAdminPage() {
         max_output_tokens: fresh.max_output_tokens,
         request_timeout_seconds: fresh.request_timeout_seconds,
         extra_system_prompt: fresh.extra_system_prompt ?? "",
+        public_enabled: fresh.public_enabled,
+        public_extra_system_prompt: fresh.public_extra_system_prompt ?? "",
       });
     } catch (err) {
       setError((err as AdminApiError).message);
@@ -106,6 +112,12 @@ export default function AISettingsAdminPage() {
           typeof form.extra_system_prompt === "string" &&
           form.extra_system_prompt.trim()
             ? form.extra_system_prompt.trim()
+            : null,
+        public_enabled: form.public_enabled,
+        public_extra_system_prompt:
+          typeof form.public_extra_system_prompt === "string" &&
+          form.public_extra_system_prompt.trim()
+            ? form.public_extra_system_prompt.trim()
             : null,
       };
       const fresh = await adminApi.patch<AISettings>(
@@ -332,6 +344,56 @@ export default function AISettingsAdminPage() {
 
           <Card className="lg:col-span-2">
             <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4 text-pug-green-600" />
+                    Public &quot;Ask PUG AI&quot; chat
+                  </CardTitle>
+                  <CardDescription>
+                    The floating chat on the public website. It uses the same
+                    AI mode above but stays strictly scoped to public CMS
+                    content — companies, leadership, open jobs, news, and
+                    contact details. It never sees candidate, employee, or
+                    internal admin data.
+                  </CardDescription>
+                </div>
+                <label className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1.5 text-xs font-medium">
+                  <input
+                    type="checkbox"
+                    checked={form.public_enabled}
+                    onChange={(e) => set("public_enabled", e.target.checked)}
+                    disabled={saving}
+                    className="h-4 w-4 accent-pug-green-600"
+                  />
+                  {form.public_enabled ? "Enabled" : "Disabled"}
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="Public extra system prompt (optional)">
+                <Textarea
+                  rows={4}
+                  value={form.public_extra_system_prompt ?? ""}
+                  onChange={(e) =>
+                    set("public_extra_system_prompt", e.target.value)
+                  }
+                  placeholder="E.g. Mention our 2026 expansion, prefer Arabic + English greetings, point job seekers to /careers."
+                  disabled={saving}
+                />
+              </Field>
+              <p className="text-xs text-muted-foreground">
+                When disabled, the public chat shows a polite &quot;AI is
+                currently unavailable&quot; message with the office contact
+                details — it never silently fails.
+              </p>
+            </CardContent>
+          </Card>
+
+          <PublicAILogsCard />
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
               <CardTitle className="text-base">How it works</CardTitle>
               <CardDescription className="space-y-2">
                 <p>
@@ -370,6 +432,129 @@ function Field({
       <Label>{label}</Label>
       {children}
     </div>
+  );
+}
+
+function PublicAILogsCard() {
+  const [logs, setLogs] = React.useState<PublicAIQueryLog[] | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await adminApi.get<PublicAIQueryLog[]>(
+        "/admin/ai/public-logs?limit=25"
+      );
+      setLogs(rows);
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">
+              Recent public AI conversations
+            </CardTitle>
+            <CardDescription>
+              Last 25 anonymous questions asked through the public chat
+              widget. Useful for spotting topics that visitors care about and
+              for noticing if the chat is being abused.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={load}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {error && (
+          <p className="text-sm text-rose-700 dark:text-rose-200">{error}</p>
+        )}
+        {!logs && !error ? (
+          <p className="text-sm text-muted-foreground">
+            <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
+            Loading…
+          </p>
+        ) : logs && logs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No public questions have been logged yet.
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border/60">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/30 text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">When</th>
+                  <th className="px-3 py-2 font-medium">Question</th>
+                  <th className="px-3 py-2 font-medium">Mode</th>
+                  <th className="px-3 py-2 font-medium">Fallback</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {(logs ?? []).map((row) => (
+                  <tr key={row.id} className="align-top">
+                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                      {new Date(row.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2">
+                      <p className="font-medium text-foreground">
+                        {row.question}
+                      </p>
+                      {row.answer && (
+                        <p className="mt-1 line-clamp-2 text-muted-foreground">
+                          {row.answer}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/40 px-2 py-0.5 font-medium">
+                        {row.mode}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.was_fallback ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-200">
+                          <AlertTriangle className="h-3 w-3" />
+                          Yes
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-200">
+                          <CheckCircle2 className="h-3 w-3" />
+                          No
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

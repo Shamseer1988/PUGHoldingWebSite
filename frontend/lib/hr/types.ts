@@ -240,10 +240,28 @@ export interface AISettings {
   max_output_tokens: number;
   request_timeout_seconds: number;
   extra_system_prompt: string | null;
+  public_enabled: boolean;
+  public_extra_system_prompt: string | null;
   updated_by_id: number | null;
   updated_at: string | null;
   has_azure_api_key: boolean;
   effective_mode: string | null;
+}
+
+// Phase 17 — public Ask-PUG-AI logs --------------------------------------
+
+export interface PublicAIQueryLog {
+  id: number;
+  session_id: string | null;
+  question: string;
+  answer: string | null;
+  mode: string;
+  model_name: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  was_fallback: boolean;
+  ip_address: string | null;
+  created_at: string;
 }
 
 export interface CandidateApplicationSummary {
