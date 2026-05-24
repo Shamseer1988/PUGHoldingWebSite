@@ -390,6 +390,66 @@ class SiteSetting(Base, TimestampMixin):
 
 
 # ---------------------------------------------------------------------------
+# Public navigation menu (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+NAV_MEGA_COMPANIES = "companies"
+NAV_MEGA_KINDS = (NAV_MEGA_COMPANIES,)
+
+
+class NavigationItem(Base, TimestampMixin):
+    """A single entry in the public-site primary navigation.
+
+    Items form a one-level tree: top-level items have ``parent_id =
+    NULL``; child items reference their parent's ``id``. The public
+    endpoint serialises the tree and the navbar / mobile menu both
+    render from the same payload.
+
+    ``mega_kind`` is reserved for the special "Group Companies"
+    dropdown which renders a custom mega-menu (one card per active
+    Company) instead of the standard linked list. ``NULL`` means a
+    standard dropdown (or no dropdown if there are no children).
+    """
+
+    __tablename__ = "cms_navigation_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("cms_navigation_items.id", ondelete="CASCADE"), index=True
+    )
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    href: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Shown under the label inside dropdowns (e.g. "Vision, mission,
+    # and core values"). Ignored for top-level items.
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    # When set on a top-level item, the navbar renders the matching
+    # custom mega-menu instead of a generic dropdown. Currently only
+    # "companies" is supported.
+    mega_kind: Mapped[Optional[str]] = mapped_column(String(32))
+    open_in_new_tab: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0", index=True
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true", index=True
+    )
+
+    children: Mapped[List["NavigationItem"]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="NavigationItem.display_order, NavigationItem.id",
+    )
+    parent: Mapped[Optional["NavigationItem"]] = relationship(
+        back_populates="children",
+        remote_side="NavigationItem.id",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Media gallery (Phase 5 follow-up)
 # ---------------------------------------------------------------------------
 

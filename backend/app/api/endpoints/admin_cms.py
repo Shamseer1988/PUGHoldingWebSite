@@ -40,6 +40,7 @@ from app.models.cms import (
     HeroSlide,
     LeadershipMessage,
     MediaAsset,
+    NavigationItem,
     NewsItem,
     NewsletterSubscriber,
     SiteSetting,
@@ -64,6 +65,10 @@ from app.schemas.cms import (
     MediaAssetRead,
     MediaAssetUpdate,
     MediaUploadResult,
+    NavigationItemCreate,
+    NavigationItemRead,
+    NavigationItemTreeRead,
+    NavigationItemUpdate,
     NewsCreate,
     NewsRead,
     NewsUpdate,
@@ -1229,3 +1234,199 @@ def delete_page(
     )
     db.commit()
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Navigation menu (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _build_nav_tree(rows: list[NavigationItem]) -> list[NavigationItemTreeRead]:
+    """Turn a flat list of rows into a 2-level tree, top-level first."""
+    top = [row for row in rows if row.parent_id is None]
+    top.sort(key=lambda r: (r.display_order, r.id))
+    out: list[NavigationItemTreeRead] = []
+    for parent in top:
+        children = sorted(
+            (row for row in rows if row.parent_id == parent.id),
+            key=lambda r: (r.display_order, r.id),
+        )
+        out.append(
+            NavigationItemTreeRead(
+                id=parent.id,
+                parent_id=None,
+                label=parent.label,
+                href=parent.href,
+                description=parent.description,
+                mega_kind=parent.mega_kind,
+                open_in_new_tab=parent.open_in_new_tab,
+                display_order=parent.display_order,
+                is_active=parent.is_active,
+                children=[
+                    NavigationItemTreeRead(
+                        id=c.id,
+                        parent_id=c.parent_id,
+                        label=c.label,
+                        href=c.href,
+                        description=c.description,
+                        mega_kind=c.mega_kind,
+                        open_in_new_tab=c.open_in_new_tab,
+                        display_order=c.display_order,
+                        is_active=c.is_active,
+                        children=[],
+                    )
+                    for c in children
+                ],
+            )
+        )
+    return out
+
+
+@router.get("/navigation", response_model=List[NavigationItemTreeRead])
+def list_navigation(
+    db: Session = Depends(get_db),
+    include_inactive: bool = True,
+) -> list[NavigationItemTreeRead]:
+    """Admin tree view — includes inactive items by default so admins
+    can see what's currently disabled."""
+    stmt = select(NavigationItem)
+    if not include_inactive:
+        stmt = stmt.where(NavigationItem.is_active.is_(True))
+    rows = list(db.execute(stmt).scalars())
+    return _build_nav_tree(rows)
+
+
+@router.post(
+    "/navigation",
+    response_model=NavigationItemRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_navigation_item(
+    payload: NavigationItemCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> NavigationItem:
+    if payload.parent_id is not None:
+        parent = db.get(NavigationItem, payload.parent_id)
+        if parent is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown parent_id {payload.parent_id}",
+            )
+        if parent.parent_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Navigation supports a single level of nesting.",
+            )
+    item = NavigationItem(**payload.model_dump())
+    db.add(item)
+    db.flush()
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.navigation.create",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="navigation_item",
+        target_id=str(item.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"label": item.label, "href": item.href},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.patch(
+    "/navigation/{item_id}", response_model=NavigationItemRead
+)
+def update_navigation_item(
+    item_id: int,
+    payload: NavigationItemUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> NavigationItem:
+    item = db.get(NavigationItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Navigation item not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if "parent_id" in changes and changes["parent_id"] is not None:
+        if changes["parent_id"] == item.id:
+            raise HTTPException(
+                status_code=422, detail="An item can't be its own parent."
+            )
+        parent = db.get(NavigationItem, changes["parent_id"])
+        if parent is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown parent_id {changes['parent_id']}",
+            )
+        if parent.parent_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Navigation supports a single level of nesting.",
+            )
+        if item.children:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This item has children. Detach or delete them before "
+                    "moving it under another parent."
+                ),
+            )
+    for k, v in changes.items():
+        setattr(item, k, v)
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.navigation.update",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="navigation_item",
+        target_id=str(item.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"changed_keys": list(changes.keys())},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete(
+    "/navigation/{item_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_navigation_item(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> Response:
+    item = db.get(NavigationItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Navigation item not found")
+    label = item.label
+    db.delete(item)
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="cms.navigation.delete",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_WEBSITE,
+        target_type="navigation_item",
+        target_id=str(item_id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"label": label},
+        commit=False,
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

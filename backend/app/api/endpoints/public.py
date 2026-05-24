@@ -21,6 +21,7 @@ from app.models.cms import (
     HeroSlide,
     LeadershipMessage,
     MediaAsset,
+    NavigationItem,
     NewsItem,
     NewsletterSubscriber,
     SiteSetting,
@@ -38,6 +39,7 @@ from app.schemas.cms import (
     LeadershipMessageCardRead,
     LeadershipRead,
     MediaAssetRead,
+    NavigationItemTreeRead,
     NewsRead,
     NewsletterSubscribe,
     NewsletterSubscriberRead,
@@ -79,6 +81,66 @@ def list_active_hero_slides(db: Session = Depends(get_db)) -> List[HeroSlide]:
         .scalars()
         .all()
     )
+
+
+# ---------------------------------------------------------------------------
+# Read: navigation (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/navigation", response_model=List[NavigationItemTreeRead])
+def list_public_navigation(
+    db: Session = Depends(get_db),
+) -> List[NavigationItemTreeRead]:
+    """Active items only, two-level tree, sorted by display_order.
+
+    Returns an empty list when no rows are persisted — the frontend
+    detects this and falls back to its compiled-in default menu, so
+    the public site never renders an empty navbar.
+    """
+    rows = list(
+        db.execute(
+            select(NavigationItem).where(NavigationItem.is_active.is_(True))
+        ).scalars()
+    )
+    parent_rows = [r for r in rows if r.parent_id is None]
+    parent_rows.sort(key=lambda r: (r.display_order, r.id))
+
+    out: list[NavigationItemTreeRead] = []
+    for parent in parent_rows:
+        children = sorted(
+            (r for r in rows if r.parent_id == parent.id),
+            key=lambda r: (r.display_order, r.id),
+        )
+        out.append(
+            NavigationItemTreeRead(
+                id=parent.id,
+                parent_id=None,
+                label=parent.label,
+                href=parent.href,
+                description=parent.description,
+                mega_kind=parent.mega_kind,
+                open_in_new_tab=parent.open_in_new_tab,
+                display_order=parent.display_order,
+                is_active=parent.is_active,
+                children=[
+                    NavigationItemTreeRead(
+                        id=c.id,
+                        parent_id=c.parent_id,
+                        label=c.label,
+                        href=c.href,
+                        description=c.description,
+                        mega_kind=c.mega_kind,
+                        open_in_new_tab=c.open_in_new_tab,
+                        display_order=c.display_order,
+                        is_active=c.is_active,
+                        children=[],
+                    )
+                    for c in children
+                ],
+            )
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------

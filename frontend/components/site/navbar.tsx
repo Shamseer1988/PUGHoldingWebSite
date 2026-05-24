@@ -23,6 +23,9 @@ import { cn } from "@/lib/utils";
 
 interface NavbarProps {
   companies: Company[];
+  /** Backend-controlled navigation tree. Falls back to the compiled-in
+   *  defaults so the navbar always has something to render. */
+  items?: NavItem[];
 }
 
 /**
@@ -42,12 +45,13 @@ interface NavbarProps {
  * so the nav can sit perfectly centred while the logo + actions
  * own their own edges.
  */
-export function Navbar({ companies }: NavbarProps) {
+export function Navbar({ companies, items }: NavbarProps) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [openItemHref, setOpenItemHref] = React.useState<string | null>(null);
+  const navItems = items ?? NAV_ITEMS;
 
   React.useEffect(() => {
     function onScroll() {
@@ -91,7 +95,7 @@ export function Navbar({ companies }: NavbarProps) {
               <div className="hidden justify-center lg:flex">
                 <DesktopNav
                   pathname={pathname}
-                  items={NAV_ITEMS}
+                  items={navItems}
                   companies={companies}
                   openItemHref={openItemHref}
                   onOpenChange={setOpenItemHref}
@@ -194,7 +198,7 @@ export function Navbar({ companies }: NavbarProps) {
       <MobileMenu
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
-        items={NAV_ITEMS}
+        items={navItems}
         companies={companies}
       />
 

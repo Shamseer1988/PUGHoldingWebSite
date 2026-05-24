@@ -58,6 +58,54 @@ class HeroSlideRead(HeroSlideBase):
 
 
 # ---------------------------------------------------------------------------
+# Navigation menu (Phase 5 follow-up)
+# ---------------------------------------------------------------------------
+
+
+class NavigationItemBase(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    href: str = Field(min_length=1, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=255)
+    mega_kind: Optional[str] = Field(default=None, pattern=r"^(companies)$")
+    open_in_new_tab: bool = False
+    display_order: int = 0
+    is_active: bool = True
+
+
+class NavigationItemCreate(NavigationItemBase):
+    parent_id: Optional[int] = None
+
+
+class NavigationItemUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    href: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    description: Optional[str] = None
+    mega_kind: Optional[str] = Field(default=None, pattern=r"^(companies)$")
+    open_in_new_tab: Optional[bool] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+    parent_id: Optional[int] = None
+
+
+class NavigationItemRead(NavigationItemBase):
+    """Single navigation node (without children) used inside admin lists."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    parent_id: Optional[int] = None
+
+
+class NavigationItemTreeRead(NavigationItemRead):
+    """Tree-shaped payload returned by the public + admin GET endpoints."""
+
+    children: List["NavigationItemTreeRead"] = Field(default_factory=list)
+
+
+NavigationItemTreeRead.model_rebuild()
+
+
+# ---------------------------------------------------------------------------
 # Companies
 # ---------------------------------------------------------------------------
 

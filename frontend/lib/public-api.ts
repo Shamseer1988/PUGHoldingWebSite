@@ -263,6 +263,44 @@ export async function getSiteSettings(): Promise<SiteSettings> {
   );
 }
 
+// Navigation menu (Phase 5 follow-up) -----------------------------------
+
+import type { NavItem } from "@/lib/site-config";
+import { NAV_ITEMS } from "@/lib/site-config";
+import type { NavigationItemNode } from "@/lib/admin/types";
+
+/** Convert the backend tree into the NavItem shape the navbar /
+ *  mobile menu already render. Inactive items are pre-filtered server
+ *  side; any node without children leaves `children` undefined to
+ *  avoid rendering an empty dropdown caret. */
+function toNavItems(rows: NavigationItemNode[]): NavItem[] {
+  return rows.map((row) => {
+    const children = (row.children ?? [])
+      .filter((c) => c.is_active)
+      .map((c) => ({
+        label: c.label,
+        href: c.href,
+        description: c.description ?? undefined,
+      }));
+    const item: NavItem = {
+      label: row.label,
+      href: row.href,
+    };
+    if (children.length > 0) item.children = children;
+    if (row.mega_kind === "companies") item.mega = "companies";
+    return item;
+  });
+}
+
+/** Public site navigation. Falls back to the compiled-in defaults when
+ *  the admin hasn't populated any rows yet (or the backend is down) so
+ *  the navbar always has something to render. */
+export async function getPublicNavigation(): Promise<NavItem[]> {
+  const rows = await fetchPublic<NavigationItemNode[]>("/public/navigation");
+  if (!rows || rows.length === 0) return NAV_ITEMS;
+  return toNavItems(rows);
+}
+
 // Job openings ------------------------------------------------------------
 
 export type JobStatus = "open" | "on_hold" | "closed";

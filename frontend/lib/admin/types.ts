@@ -291,6 +291,38 @@ export interface CMSPage {
 }
 
 // ---------------------------------------------------------------------------
+// Navigation menu (Phase 5 follow-up)
+// ---------------------------------------------------------------------------
+
+export type NavMegaKind = "companies";
+
+export interface NavigationItemNode {
+  id: number;
+  parent_id: number | null;
+  label: string;
+  href: string;
+  description: string | null;
+  mega_kind: NavMegaKind | null;
+  open_in_new_tab: boolean;
+  display_order: number;
+  is_active: boolean;
+  children?: NavigationItemNode[];
+}
+
+export interface NavigationItemCreatePayload {
+  label: string;
+  href: string;
+  description?: string | null;
+  mega_kind?: NavMegaKind | null;
+  open_in_new_tab?: boolean;
+  display_order?: number;
+  is_active?: boolean;
+  parent_id?: number | null;
+}
+
+export type NavigationItemUpdatePayload = Partial<NavigationItemCreatePayload>;
+
+// ---------------------------------------------------------------------------
 // Users & Roles (Phase 5 follow-up)
 // ---------------------------------------------------------------------------
 

@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   Inbox,
   LayoutDashboard,
+  ListTree,
   Mail,
   Megaphone,
   Menu as MenuIcon,
@@ -53,6 +54,7 @@ const NAV: NavGroup[] = [
       { label: "News & events", href: "/admin/news", icon: Megaphone },
       { label: "Media gallery", href: "/admin/media", icon: ImageIcon },
       { label: "Pages", href: "/admin/pages", icon: FileText },
+      { label: "Navigation menu", href: "/admin/menu", icon: ListTree },
     ],
   },
   {
