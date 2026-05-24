@@ -67,10 +67,10 @@ export function Navbar({ companies }: NavbarProps) {
       {/* Fixed wrapper — anchors the inset chrome and lets us drive
           scroll-state styling without resizing the rounded container. */}
       <header className="fixed inset-x-0 top-0 z-30">
-        <div className="container mx-auto px-3 pt-3 sm:px-4 sm:pt-4">
+        <div className="container mx-auto px-3 pt-2 sm:px-4 sm:pt-3">
           <div
             className={cn(
-              "relative isolate mx-auto flex items-center gap-3 rounded-[22px] border px-3 py-2 transition-shadow duration-300 sm:rounded-[28px] sm:px-5 sm:py-2.5",
+              "relative isolate mx-auto flex items-center gap-3 rounded-[20px] border px-3 py-1.5 transition-shadow duration-300 sm:rounded-[26px] sm:px-5 sm:py-2",
               // Surface: solid glass at all times so the floating
               // chrome reads cleanly over any page background.
               "bg-background/90 backdrop-blur-xl",
@@ -123,7 +123,7 @@ export function Navbar({ companies }: NavbarProps) {
                   size="sm"
                   className={cn(
                     // Gold gradient pill with a subtle hover lift.
-                    "hidden h-11 rounded-full bg-gradient-to-r from-pug-gold-600 to-pug-gold-500 px-5 text-sm font-semibold text-pug-green-950 shadow-[0_6px_22px_-12px_rgba(166,124,58,0.55)] motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 hover:from-pug-gold-500 hover:to-pug-gold-400 hover:text-pug-green-950 hover:shadow-[0_10px_28px_-12px_rgba(166,124,58,0.6)] focus-visible:ring-pug-gold-500 sm:inline-flex",
+                    "hidden h-10 rounded-full bg-gradient-to-r from-pug-gold-600 to-pug-gold-500 px-5 text-sm font-semibold text-pug-green-950 shadow-[0_6px_22px_-12px_rgba(166,124,58,0.55)] motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 hover:from-pug-gold-500 hover:to-pug-gold-400 hover:text-pug-green-950 hover:shadow-[0_10px_28px_-12px_rgba(166,124,58,0.6)] focus-visible:ring-pug-gold-500 sm:inline-flex",
                     "dark:text-pug-green-950"
                   )}
                 >
@@ -151,24 +151,27 @@ export function Navbar({ companies }: NavbarProps) {
               {searchOpen && (
                 <motion.div
                   key="search-panel"
-                  initial={{ opacity: 0, y: -6 }}
+                  initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.2 }}
-                  className="mt-2 overflow-hidden rounded-2xl border border-border/40 bg-background/95 backdrop-blur-xl"
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  className="mt-1.5 overflow-hidden rounded-full border border-border/40 bg-background/95 backdrop-blur-xl"
                 >
                   <form
                     role="search"
-                    className="flex items-center gap-2 px-4 py-3"
+                    className="flex h-10 items-center gap-2 pl-4 pr-1.5"
                     onSubmit={(e) => {
                       e.preventDefault();
                     }}
                   >
-                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Search
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
                     <input
                       type="search"
                       placeholder="Search the site (coming soon)"
-                      className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      className="h-full w-full bg-transparent text-sm leading-none outline-none placeholder:text-muted-foreground"
                       aria-label="Search the site"
                     />
                     <Button
@@ -176,6 +179,7 @@ export function Navbar({ companies }: NavbarProps) {
                       variant="ghost"
                       size="sm"
                       onClick={() => setSearchOpen(false)}
+                      className="h-7 rounded-full px-3 text-xs"
                     >
                       Close
                     </Button>
@@ -195,8 +199,10 @@ export function Navbar({ companies }: NavbarProps) {
       />
 
       {/* Spacer so page content isn't hidden under the floating chrome.
-          Matches the inset header height + its top padding. */}
-      <div className="h-[76px] sm:h-[96px]" aria-hidden />
+          Matches the inset header height + its top padding:
+          mobile  = pt-2 (8) + py-1.5*2 (12) + 40 content + 2 border ≈ 62
+          desktop = pt-3 (12) + py-2*2 (16) + 40 content + 2 border ≈ 70 */}
+      <div className="h-[64px] sm:h-[72px]" aria-hidden />
     </>
   );
 }
@@ -211,7 +217,7 @@ export function Navbar({ companies }: NavbarProps) {
 
 
 const NAV_ICON_BUTTON_CLASSES =
-  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-pug-gold-500/25 bg-transparent text-foreground/80 transition-colors hover:border-pug-gold-500/40 hover:bg-pug-gold-500/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pug-gold-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 dark:border-white/15 dark:hover:border-pug-gold-300/40 sm:h-11 sm:w-11";
+  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-pug-gold-500/25 bg-transparent text-foreground/80 transition-colors hover:border-pug-gold-500/40 hover:bg-pug-gold-500/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pug-gold-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 dark:border-white/15 dark:hover:border-pug-gold-300/40 sm:h-10 sm:w-10";
 
 
 function NavIconButton({
@@ -434,7 +440,7 @@ function MegaWrapper({ children }: { children: React.ReactNode }) {
   // animated child. Width capped via inline style so it's not subject
   // to Tailwind JIT picking up arbitrary-value classes.
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-[76px] z-40 flex justify-center px-4 sm:top-[96px]">
+    <div className="pointer-events-none fixed inset-x-0 top-[62px] z-40 flex justify-center px-4 sm:top-[72px]">
       <motion.div
         initial={{ opacity: 0, y: 8, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
