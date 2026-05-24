@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { Logo } from "@/components/site/logo";
+import { useAuth } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
 
 interface NavGroup {
@@ -36,6 +37,10 @@ interface NavLink {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
+  /** When set, this item is only rendered for users who hold the
+   *  given backend scope (or are a superuser). Keeps the sidebar
+   *  honest about what each user can actually open. */
+  requiresScope?: "system";
 }
 
 const NAV: NavGroup[] = [
@@ -68,8 +73,18 @@ const NAV: NavGroup[] = [
     label: "System",
     items: [
       { label: "Site settings", href: "/admin/settings", icon: Settings },
-      { label: "AI settings", href: "/admin/ai-settings", icon: Brain },
-      { label: "Users & roles", href: "/admin/users", icon: Users },
+      {
+        label: "AI settings",
+        href: "/admin/ai-settings",
+        icon: Brain,
+        requiresScope: "system",
+      },
+      {
+        label: "Users & roles",
+        href: "/admin/users",
+        icon: Users,
+        requiresScope: "system",
+      },
       { label: "Audit log", href: "/admin/audit", icon: History },
     ],
   },
@@ -82,12 +97,27 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
+  // System scope is granted by the explicit "system" scope or by the
+  // superuser flag (which the backend also treats as system access).
+  const hasSystem = Boolean(
+    user?.is_superuser || user?.scopes?.includes("system")
+  );
 
   // Close mobile drawer on route change
   React.useEffect(() => {
     if (open) onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Hide nav items the current user can't actually open, then drop any
+  // group that ends up empty.
+  const visibleGroups = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => !item.requiresScope || (item.requiresScope === "system" && hasSystem)
+    ),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -120,7 +150,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
         </header>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {NAV.map((group) => (
+          {visibleGroups.map((group) => (
             <div key={group.label} className="mb-6 last:mb-0">
               <p className="px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {group.label}

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { RequireSystemScope } from "@/components/admin/require-system-scope";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +71,26 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function UsersAdminPage() {
+  // System-scope gate: same UX pattern as AI settings — surface a
+  // friendly explainer instead of firing a doomed 403 request.
+  const { user: currentUser } = useAuth();
+  const hasSystem = Boolean(
+    currentUser?.is_superuser || currentUser?.scopes?.includes("system")
+  );
+  if (!hasSystem) {
+    return (
+      <AdminShell
+        title="Users & roles"
+        description="System-only configuration."
+      >
+        <RequireSystemScope area="Users & roles">{null}</RequireSystemScope>
+      </AdminShell>
+    );
+  }
+  return <UsersAdminBody />;
+}
+
+function UsersAdminBody() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = React.useState<AdminUser[] | null>(null);
   const [roles, setRoles] = React.useState<RoleSummary[]>([]);

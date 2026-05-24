@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { RequireSystemScope } from "@/components/admin/require-system-scope";
+import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -46,6 +48,27 @@ type Form = Pick<
 >;
 
 export default function AISettingsAdminPage() {
+  // Sidebar already hides this entry for non-system users, but if
+  // someone navigates here directly we want a friendly explainer
+  // instead of the raw backend 403. The fetch + state below only run
+  // for system users — see the `hasSystem` short-circuit below.
+  const { user } = useAuth();
+  const hasSystem = Boolean(
+    user?.is_superuser || user?.scopes?.includes("system")
+  );
+  if (!hasSystem) {
+    return (
+      <AdminShell title="AI settings" description="System-only configuration.">
+        <RequireSystemScope area="AI settings">
+          {null /* unreachable — RequireSystemScope renders the lock UI */}
+        </RequireSystemScope>
+      </AdminShell>
+    );
+  }
+  return <AISettingsBody />;
+}
+
+function AISettingsBody() {
   const [data, setData] = React.useState<AISettings | null>(null);
   const [form, setForm] = React.useState<Form | null>(null);
   const [saving, setSaving] = React.useState(false);
