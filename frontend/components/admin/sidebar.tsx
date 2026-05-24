@@ -67,7 +67,7 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Site settings", href: "/admin/settings", icon: Settings },
       { label: "AI settings", href: "/admin/ai-settings", icon: Brain },
-      { label: "Users & roles", href: "/admin/users", icon: Users, badge: "Soon" },
+      { label: "Users & roles", href: "/admin/users", icon: Users },
       { label: "Audit log", href: "/admin/audit", icon: History },
     ],
   },

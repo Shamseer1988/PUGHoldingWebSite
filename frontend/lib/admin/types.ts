@@ -283,3 +283,45 @@ export interface CMSPage {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Users & Roles (Phase 5 follow-up)
+// ---------------------------------------------------------------------------
+
+export type Scope = "system" | "website" | "hr";
+
+export interface RoleSummary {
+  id: number;
+  name: string;
+  scope: Scope;
+  description: string | null;
+}
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  last_login_at: string | null;
+  created_at: string;
+  roles: RoleSummary[];
+  scopes: Scope[];
+}
+
+export interface AdminUserCreatePayload {
+  email: string;
+  full_name: string;
+  password: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  role_ids: number[];
+}
+
+export interface AdminUserUpdatePayload {
+  full_name?: string;
+  password?: string;
+  is_active?: boolean;
+  is_superuser?: boolean;
+  role_ids?: number[];
+}
