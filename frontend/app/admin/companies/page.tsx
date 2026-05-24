@@ -60,6 +60,13 @@ interface CompanyFormState {
   display_order: number;
   is_active: boolean;
   services: string;
+  brand_logos: BrandLogoDraft[];
+}
+
+interface BrandLogoDraft {
+  image_url: string;
+  name: string;
+  link_url: string;
 }
 
 const EMPTY_FORM: CompanyFormState = {
@@ -88,6 +95,7 @@ const EMPTY_FORM: CompanyFormState = {
   display_order: 0,
   is_active: true,
   services: "",
+  brand_logos: [],
 };
 
 export default function CompaniesAdminPage() {
@@ -149,6 +157,11 @@ export default function CompaniesAdminPage() {
       display_order: item.display_order,
       is_active: item.is_active,
       services: item.services.map((s) => s.name).join(", "),
+      brand_logos: (item.brand_logos ?? []).map((logo) => ({
+        image_url: logo.image_url,
+        name: logo.name ?? "",
+        link_url: logo.link_url ?? "",
+      })),
     });
     setError(null);
     setDrawerOpen(true);
@@ -193,6 +206,15 @@ export default function CompaniesAdminPage() {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        brand_logos: form.brand_logos
+          // Drop any rows the admin added then left empty.
+          .filter((logo) => logo.image_url.trim())
+          .map((logo, i) => ({
+            image_url: logo.image_url.trim(),
+            name: logo.name.trim() || null,
+            link_url: logo.link_url.trim() || null,
+            display_order: i,
+          })),
       };
       if (editing) {
         await adminApi.patch<Company>(
@@ -684,6 +706,12 @@ function CompanyDrawer({
                     disabled={saving}
                   />
                 )}
+
+                <BrandLogoRepeater
+                  logos={form.brand_logos}
+                  onChange={(next) => set("brand_logos", next)}
+                  disabled={saving}
+                />
               </div>
             </div>
 
@@ -727,6 +755,162 @@ function CompanyDrawer({
     </div>
   );
 }
+
+/**
+ * Brand-logo repeater.
+ *
+ * Each row is one logo: image picker (reuses the same uploader as
+ * featured_image_url), optional alt-text, optional click-through URL.
+ * Order is implicit from array position — the "↑ / ↓" buttons swap
+ * adjacent rows. The trash button removes a single row; the parent
+ * page strips any row that ends up without an image_url at save time.
+ */
+function BrandLogoRepeater({
+  logos,
+  onChange,
+  disabled,
+}: {
+  logos: BrandLogoDraft[];
+  onChange: (next: BrandLogoDraft[]) => void;
+  disabled?: boolean;
+}) {
+  function update(idx: number, patch: Partial<BrandLogoDraft>) {
+    onChange(logos.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  }
+  function add() {
+    onChange([
+      ...logos,
+      { image_url: "", name: "", link_url: "" },
+    ]);
+  }
+  function remove(idx: number) {
+    onChange(logos.filter((_, i) => i !== idx));
+  }
+  function move(idx: number, delta: -1 | 1) {
+    const target = idx + delta;
+    if (target < 0 || target >= logos.length) return;
+    const next = [...logos];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-border/40 bg-background/40 p-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Group Companies brand logos
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          Logos displayed inside the auto-scrolling marquee on the homepage
+          Group Companies card. When this list is empty the marquee falls
+          back to text chips using the company&rsquo;s services.
+        </p>
+      </div>
+
+      {logos.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border/60 bg-background/50 p-4 text-center text-xs text-muted-foreground">
+          No brand logos yet. Add one to swap the homepage marquee from
+          text chips to real images.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {logos.map((logo, idx) => (
+            <li
+              key={idx}
+              className="space-y-3 rounded-lg border border-border/60 bg-card p-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  Logo #{idx + 1}
+                </span>
+                <div className="inline-flex items-center gap-1">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => move(idx, -1)}
+                    disabled={disabled || idx === 0}
+                    aria-label="Move logo up"
+                    title="Move up"
+                  >
+                    <span aria-hidden>↑</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => move(idx, 1)}
+                    disabled={disabled || idx === logos.length - 1}
+                    aria-label="Move logo down"
+                    title="Move down"
+                  >
+                    <span aria-hidden>↓</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => remove(idx)}
+                    disabled={disabled}
+                    aria-label="Remove logo"
+                    className="text-rose-600 hover:text-rose-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <ImageUpload
+                label="Logo image"
+                value={logo.image_url || null}
+                onChange={(url) => update(idx, { image_url: url ?? "" })}
+                disabled={disabled}
+              />
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Alt text"
+                  hint="Brand or partner name — shown to screen readers and as a fallback when the image fails to load."
+                >
+                  <Input
+                    value={logo.name}
+                    onChange={(e) => update(idx, { name: e.target.value })}
+                    disabled={disabled}
+                    placeholder="e.g. Paris Hyper Market"
+                  />
+                </Field>
+                <Field
+                  label="Click-through URL (optional)"
+                  hint="Where the logo links when clicked. Leave blank for a non-clickable logo."
+                >
+                  <Input
+                    value={logo.link_url}
+                    onChange={(e) => update(idx, { link_url: e.target.value })}
+                    disabled={disabled}
+                    placeholder="https://example.com"
+                  />
+                </Field>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={add}
+        disabled={disabled}
+        aria-label="Add brand logo"
+      >
+        <Plus className="h-4 w-4" />
+        Add a logo
+      </Button>
+    </div>
+  );
+}
+
 
 function Field({
   label,

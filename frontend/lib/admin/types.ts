@@ -23,6 +23,21 @@ export interface HeroSlide {
   updated_at: string;
 }
 
+export interface CompanyBrandLogo {
+  id: number;
+  image_url: string;
+  name: string | null;
+  link_url: string | null;
+  display_order: number;
+}
+
+export interface CompanyBrandLogoInput {
+  image_url: string;
+  name?: string | null;
+  link_url?: string | null;
+  display_order?: number;
+}
+
 export interface CompanyService {
   id: number;
   name: string;
@@ -59,6 +74,7 @@ export interface Company {
   display_order: number;
   is_active: boolean;
   services: CompanyService[];
+  brand_logos: CompanyBrandLogo[];
   created_at: string;
   updated_at: string;
 }
