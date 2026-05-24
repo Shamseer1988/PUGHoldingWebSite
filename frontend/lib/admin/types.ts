@@ -65,6 +65,14 @@ export interface LeadershipMessage {
   initials: string;
   photo_url: string | null;
   signature: string | null;
+  role_label: string | null;
+  message_paragraph_1: string | null;
+  message_paragraph_2: string | null;
+  highlight_quote: string | null;
+  signature_image_url: string | null;
+  cta_label: string | null;
+  cta_url: string | null;
+  is_homepage_featured: boolean;
   display_order: number;
   is_active: boolean;
   created_at: string;
@@ -159,6 +167,13 @@ export interface SiteSettings {
   // Trusted-brands strip
   home_brand_logos: string | null;
   home_brand_strip_title: string | null;
+
+  // Unified Leadership Messages section
+  home_leadership_section_enabled: boolean;
+  home_leadership_section_eyebrow: string | null;
+  home_leadership_section_title: string | null;
+  home_leadership_section_subtitle: string | null;
+  home_leadership_animation_enabled: boolean;
 }
 
 export interface UploadResponse {

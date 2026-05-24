@@ -34,6 +34,8 @@ from app.schemas.cms import (
     FeaturedCompaniesSectionResponse,
     FeaturedSection,
     HeroSlideRead,
+    HomepageLeadershipResponse,
+    LeadershipMessageCardRead,
     LeadershipRead,
     MediaAssetRead,
     NewsRead,
@@ -127,6 +129,103 @@ def list_active_leadership(db: Session = Depends(get_db)) -> List[LeadershipMess
         )
         .scalars()
         .all()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Homepage Leadership Messages (unified section)
+# ---------------------------------------------------------------------------
+
+
+def _role_type_for(message: LeadershipMessage) -> str:
+    """Best-effort role_type bucketing for the homepage card.
+
+    Slugs ``chairman`` / ``md`` map directly; anything else gets a
+    sensible fallback derived from the role string.
+    """
+    slug = (message.slug or "").lower()
+    if slug == "chairman":
+        return "chairman"
+    if slug == "md":
+        return "md"
+    role = (message.role or "").lower()
+    if "chairman" in role or "founder" in role:
+        return "chairman"
+    if "managing director" in role or role.startswith("md "):
+        return "md"
+    return slug or "other"
+
+
+def _serialize_homepage_card(
+    message: LeadershipMessage,
+) -> LeadershipMessageCardRead:
+    return LeadershipMessageCardRead(
+        slug=message.slug,
+        role_type=_role_type_for(message),
+        role_label=message.role_label,
+        name=message.name,
+        role=message.role,
+        designation=message.role,
+        initials=message.initials,
+        accent=message.accent,
+        photo_url=message.photo_url,
+        signature_image_url=message.signature_image_url,
+        signature=message.signature,
+        highlight_quote=message.highlight_quote or message.short_message,
+        message_paragraph_1=message.message_paragraph_1 or message.full_message,
+        message_paragraph_2=message.message_paragraph_2,
+        cta_label=message.cta_label,
+        cta_url=message.cta_url,
+        display_order=message.display_order,
+        is_active=message.is_active,
+    )
+
+
+@router.get(
+    "/homepage/leadership-messages",
+    response_model=HomepageLeadershipResponse,
+)
+def get_homepage_leadership(
+    db: Session = Depends(get_db),
+) -> HomepageLeadershipResponse:
+    """Section settings + the two leadership cards flagged for the homepage."""
+    settings = db.get(SiteSetting, 1)
+
+    enabled = True
+    eyebrow: Optional[str] = "Leadership messages"
+    title: Optional[str] = "Guided by vision, driven by excellence"
+    subtitle: Optional[str] = (
+        "A message from the leadership of Paris United Group Holding."
+    )
+    animation_enabled = True
+
+    if settings is not None:
+        enabled = settings.home_leadership_section_enabled
+        eyebrow = settings.home_leadership_section_eyebrow or eyebrow
+        title = settings.home_leadership_section_title or title
+        subtitle = settings.home_leadership_section_subtitle or subtitle
+        animation_enabled = settings.home_leadership_animation_enabled
+
+    messages = (
+        db.execute(
+            select(LeadershipMessage)
+            .where(
+                LeadershipMessage.is_homepage_featured.is_(True),
+                LeadershipMessage.is_active.is_(True),
+            )
+            .order_by(LeadershipMessage.display_order, LeadershipMessage.id)
+        )
+        .scalars()
+        .all()
+    )
+
+    return HomepageLeadershipResponse(
+        enabled=enabled,
+        eyebrow=eyebrow,
+        title=title,
+        subtitle=subtitle,
+        animation_enabled=animation_enabled,
+        messages=[_serialize_homepage_card(m) for m in messages],
     )
 
 
@@ -288,6 +387,8 @@ def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
             site_name="Paris United Group Holding",
             featured_companies_enabled=True,
             featured_companies_animation_enabled=True,
+            home_leadership_section_enabled=True,
+            home_leadership_animation_enabled=True,
         )
     return settings
 

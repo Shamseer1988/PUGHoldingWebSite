@@ -149,6 +149,53 @@ export async function getPageBySlug(slug: string): Promise<PublicPage | null> {
   return fetchPublic<PublicPage>(`/public/pages/${encodeURIComponent(slug)}`);
 }
 
+export interface HomepageLeadershipCard {
+  slug: string;
+  role_type: string;
+  role_label: string | null;
+  name: string;
+  role: string;
+  designation: string | null;
+  initials: string;
+  accent: string;
+  photo_url: string | null;
+  signature_image_url: string | null;
+  signature: string | null;
+  highlight_quote: string | null;
+  message_paragraph_1: string | null;
+  message_paragraph_2: string | null;
+  cta_label: string | null;
+  cta_url: string | null;
+  display_order: number;
+  is_active: boolean;
+}
+
+export interface HomepageLeadershipSection {
+  enabled: boolean;
+  eyebrow: string | null;
+  title: string | null;
+  subtitle: string | null;
+  animation_enabled: boolean;
+  messages: HomepageLeadershipCard[];
+}
+
+const FALLBACK_LEADERSHIP_SECTION: HomepageLeadershipSection = {
+  enabled: true,
+  eyebrow: "Leadership messages",
+  title: "Guided by vision, driven by excellence",
+  subtitle: "A message from the leadership of Paris United Group Holding.",
+  animation_enabled: true,
+  messages: [],
+};
+
+export async function getHomepageLeadership(): Promise<HomepageLeadershipSection> {
+  return (
+    (await fetchPublic<HomepageLeadershipSection>(
+      "/public/homepage/leadership-messages"
+    )) ?? FALLBACK_LEADERSHIP_SECTION
+  );
+}
+
 export async function getMediaGallery(
   options: { kind?: "image" | "video"; limit?: number } = {}
 ): Promise<PublicMediaAsset[]> {
@@ -198,6 +245,11 @@ const FALLBACK_SETTINGS: SiteSettings = {
   home_founder_message: null,
   home_brand_logos: null,
   home_brand_strip_title: null,
+  home_leadership_section_enabled: true,
+  home_leadership_section_eyebrow: null,
+  home_leadership_section_title: null,
+  home_leadership_section_subtitle: null,
+  home_leadership_animation_enabled: true,
 };
 
 export async function getSiteSettings(): Promise<SiteSettings> {

@@ -153,6 +153,23 @@ class LeadershipMessage(Base, TimestampMixin):
     initials: Mapped[str] = mapped_column(String(8), nullable=False)
     photo_url: Mapped[Optional[str]] = mapped_column(String(500))
     signature: Mapped[Optional[str]] = mapped_column(String(120))
+
+    # Homepage Leadership Messages section (Phase-5 unified follow-up).
+    role_label: Mapped[Optional[str]] = mapped_column(String(120))
+    message_paragraph_1: Mapped[Optional[str]] = mapped_column(Text)
+    message_paragraph_2: Mapped[Optional[str]] = mapped_column(Text)
+    highlight_quote: Mapped[Optional[str]] = mapped_column(Text)
+    signature_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    cta_label: Mapped[Optional[str]] = mapped_column(String(120))
+    cta_url: Mapped[Optional[str]] = mapped_column(String(500))
+    is_homepage_featured: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+    )
+
     display_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -325,6 +342,17 @@ class SiteSetting(Base, TimestampMixin):
     # Trusted-brands strip -------------------------------------------------
     home_brand_logos: Mapped[Optional[str]] = mapped_column(Text)
     home_brand_strip_title: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Homepage Leadership Messages section --------------------------------
+    home_leadership_section_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    home_leadership_section_eyebrow: Mapped[Optional[str]] = mapped_column(String(120))
+    home_leadership_section_title: Mapped[Optional[str]] = mapped_column(String(255))
+    home_leadership_section_subtitle: Mapped[Optional[str]] = mapped_column(Text)
+    home_leadership_animation_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 # ---------------------------------------------------------------------------

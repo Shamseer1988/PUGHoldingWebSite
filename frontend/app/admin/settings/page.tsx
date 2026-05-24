@@ -59,6 +59,11 @@ const EMPTY_FORM: Form = {
   home_founder_message: "",
   home_brand_logos: "",
   home_brand_strip_title: "",
+  home_leadership_section_enabled: true,
+  home_leadership_section_eyebrow: "",
+  home_leadership_section_title: "",
+  home_leadership_section_subtitle: "",
+  home_leadership_animation_enabled: true,
 };
 
 export default function SiteSettingsAdminPage() {
@@ -490,6 +495,85 @@ export default function SiteSettingsAdminPage() {
                   onChange={(e) => set("home_brand_logos", e.target.value)}
                   disabled={saving}
                   placeholder={"/images/home/brands/brand_01.png\n/images/home/brands/brand_02.png"}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">
+                Homepage · Leadership Messages section
+              </CardTitle>
+              <CardDescription>
+                Section copy + master toggles for the unified Chairman + MD
+                Leadership Messages card on the homepage. Each leader's body
+                copy (quote, message paragraphs, photo, signature) lives on
+                the leader row itself — open <strong>Leadership</strong> in
+                the sidebar and toggle "Feature on homepage Leadership
+                Messages section" for each one.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Show the section">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.home_leadership_section_enabled}
+                      onChange={(e) =>
+                        set("home_leadership_section_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Render on the homepage
+                  </label>
+                </Field>
+                <Field label="Scroll animation">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.home_leadership_animation_enabled}
+                      onChange={(e) =>
+                        set("home_leadership_animation_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Enable GSAP reveal animation
+                  </label>
+                </Field>
+              </div>
+              <Field label="Eyebrow">
+                <Input
+                  value={form.home_leadership_section_eyebrow ?? ""}
+                  onChange={(e) =>
+                    set("home_leadership_section_eyebrow", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Leadership messages"
+                />
+              </Field>
+              <Field label="Title">
+                <Input
+                  value={form.home_leadership_section_title ?? ""}
+                  onChange={(e) =>
+                    set("home_leadership_section_title", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Guided by vision, driven by excellence"
+                />
+              </Field>
+              <Field label="Subtitle">
+                <Textarea
+                  rows={2}
+                  value={form.home_leadership_section_subtitle ?? ""}
+                  onChange={(e) =>
+                    set("home_leadership_section_subtitle", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="A message from the leadership of Paris United Group Holding."
                 />
               </Field>
             </CardContent>

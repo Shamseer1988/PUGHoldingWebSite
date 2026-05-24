@@ -239,13 +239,30 @@ LEADERSHIP = [
     {
         "slug": "chairman",
         "name": "Mr. A. Al Hassan",
-        "role": "Chairman",
+        "role": "Chairman & Founder",
         "short_message": "Our purpose is to serve communities with quality products and trusted service.",
         "full_message": "When we founded Paris United Group, we set out to build a company that families could rely on.",
         "accent": "from-pug-green-600 to-pug-gold-500",
         "initials": "AH",
         "photo_url": "/images/ourcompany/ceo_img.png",
         "signature": "Mr. A. Al Hassan",
+        "role_label": "Chairman's message",
+        "highlight_quote": (
+            "We don't just build businesses — we build trust. Every store, every "
+            "supplier, every customer interaction is part of the same promise."
+        ),
+        "message_paragraph_1": (
+            "When we founded Paris United Group, we set out to build a company "
+            "that families across the GCC could rely on for the things that "
+            "matter every day — fresh food on the table, reliable services "
+            "around the corner, and dignity at work for everyone we hire."
+        ),
+        "message_paragraph_2": (
+            "Decades later, that purpose hasn't changed. It's the reason our "
+            "hypermarkets, garages, and distribution arms still feel like they "
+            "belong to the same family — because they do."
+        ),
+        "is_homepage_featured": True,
         "display_order": 1,
     },
     {
@@ -258,6 +275,23 @@ LEADERSHIP = [
         "initials": "KR",
         "photo_url": "/images/ourcompany/member1.png",
         "signature": "Mr. K. Rahman",
+        "role_label": "Managing director's message",
+        "highlight_quote": (
+            "Operational excellence is invisible when it's done right — that's "
+            "exactly what our teams aim for, every shift, every day."
+        ),
+        "message_paragraph_1": (
+            "Across distribution, retail, services, and engineering, we share "
+            "one playbook: serve the customer first, give our teams the tools "
+            "to win, and measure what matters. That clarity is how a "
+            "diversified group still moves with focus."
+        ),
+        "message_paragraph_2": (
+            "I'm proud of the way our people show up — at 6am in the warehouse, "
+            "behind the till on a Friday afternoon, on a construction site in "
+            "Doha's summer heat. The group's results are theirs."
+        ),
+        "is_homepage_featured": True,
         "display_order": 2,
     },
     {
@@ -474,6 +508,14 @@ SITE_SETTINGS_DEFAULTS = dict(
     # Trusted-brands strip
     home_brand_logos=BRAND_LOGOS_DEFAULT,
     home_brand_strip_title="Trusted brands we work with",
+    # Unified Leadership Messages section
+    home_leadership_section_enabled=True,
+    home_leadership_section_eyebrow="Leadership messages",
+    home_leadership_section_title="Guided by vision, driven by excellence",
+    home_leadership_section_subtitle=(
+        "A message from the leadership of Paris United Group Holding."
+    ),
+    home_leadership_animation_enabled=True,
 )
 
 

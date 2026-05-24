@@ -147,6 +147,15 @@ class LeadershipBase(BaseModel):
     initials: str = Field(min_length=1, max_length=8)
     photo_url: Optional[str] = Field(default=None, max_length=500)
     signature: Optional[str] = None
+    # Unified homepage Leadership Messages fields
+    role_label: Optional[str] = Field(default=None, max_length=120)
+    message_paragraph_1: Optional[str] = None
+    message_paragraph_2: Optional[str] = None
+    highlight_quote: Optional[str] = None
+    signature_image_url: Optional[str] = Field(default=None, max_length=500)
+    cta_label: Optional[str] = Field(default=None, max_length=120)
+    cta_url: Optional[str] = Field(default=None, max_length=500)
+    is_homepage_featured: bool = False
     display_order: int = 0
     is_active: bool = True
 
@@ -165,6 +174,14 @@ class LeadershipUpdate(BaseModel):
     initials: Optional[str] = None
     photo_url: Optional[str] = None
     signature: Optional[str] = None
+    role_label: Optional[str] = None
+    message_paragraph_1: Optional[str] = None
+    message_paragraph_2: Optional[str] = None
+    highlight_quote: Optional[str] = None
+    signature_image_url: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+    is_homepage_featured: Optional[bool] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -330,6 +347,13 @@ class SiteSettingRead(BaseModel):
     home_brand_logos: Optional[str] = None
     home_brand_strip_title: Optional[str] = None
 
+    # Unified Leadership Messages section
+    home_leadership_section_enabled: bool = True
+    home_leadership_section_eyebrow: Optional[str] = None
+    home_leadership_section_title: Optional[str] = None
+    home_leadership_section_subtitle: Optional[str] = None
+    home_leadership_animation_enabled: bool = True
+
 
 class SiteSettingUpdate(BaseModel):
     site_name: Optional[str] = None
@@ -373,6 +397,51 @@ class SiteSettingUpdate(BaseModel):
 
     home_brand_logos: Optional[str] = None
     home_brand_strip_title: Optional[str] = None
+
+    home_leadership_section_enabled: Optional[bool] = None
+    home_leadership_section_eyebrow: Optional[str] = None
+    home_leadership_section_title: Optional[str] = None
+    home_leadership_section_subtitle: Optional[str] = None
+    home_leadership_animation_enabled: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Homepage Leadership Messages (public)
+# ---------------------------------------------------------------------------
+
+
+class LeadershipMessageCardRead(BaseModel):
+    """A single leader rendered inside the homepage Leadership Messages section."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    slug: str
+    role_type: str
+    role_label: Optional[str] = None
+    name: str
+    role: str
+    designation: Optional[str] = None
+    initials: str
+    accent: str
+    photo_url: Optional[str] = None
+    signature_image_url: Optional[str] = None
+    signature: Optional[str] = None
+    highlight_quote: Optional[str] = None
+    message_paragraph_1: Optional[str] = None
+    message_paragraph_2: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+    display_order: int = 0
+    is_active: bool = True
+
+
+class HomepageLeadershipResponse(BaseModel):
+    enabled: bool
+    eyebrow: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    animation_enabled: bool
+    messages: List[LeadershipMessageCardRead] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
