@@ -220,13 +220,10 @@ export function FeaturedCompaniesShowcase({
           <div className="relative">
             <div className="sticky top-24 h-[calc(100vh-8rem)] min-h-[520px]">
               <PreviewFrame>
-                {companies.map((company, i) => (
-                  <PreviewImage
-                    key={company.id}
-                    company={company}
-                    isActive={i === activeIndex}
-                  />
-                ))}
+                <PreviewMediaStack
+                  companies={companies}
+                  activeIndex={activeIndex}
+                />
               </PreviewFrame>
             </div>
           </div>
@@ -629,44 +626,402 @@ function PreviewFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PreviewImage({
+/**
+ * Coordinator for the right-side media stack.
+ *
+ * Owns the cross-cutting concerns the per-item layer can't handle on
+ * its own:
+ *   - IntersectionObserver — only mounts video sources once the section
+ *     is near the viewport (lazy + bandwidth-friendly).
+ *   - `visibilitychange`  — pauses every video when the tab is hidden,
+ *     resumes the active one on return.
+ *   - `prefers-reduced-motion` / mobile detection — both fall back to a
+ *     pure-image presentation. Mobile additionally skips video to save
+ *     mobile data.
+ *
+ * Each layer (`PreviewMediaItem`) runs its own GSAP timeline when its
+ * active state flips. The stack lives inside the existing
+ * `<PreviewFrame>` so the rounded "browser window" chrome is untouched.
+ */
+function PreviewMediaStack({
+  companies,
+  activeIndex,
+}: {
+  companies: Company[];
+  activeIndex: number;
+}) {
+  const sectionRef = React.useRef<HTMLDivElement | null>(null);
+  const itemRefs = React.useRef<(HTMLVideoElement | null)[]>([]);
+  const [allowMotion, setAllowMotion] = React.useState(false);
+  const [allowVideo, setAllowVideo] = React.useState(false);
+  const [intersected, setIntersected] = React.useState(false);
+  const [tabHidden, setTabHidden] = React.useState(false);
+
+  // Detect motion + viewport once on mount; re-evaluate on resize +
+  // motion-pref change so the experience matches the user's current
+  // settings (not just what was true at mount).
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reducedMQ = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const desktopMQ = window.matchMedia("(min-width: 1024px)");
+    const evaluate = () => {
+      const reduced = reducedMQ.matches;
+      const desktop = desktopMQ.matches;
+      setAllowMotion(!reduced);
+      // Video is desktop-only to honour the "show static image on
+      // mobile to save bandwidth" requirement. Reduced motion also
+      // disables video so users get a single static frame.
+      setAllowVideo(!reduced && desktop);
+    };
+    evaluate();
+    reducedMQ.addEventListener?.("change", evaluate);
+    desktopMQ.addEventListener?.("change", evaluate);
+    return () => {
+      reducedMQ.removeEventListener?.("change", evaluate);
+      desktopMQ.removeEventListener?.("change", evaluate);
+    };
+  }, []);
+
+  // Lazy-mount videos once the section is near the viewport.
+  React.useEffect(() => {
+    if (!sectionRef.current || intersected) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIntersected(true);
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setIntersected(true);
+            obs.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: "200px 0px" }
+    );
+    obs.observe(sectionRef.current);
+    return () => obs.disconnect();
+  }, [intersected]);
+
+  // Pause every video when the tab is hidden; resume the active one
+  // when the user comes back (browser autoplay rules still apply, but
+  // since the videos are muted that's a non-issue).
+  React.useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => setTabHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+    onVisibility();
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  // Drive video play/pause based on (isActive, allowVideo, tabHidden).
+  // We do it here (not inside the item) so we can pause *the previous*
+  // video before the new one starts — important for the cinematic
+  // crossfade so we don't flash two playing videos at once.
+  React.useEffect(() => {
+    itemRefs.current.forEach((video, i) => {
+      if (!video) return;
+      const shouldPlay =
+        allowVideo && intersected && !tabHidden && i === activeIndex;
+      if (shouldPlay) {
+        // Browsers can reject play() if metadata isn't loaded yet;
+        // swallow rejection — the muted+autoplay+playsinline combo
+        // means we'll re-try on subsequent renders.
+        const result = video.play();
+        if (result && typeof result.catch === "function") {
+          result.catch(() => undefined);
+        }
+      } else {
+        video.pause();
+      }
+    });
+  }, [activeIndex, allowVideo, intersected, tabHidden, companies.length]);
+
+  return (
+    <div ref={sectionRef} className="relative h-full w-full group-media-shine">
+      {companies.map((company, i) => (
+        <PreviewMediaItem
+          key={company.id}
+          company={company}
+          isActive={i === activeIndex}
+          allowMotion={allowMotion}
+          allowVideo={allowVideo && intersected}
+          videoRef={(el) => {
+            itemRefs.current[i] = el;
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+
+/**
+ * Single layer in the preview stack — either an image or a video,
+ * with the legibility gradient + caption bar floating over the media.
+ *
+ * Animations:
+ *   - On isActive → true: GSAP timeline animates the layer in
+ *     (clipPath reveal, opacity, blur, scale) and staggers the
+ *     overlay text (pill → name → subtitle).
+ *   - On isActive → false: a tighter outgoing timeline (fade + small
+ *     scale down + soft blur). Both timelines kill on cleanup.
+ *
+ * Falls back to static CSS when `allowMotion` is false (reduced
+ * motion or motion explicitly disabled) so the layer simply toggles
+ * its opacity.
+ */
+function PreviewMediaItem({
   company,
   isActive,
+  allowMotion,
+  allowVideo,
+  videoRef,
 }: {
   company: Company;
   isActive: boolean;
+  allowMotion: boolean;
+  allowVideo: boolean;
+  videoRef: (el: HTMLVideoElement | null) => void;
 }) {
+  const layerRef = React.useRef<HTMLDivElement | null>(null);
+  const mediaRef = React.useRef<HTMLDivElement | null>(null);
+  const pillRef = React.useRef<HTMLSpanElement | null>(null);
+  const nameRef = React.useRef<HTMLHeadingElement | null>(null);
+  const subtitleRef = React.useRef<HTMLParagraphElement | null>(null);
+  const wasActiveRef = React.useRef<boolean>(isActive);
+
   const featured = resolveAssetUrl(company.featured_image_url);
+  const videoUrl = resolveAssetUrl(company.homepage_group_video_url);
+  const posterUrl =
+    resolveAssetUrl(company.homepage_group_video_poster_url) ?? featured;
+  const hasVideo = Boolean(videoUrl) && allowVideo;
+
+  // Initial paint: pin inactive layers as fully hidden so the GSAP
+  // entry animation has a known starting point. The active layer on
+  // first mount stays visible (no entry tween needed).
+  React.useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    if (isActive) {
+      layer.style.opacity = "1";
+      layer.style.transform = "none";
+      layer.style.filter = "none";
+      layer.style.clipPath = "inset(0 0 0 0)";
+    } else {
+      layer.style.opacity = "0";
+      layer.style.transform = "scale(0.97)";
+      layer.style.filter = "blur(0px)";
+      layer.style.clipPath = "inset(0 0 0 0)";
+    }
+    // We only want this to run once for the initial paint. Subsequent
+    // active-state changes are handled by the GSAP effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // GSAP timeline driven by active-state changes.
+  React.useEffect(() => {
+    const prev = wasActiveRef.current;
+    const next = isActive;
+    wasActiveRef.current = next;
+    if (prev === next) return;
+
+    const layer = layerRef.current;
+    const media = mediaRef.current;
+    if (!layer || !media) return;
+
+    if (!allowMotion) {
+      // Reduced motion / mobile: simple opacity toggle, no transforms.
+      layer.style.transition = "opacity 240ms ease";
+      layer.style.opacity = next ? "1" : "0";
+      layer.style.transform = "none";
+      layer.style.filter = "none";
+      layer.style.clipPath = "inset(0 0 0 0)";
+      return;
+    }
+
+    let killed = false;
+    let cleanup: (() => void) | undefined;
+
+    (async () => {
+      const { gsap } = await import("gsap");
+      if (killed) return;
+
+      // Cancel any in-flight tweens on these targets so we never
+      // animate two timelines on top of each other.
+      gsap.killTweensOf([layer, media]);
+      const textTargets = [
+        pillRef.current,
+        nameRef.current,
+        subtitleRef.current,
+      ].filter(Boolean) as HTMLElement[];
+      if (textTargets.length) gsap.killTweensOf(textTargets);
+
+      if (next) {
+        // Incoming: layered reveal. clipPath sweeps right→left, the
+        // image lifts in from a soft blur + slight zoom-out.
+        gsap.set(layer, {
+          opacity: 0,
+          clipPath: "inset(0 100% 0 0)",
+          pointerEvents: "auto",
+        });
+        gsap.set(media, {
+          scale: 1.06,
+          filter: "blur(8px)",
+          y: 16,
+        });
+        if (textTargets.length) {
+          gsap.set(textTargets, { y: 14, opacity: 0 });
+        }
+
+        // Add the shine sweep once per transition. Toggling the class
+        // restarts the CSS keyframe (we also remove it on cleanup so
+        // the next transition triggers it again).
+        const shineHost = layer.parentElement?.classList.contains(
+          "group-media-shine"
+        )
+          ? layer.parentElement
+          : null;
+        if (shineHost) {
+          shineHost.classList.remove("is-sweeping");
+          // Force reflow so re-adding the class restarts the keyframe
+          // animation reliably across browsers.
+          void shineHost.offsetWidth;
+          shineHost.classList.add("is-sweeping");
+        }
+
+        const tl = gsap.timeline({
+          defaults: { ease: "expo.out" },
+          onComplete: () => {
+            if (shineHost) shineHost.classList.remove("is-sweeping");
+          },
+        });
+        tl.to(
+          layer,
+          {
+            opacity: 1,
+            clipPath: "inset(0 0% 0 0)",
+            duration: 0.85,
+          },
+          0
+        );
+        tl.to(
+          media,
+          {
+            scale: 1,
+            filter: "blur(0px)",
+            y: 0,
+            duration: 0.85,
+          },
+          0
+        );
+        if (pillRef.current) {
+          tl.to(
+            pillRef.current,
+            { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" },
+            0.18
+          );
+        }
+        if (nameRef.current) {
+          tl.to(
+            nameRef.current,
+            { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
+            0.26
+          );
+        }
+        if (subtitleRef.current) {
+          tl.to(
+            subtitleRef.current,
+            { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
+            0.32
+          );
+        }
+        cleanup = () => tl.kill();
+      } else {
+        // Outgoing: tighter fade + small scale down + slight blur up.
+        const tl = gsap.timeline({
+          defaults: { ease: "power3.inOut" },
+          onComplete: () => {
+            // Pin the resting state so the layer doesn't pop on the
+            // next transition.
+            gsap.set(layer, {
+              opacity: 0,
+              clipPath: "inset(0 0% 0 0)",
+              pointerEvents: "none",
+            });
+          },
+        });
+        tl.to(
+          media,
+          { scale: 0.96, filter: "blur(8px)", y: -8, duration: 0.5 },
+          0
+        );
+        tl.to(layer, { opacity: 0, duration: 0.45 }, 0);
+        cleanup = () => tl.kill();
+      }
+    })();
+
+    return () => {
+      killed = true;
+      if (cleanup) cleanup();
+    };
+  }, [isActive, allowMotion]);
 
   return (
     <div
-      className={cn(
-        "absolute inset-0 transition-all duration-500 ease-out",
-        isActive
-          ? "opacity-100 scale-100 pointer-events-auto"
-          : "opacity-0 scale-[0.97] pointer-events-none"
-      )}
+      ref={layerRef}
+      className="absolute inset-0 will-change-transform"
       aria-hidden={!isActive}
+      style={{ pointerEvents: isActive ? "auto" : "none" }}
     >
-      {featured ? (
-        <Image
-          src={featured}
-          alt=""
-          fill
-          sizes="(max-width: 1024px) 100vw, 720px"
-          className="object-cover"
-          unoptimized
-          priority={isActive}
-        />
-      ) : (
-        <div
-          aria-hidden
-          className={cn(
-            "absolute inset-0 bg-gradient-to-br",
-            company.accent || "from-pug-green-600 to-pug-gold-500"
-          )}
-        />
-      )}
+      {/* Media surface — image or video. Sits inside its own wrapper
+          so GSAP can transform it (scale + blur + y) independently of
+          the parent layer (which handles opacity + clip-path). */}
+      <div ref={mediaRef} className="absolute inset-0">
+        {hasVideo ? (
+          <video
+            ref={videoRef}
+            // Poster keeps the surface from flashing black before the
+            // first video frame is decoded. We prefer the dedicated
+            // poster URL but fall back to the featured image so most
+            // companies inherit a poster automatically.
+            poster={posterUrl ?? undefined}
+            src={videoUrl ?? undefined}
+            // muted + playsInline + autoplay match the browser autoplay
+            // policy for mobile + desktop. `loop` keeps the clip
+            // running while the company is active.
+            muted
+            playsInline
+            loop
+            preload="metadata"
+            // No native controls — this is decorative media, not a
+            // player. The admin uses the dashboard preview instead.
+            controls={false}
+            disablePictureInPicture
+            className="h-full w-full object-cover"
+          />
+        ) : featured ? (
+          <Image
+            src={featured}
+            alt=""
+            fill
+            sizes="(max-width: 1024px) 100vw, 720px"
+            className="object-cover"
+            unoptimized
+            priority={isActive}
+          />
+        ) : (
+          <div
+            aria-hidden
+            className={cn(
+              "absolute inset-0 bg-gradient-to-br",
+              company.accent || "from-pug-green-600 to-pug-gold-500"
+            )}
+          />
+        )}
+      </div>
 
       {/* Bottom gradient overlay for legibility */}
       <div
@@ -676,14 +1031,23 @@ function PreviewImage({
 
       {/* Caption bar */}
       <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
-        <span className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] backdrop-blur">
+        <span
+          ref={pillRef}
+          className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] backdrop-blur"
+        >
           {company.category}
         </span>
-        <h4 className="mt-2 text-xl font-semibold leading-tight tracking-tight sm:text-2xl">
+        <h4
+          ref={nameRef}
+          className="mt-2 text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
+        >
           {company.name}
         </h4>
         {company.short_description && (
-          <p className="mt-1 line-clamp-2 max-w-xl text-sm text-white/85">
+          <p
+            ref={subtitleRef}
+            className="mt-1 line-clamp-2 max-w-xl text-sm text-white/85"
+          >
             {company.short_description}
           </p>
         )}
