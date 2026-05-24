@@ -33,6 +33,14 @@ interface LeaderForm {
   initials: string;
   photo_url: string;
   signature: string;
+  role_label: string;
+  message_paragraph_1: string;
+  message_paragraph_2: string;
+  highlight_quote: string;
+  signature_image_url: string;
+  cta_label: string;
+  cta_url: string;
+  is_homepage_featured: boolean;
   display_order: number;
   is_active: boolean;
 }
@@ -47,6 +55,14 @@ const EMPTY: LeaderForm = {
   initials: "",
   photo_url: "",
   signature: "",
+  role_label: "",
+  message_paragraph_1: "",
+  message_paragraph_2: "",
+  highlight_quote: "",
+  signature_image_url: "",
+  cta_label: "",
+  cta_url: "",
+  is_homepage_featured: false,
   display_order: 0,
   is_active: true,
 };
@@ -84,6 +100,14 @@ export default function LeadershipAdminPage() {
       initials: item.initials,
       photo_url: item.photo_url ?? "",
       signature: item.signature ?? "",
+      role_label: item.role_label ?? "",
+      message_paragraph_1: item.message_paragraph_1 ?? "",
+      message_paragraph_2: item.message_paragraph_2 ?? "",
+      highlight_quote: item.highlight_quote ?? "",
+      signature_image_url: item.signature_image_url ?? "",
+      cta_label: item.cta_label ?? "",
+      cta_url: item.cta_url ?? "",
+      is_homepage_featured: item.is_homepage_featured,
       display_order: item.display_order,
       is_active: item.is_active,
     });
@@ -105,6 +129,14 @@ export default function LeadershipAdminPage() {
         initials: form.initials.trim(),
         accent: form.accent.trim(),
         photo_url: form.photo_url.trim() || null,
+        role_label: form.role_label.trim() || null,
+        message_paragraph_1: form.message_paragraph_1.trim() || null,
+        message_paragraph_2: form.message_paragraph_2.trim() || null,
+        highlight_quote: form.highlight_quote.trim() || null,
+        signature_image_url: form.signature_image_url.trim() || null,
+        cta_label: form.cta_label.trim() || null,
+        cta_url: form.cta_url.trim() || null,
+        is_homepage_featured: form.is_homepage_featured,
         display_order: Number(form.display_order) || 0,
       };
       if (editing) {
@@ -226,6 +258,108 @@ export default function LeadershipAdminPage() {
                   <Field label="Signature"><Input value={form.signature} onChange={(e) => setForm({ ...form, signature: e.target.value })} disabled={saving} /></Field>
                   <Field label="Portrait gradient" hint="from-… to-… (fallback when no photo)"><Input value={form.accent} onChange={(e) => setForm({ ...form, accent: e.target.value })} disabled={saving} /></Field>
                 </div>
+
+                <fieldset className="space-y-3 rounded-md border border-border/60 bg-background/40 p-4">
+                  <legend className="px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Homepage Leadership Messages
+                  </legend>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fields below are used only when this card appears inside
+                    the unified homepage Leadership Messages section.
+                  </p>
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.is_homepage_featured}
+                      onChange={(e) =>
+                        setForm({ ...form, is_homepage_featured: e.target.checked })
+                      }
+                      disabled={saving}
+                    />
+                    Feature on homepage Leadership Messages section
+                  </label>
+                  <Field
+                    label="Role label"
+                    hint='Small uppercase tag — e.g. "Chairman&rsquo;s message"'
+                  >
+                    <Input
+                      value={form.role_label}
+                      onChange={(e) =>
+                        setForm({ ...form, role_label: e.target.value })
+                      }
+                      disabled={saving}
+                    />
+                  </Field>
+                  <Field
+                    label="Highlight quote"
+                    hint="Short pull-quote shown most prominently"
+                  >
+                    <Textarea
+                      rows={2}
+                      value={form.highlight_quote}
+                      onChange={(e) =>
+                        setForm({ ...form, highlight_quote: e.target.value })
+                      }
+                      disabled={saving}
+                    />
+                  </Field>
+                  <Field label="Message paragraph 1">
+                    <Textarea
+                      rows={3}
+                      value={form.message_paragraph_1}
+                      onChange={(e) =>
+                        setForm({ ...form, message_paragraph_1: e.target.value })
+                      }
+                      disabled={saving}
+                    />
+                  </Field>
+                  <Field label="Message paragraph 2 (optional)">
+                    <Textarea
+                      rows={3}
+                      value={form.message_paragraph_2}
+                      onChange={(e) =>
+                        setForm({ ...form, message_paragraph_2: e.target.value })
+                      }
+                      disabled={saving}
+                    />
+                  </Field>
+                  <div className="space-y-1.5">
+                    <Label>Signature image (optional)</Label>
+                    <ImageUpload
+                      value={form.signature_image_url}
+                      onChange={(url) =>
+                        setForm({ ...form, signature_image_url: url ?? "" })
+                      }
+                      disabled={saving}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      A scanned signature graphic. Falls back to the text
+                      signature above when no image is set.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="CTA label (optional)">
+                      <Input
+                        value={form.cta_label}
+                        onChange={(e) =>
+                          setForm({ ...form, cta_label: e.target.value })
+                        }
+                        disabled={saving}
+                      />
+                    </Field>
+                    <Field label="CTA URL">
+                      <Input
+                        value={form.cta_url}
+                        onChange={(e) =>
+                          setForm({ ...form, cta_url: e.target.value })
+                        }
+                        disabled={saving}
+                      />
+                    </Field>
+                  </div>
+                </fieldset>
+
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Order"><Input type="number" value={form.display_order} onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) || 0 })} disabled={saving} /></Field>
                   <Field label="Active">

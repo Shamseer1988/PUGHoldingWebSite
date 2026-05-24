@@ -5,9 +5,8 @@ import { FeaturedCompaniesShowcase } from "@/components/site/featured-companies-
 import { HeroSlider } from "@/components/site/hero-slider";
 import { HomeAboutSection } from "@/components/site/home-about-section";
 import { HomeBrandStrip } from "@/components/site/home-brand-strip";
-import { HomeFounderMessage } from "@/components/site/home-founder-message";
 import { JobCard } from "@/components/site/job-card";
-import { LeadershipCard } from "@/components/site/leadership-card";
+import { LeadershipMessagesSection } from "@/components/site/leadership-messages-section";
 import { NewsCard } from "@/components/site/news-card";
 import { NewsletterForm } from "@/components/site/newsletter-form";
 import { Section } from "@/components/site/section";
@@ -18,7 +17,7 @@ import { GlassCard } from "@/components/site/glass-card";
 import {
   getFeaturedCompaniesSection,
   getHeroSlides,
-  getLeadership,
+  getHomepageLeadership,
   getNews,
   getPublicJobs,
   getSiteSettings,
@@ -27,14 +26,15 @@ import {
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const [hero, featured, leadership, news, settings, openJobs] = await Promise.all([
-    getHeroSlides(),
-    getFeaturedCompaniesSection(),
-    getLeadership(),
-    getNews({ limit: 3 }),
-    getSiteSettings(),
-    getPublicJobs(),
-  ]);
+  const [hero, featured, leadershipSection, news, settings, openJobs] =
+    await Promise.all([
+      getHeroSlides(),
+      getFeaturedCompaniesSection(),
+      getHomepageLeadership(),
+      getNews({ limit: 3 }),
+      getSiteSettings(),
+      getPublicJobs(),
+    ]);
 
   const phone = settings.contact_phone ?? "+974 0000 0000";
   const whatsapp = settings.whatsapp_number ?? "+97400000000";
@@ -72,39 +72,12 @@ export default async function HomePage() {
         companies={featured.companies}
       />
 
-      <HomeFounderMessage
-        imageUrl={settings.home_founder_image_url}
-        name={settings.home_founder_name}
-        role={settings.home_founder_role}
-        message={settings.home_founder_message}
-      />
+      <LeadershipMessagesSection data={leadershipSection} />
 
       <HomeBrandStrip
         logos={settings.home_brand_logos}
         title={settings.home_brand_strip_title}
       />
-
-      {leadership.length > 0 && (
-        <Section
-          eyebrow="Leadership"
-          title="A message from our leadership"
-          description="Excerpts from the Chairman, Managing Director, and Executive Directors."
-        >
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {leadership.slice(0, 3).map((leader) => (
-              <LeadershipCard key={leader.id} leader={leader} />
-            ))}
-          </div>
-          <div className="mt-6 text-center">
-            <Button asChild variant="ghost">
-              <Link href="/about#leadership">
-                Read full messages
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </Section>
-      )}
 
       {news.length > 0 && (
         <Section
