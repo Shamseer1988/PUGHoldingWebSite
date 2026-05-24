@@ -133,3 +133,32 @@ export async function submitCandidateApplication(
 
   return (await response.json()) as CandidateApplicationResult;
 }
+
+// ---------------------------------------------------------------------------
+// Public Ask-PUG-AI assistant (Phase 17)
+// ---------------------------------------------------------------------------
+
+export interface AskPugAiTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AskPugAiRequest {
+  question: string;
+  session_id?: string | null;
+  history?: AskPugAiTurn[];
+}
+
+export interface AskPugAiResponse {
+  answer: string;
+  mode: "disabled" | "mock" | "live" | string;
+  was_fallback: boolean;
+  session_id: string | null;
+  model_name: string | null;
+}
+
+export async function askPugAi(
+  payload: AskPugAiRequest
+): Promise<AskPugAiResponse> {
+  return post<AskPugAiResponse>("/public/ai-assistant/ask", payload);
+}
