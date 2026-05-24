@@ -2,10 +2,16 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-interface SectionProps extends React.HTMLAttributes<HTMLElement> {
+interface SectionProps extends Omit<React.HTMLAttributes<HTMLElement>, "title"> {
   /** Visually centered tag rendered above the heading. */
   eyebrow?: string;
-  title?: string;
+  /**
+   * Section heading. Accepts a plain string or a `ReactNode` so callers
+   * can paint sub-words in a brand gradient via inline `<span>`s.
+   * (The native HTML `title` attribute is intentionally dropped from
+   * the extends — this prop owns the name.)
+   */
+  title?: React.ReactNode;
   description?: string;
   /** When true the title/description are centred. */
   centered?: boolean;
