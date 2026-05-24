@@ -48,6 +48,46 @@ Manual:
 - [ ] Sign-out button on each portal returns you to the login page and
       clears the token from `localStorage`.
 
+## Phase 8 — HR ATS admin dashboard
+
+Automated (pytest):
+
+- [x] 5 new dashboard tests pass (58 total).
+- [x] Website-admin token rejected at `/api/v1/hr/dashboard` (403).
+- [x] Unauthenticated request to dashboard returns 401.
+- [x] Empty database returns all-zero stats and empty lists with
+      canonical funnel stages.
+- [x] Seeded data aggregates correctly across KPIs, funnel,
+      by-job, by-department, pending interviews, pending offers.
+- [x] Pending interviews exclude past and non-scheduled rows.
+
+Automated (frontend):
+
+- [x] `npm run type-check` clean.
+- [x] `npm run build` generates 38 routes including the new
+      `/hr`, `/hr/audit`, `/hr/jobs`, `/hr/candidates`,
+      `/hr/interviews`, `/hr/offers`, `/hr/reports`, `/hr/users`.
+
+Manual (sign in as HR Manager):
+
+- [ ] `hrmanager@pug.example.com / ChangeMe!123` at `/hr/login`
+      lands on `/hr` dashboard.
+- [ ] All 13 KPI cards render (zero values are expected before
+      Phase 10 candidate intake).
+- [ ] Pipeline funnel renders 10 stages with brand-coloured bars.
+- [ ] Applications-per-month chart renders empty-state message
+      ("No data yet.") when no data exists.
+- [ ] Pending interviews / offers panels show the empty-state
+      cards when no rows exist.
+- [ ] Sidebar items with "Soon" badges open their stub pages,
+      each labeling the phase that fills it in.
+- [ ] `/hr/audit` lists `auth.login.success` (with scope=hr) for
+      the current sign-in; filter by `action_prefix=auth.` works.
+- [ ] HR portal sign-out button returns to `/hr/login`.
+- [ ] Sidebar collapses to drawer on mobile (≤ 1024 px).
+- [ ] No horizontal overflow at 360 / 390 / 430 / 768 / 1024 /
+      1440 px.
+
 ## Phase 7 — HR ATS database and core models
 
 Automated (pytest):
