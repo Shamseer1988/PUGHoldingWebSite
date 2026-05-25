@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Building2, Sparkles } from "lucide-react";
 
@@ -1064,6 +1063,17 @@ function PreviewMediaItem({
           so GSAP can transform it (scale + blur + y) independently of
           the parent layer (which handles opacity + clip-path). */}
       <div ref={mediaRef} className="absolute inset-0">
+        {/* Always-on gradient backdrop. Sits underneath the image/video
+            so the preview frame is NEVER blank — slow loads, broken
+            URLs, or missing files all keep showing the brand gradient
+            instead of an empty white box. */}
+        <div
+          aria-hidden
+          className={cn(
+            "absolute inset-0 bg-gradient-to-br",
+            company.accent || "from-pug-green-600 to-pug-gold-500"
+          )}
+        />
         {hasVideo ? (
           <video
             ref={videoRef}
@@ -1084,27 +1094,48 @@ function PreviewMediaItem({
             // player. The admin uses the dashboard preview instead.
             controls={false}
             disablePictureInPicture
-            className="h-full w-full object-cover"
+            // Fade in once the first frame decodes. Same pattern as
+            // the image branch below so both behave identically.
+            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
+            onLoadedData={(e) => {
+              e.currentTarget.style.opacity = "1";
+            }}
+            onError={(e) => {
+              // Keep the gradient visible — hide the broken video
+              // so the browser's default media error icon never
+              // surfaces over the brand surface.
+              e.currentTarget.style.display = "none";
+            }}
           />
         ) : featured ? (
-          <Image
+          // Raw <img> + onLoad/onError gives us a deterministic fade-in
+          // and a way to keep the gradient visible when the file is
+          // missing or slow. next/image (even with unoptimized) gives
+          // an empty box on broken URLs — no good for a hero surface.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={featured}
             alt=""
-            fill
+            // Active layer is above the fold — load it eagerly. The
+            // off-screen siblings (~95 % of layers in a typical
+            // showcase) stay lazy.
+            loading={isActive ? "eager" : "lazy"}
+            decoding="async"
+            // @ts-expect-error — fetchpriority valid in React 18+ but
+            // not yet in the @types/react JSX surface here.
+            fetchpriority={isActive ? "high" : "auto"}
             sizes="(max-width: 1024px) 100vw, 720px"
-            className="object-cover"
-            unoptimized
-            priority={isActive}
+            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
+            onLoad={(e) => {
+              e.currentTarget.style.opacity = "1";
+            }}
+            onError={(e) => {
+              // Hide the broken element so the gradient backdrop is
+              // the only thing visible.
+              e.currentTarget.style.display = "none";
+            }}
           />
-        ) : (
-          <div
-            aria-hidden
-            className={cn(
-              "absolute inset-0 bg-gradient-to-br",
-              company.accent || "from-pug-green-600 to-pug-gold-500"
-            )}
-          />
-        )}
+        ) : null}
       </div>
 
       {/* Bottom gradient overlay for legibility */}
@@ -1162,22 +1193,31 @@ function MobileCompanyCard({
   return (
     <article className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
       <div className="relative aspect-[5/3] w-full overflow-hidden">
-        {featured ? (
-          <Image
+        {/* Always-on gradient backdrop — slow loads / missing files
+            never leave the card blank. Same pattern as the desktop
+            sticky preview. */}
+        <div
+          aria-hidden
+          className={cn(
+            "absolute inset-0 bg-gradient-to-br",
+            company.accent || "from-pug-green-600 to-pug-gold-500"
+          )}
+        />
+        {featured && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={featured}
             alt=""
-            fill
+            loading="lazy"
+            decoding="async"
             sizes="100vw"
-            className="object-cover"
-            unoptimized
-          />
-        ) : (
-          <div
-            aria-hidden
-            className={cn(
-              "absolute inset-0 bg-gradient-to-br",
-              company.accent || "from-pug-green-600 to-pug-gold-500"
-            )}
+            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
+            onLoad={(e) => {
+              e.currentTarget.style.opacity = "1";
+            }}
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
           />
         )}
         <div
