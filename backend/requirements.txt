@@ -41,6 +41,13 @@ httpx==0.27.2
 pypdf==5.1.0
 python-docx==1.1.2
 
+# Post-launch — server-side image optimization: every uploaded
+# image is resized to thumb / medium / large WebP variants so
+# public pages serve a 1/3 - 1/10 size payload instead of the raw
+# original. See app/services/image_optimization.py. Pillow doubles
+# as the OCR dep for the CV parser above.
+Pillow==10.4.0
+
 # Phase 13 — Azure OpenAI client for the HR AI candidate review.
 # Mock mode works without an Azure deployment; live mode requires the
 # Azure-OpenAI endpoint + key set in .env.

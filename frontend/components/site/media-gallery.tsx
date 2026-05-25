@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { ResponsiveImage } from "@/components/site/responsive-image";
 import {
   resolveAssetUrl,
   type PublicMediaAsset,
@@ -261,12 +262,13 @@ export function MediaGallery({ items }: MediaGalleryProps) {
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.08]"
                   />
                 ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <ResponsiveImage
                     src={item.url}
+                    variants={item.asset.variants}
                     alt={item.description ?? item.title}
-                    loading="lazy"
-                    decoding="async"
+                    // Tile width: 2-col on phone, 3-col on sm, 4-col
+                    // on lg. 50vw / 33vw / 25vw covers the lot.
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.08]"
                   />
                 )}
@@ -356,10 +358,17 @@ export function MediaGallery({ items }: MediaGalleryProps) {
                       className="h-full w-full object-contain"
                     />
                   ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <ResponsiveImage
+                      // Lightbox always wants the largest variant —
+                      // 100vw on every breakpoint lets the browser
+                      // pick `large` from the srcset.
                       src={lightbox.url}
+                      variants={lightbox.asset.variants}
                       alt={lightbox.description ?? lightbox.title}
+                      sizes="100vw"
+                      // Eager-load — the lightbox just opened, so the
+                      // image IS the user's intent.
+                      priority
                       className="h-full w-full object-contain"
                     />
                   )}

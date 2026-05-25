@@ -794,6 +794,119 @@ sudo systemctl restart pugweb-backend.service pugweb-frontend.service
 
 ---
 
+## 18.5 · Image + asset optimisation (post-launch perf pass)
+
+If pages feel slow loading images or videos in production, walk
+through these in order. The first three together cut transfer size
+70-90 % for typical photographic uploads.
+
+### A · Make sure the server-side WebP pipeline ran
+
+Every image uploaded through `/admin/media` now gets resized to
+three WebP variants (thumb 480 w, medium 960 w, large 1920 w) plus
+JPEG fallbacks at the same widths — see
+`backend/app/services/image_optimization.py`. The public
+`ResponsiveImage` component prefers WebP and lets the browser pick
+the smallest variant that matches its viewport via `srcset` /
+`sizes`.
+
+**Existing uploads** from before the pipeline existed have
+`variants = NULL` and serve the full-resolution original. Backfill
+them once after deploying:
+
+```bash
+sudo -iu parisgroup
+cd /home/parisgroup/PugWebSite/backend
+.venv/bin/python -m app.scripts.backfill_image_variants
+```
+
+The script is idempotent — re-running skips rows that already have
+variants. Output prints `id=N ✓` per processed row and a summary at
+the end (`processed / skipped / missing / errors`).
+
+After deploying a new release, new uploads optimise automatically;
+no manual step is needed.
+
+### B · Enable Cloudflare image compression
+
+You're already behind Cloudflare for DNS + TLS. Two dashboard
+toggles give meaningful additional savings on top of the WebP
+pipeline:
+
+1. **Cloudflare → Speed → Optimization → Image Optimization → Polish: Lossy.**
+   30-50 % size reduction on JPEG/PNG/WebP at the edge, fully
+   transparent to the app.
+2. **Speed → Optimization → Mirage.** Adapts image delivery to
+   slow connections / small viewports. Free plans include it.
+3. While in the same screen, confirm **Brotli** is on (it is by
+   default — Brotli compresses HTML/CSS/JS so JSON API responses
+   also shrink).
+4. **Speed → Optimization → Early Hints: On.** Lets Cloudflare
+   send `Link: rel=preload` hints from cache before the origin
+   replies, shaving 100-300 ms off the LCP.
+
+No code change required for any of these.
+
+### C · Verify uploads aren't going through FastAPI
+
+The Nginx site config in `deploy/nginx/parisgroup.conf` serves
+`/api/v1/uploads/` straight off disk with `expires 7d` and
+`Cache-Control: public, immutable`. Confirm:
+
+```bash
+curl -sI https://www.parisunitedgroup.com/api/v1/uploads/cms/<file>.jpg \
+  | grep -iE 'cache-control|expires|server'
+# expected: cache-control: public, immutable
+#           expires: <some Date 7 days out>
+```
+
+If you see `cache-control: no-store` or no `expires` header, the
+request is hitting FastAPI's `StaticFiles` mount instead of the
+Nginx alias — re-check the `location /api/v1/uploads/ { alias … }`
+block in `/etc/nginx/sites-available/parisgroup`.
+
+### D · Admin upload hygiene
+
+The optimization pipeline saves bytes downstream but **the original
+file is still kept** (it's the source of truth for the lightbox and
+admin downloads). A 12 MB original still costs 12 MB of disk + S3
+backup space.
+
+- Resize photos to ≤ 2400 px on the long edge before uploading.
+- Export at JPEG quality 80-85 — visually identical to 100, half
+  the bytes.
+- Never upload PNGs of photographs (3-4× the size of an equivalent
+  JPEG). Use PNG only for screenshots / logos with sharp edges /
+  transparency.
+
+### E · Videos
+
+The frontend already uses `preload="metadata"` on video tiles so
+visitors don't download the full file until they press play.
+Production tweaks beyond that:
+
+- Keep tile videos under **5 MB** and ≤ 720 p. Anything heavier
+  belongs on YouTube/Vimeo with an `<iframe>` embed.
+- Encode H.264 (`.mp4`) — every browser plays it without a poly­
+  fill, and you save against more-modern but less-supported codecs.
+- Always set the **poster** field on hero / company videos so the
+  tile shows a static frame instead of a black box while the file
+  fetches.
+
+### F · Quick perf checklist after each deploy
+
+```bash
+curl -sIH 'Host: www.parisunitedgroup.com' http://127.0.0.1/api/v1/public/site-settings | grep -i cache-control
+# expected: cache-control: public, max-age=0, s-maxage=60, stale-while-revalidate=3600
+```
+
+If the edge cache header is missing, the middleware in
+`app/core/cache_headers.py` isn't running — make sure
+`PUBLIC_CACHE_HEADERS_ENABLED` is not set to `false` in
+`.env`.
+
+---
+
 ## 19 · Troubleshooting
 
 | Symptom                                                              | Cause / fix                                                                                                                              |
