@@ -62,6 +62,9 @@ python -m app.scripts.seed_hr
 # Run the API
 python run.py
 ```
+for Ip Run 
+
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 The API serves at <http://localhost:8000>:
 
@@ -82,7 +85,7 @@ outside development):
 | websiteadmin@pug.example.com       | Website Admin | website      |
 | hrmanager@pug.example.com          | HR Manager    | hr           |
 | hrexecutive@pug.example.com        | HR Executive  | hr           |
-| interviewer@pug.example.com        | Interviewer   | hr           |
+| interviewer@pug.example.com        | Interviewer   | hr           |   ChangeMe!123
 
 Re-running `python -m app.scripts.seed_users` updates roles/permissions
 but never overwrites a user's password.
@@ -98,6 +101,10 @@ copy .env.example .env.local
 # Adjust NEXT_PUBLIC_API_BASE_URL if your backend isn't on :8000.
 npm run dev
 ```
+
+For Ip Run :
+
+npx next dev -H 0.0.0.0 -p 3000
 
 Browse to:
 
