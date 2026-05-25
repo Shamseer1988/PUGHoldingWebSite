@@ -35,7 +35,7 @@ lives at the repo root in
 | 17    | Public AI assistant                              | **Done**    |
 | 18    | Responsive UI polish and mobile testing          | Partial     |
 | 19    | Security, audit, validation, and testing         | Partial     |
-| 20    | Deployment documentation and final package       | In progress |
+| 20    | Deployment documentation and final package       | **Done**    |
 
 ### Phase 18 — outstanding gaps
 - Responsive Tailwind classes are applied throughout, but there is no
@@ -52,12 +52,28 @@ lives at the repo root in
 - No admin viewer for the `public_ai_queries` usage log.
 - No documented privacy / data-retention policy.
 
-### Phase 20 — in progress
-- `docs/deployment-guide.md` was a placeholder until this iteration.
-- AWS Ubuntu install guide, PostgreSQL hardening + backup, Nginx
-  reverse proxy, systemd units for uvicorn (with gunicorn workers)
-  and Next.js, Cloudflare DNS / SSL, log rotation, monitoring, and
-  the troubleshooting runbook are being added in this phase.
+### Phase 20 deliverables
+- [`docs/deployment-guide.md`](deployment-guide.md) — full production
+  walkthrough covering Ubuntu 22.04 server prep, PostgreSQL install +
+  hardening, backend deploy under gunicorn + uvicorn workers, Next.js
+  production service, Nginx reverse proxy with TLS, Cloudflare DNS +
+  Origin Certificate SSL, backup + restore runbook, log inspection,
+  rolling deploy + rollback procedures, and a 12-row troubleshooting
+  matrix.
+- [`deploy/systemd/pug-backend.service`](../deploy/systemd/pug-backend.service)
+  — sandboxed systemd unit for the API.
+- [`deploy/systemd/pug-frontend.service`](../deploy/systemd/pug-frontend.service)
+  — sandboxed systemd unit for Next.js.
+- [`deploy/nginx/pug-holding.conf`](../deploy/nginx/pug-holding.conf)
+  — Nginx site config: 80 → 443 redirect, TLS, `/api/v1/` → FastAPI,
+  `/_next/static/` cached, `/api/v1/uploads/` served off disk,
+  20 MB upload cap, security headers, gzip.
+- [`deploy/scripts/pg_backup.sh`](../deploy/scripts/pg_backup.sh) —
+  daily `pg_dump` with 14-day retention and an optional S3 hook.
+- [`deploy/logrotate/pug`](../deploy/logrotate/pug) — `logrotate`
+  config for `/var/log/pug/`.
+- [`deploy/README.md`](../deploy/README.md) — index pointing each
+  artifact at its destination on the server.
 
 ## Phase 8 deliverables
 
