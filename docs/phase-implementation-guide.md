@@ -24,18 +24,40 @@ lives at the repo root in
 | 6     | Public website backend API integration           | **Done**    |
 | 7     | HR ATS database and core models                  | **Done**    |
 | 8     | HR ATS admin dashboard                           | **Done**    |
-| 9     | Job opening management                           | Planned     |
-| 10    | Candidate application and CV upload              | Planned     |
-| 11    | CV parsing and data extraction                   | Planned     |
-| 12    | Candidate scoring engine                         | Planned     |
-| 13    | HR AI candidate review                           | Planned     |
-| 14    | Candidate workflow pipeline                      | Planned     |
-| 15    | Interview management                             | Planned     |
-| 16    | HR advanced search, filters, reports, export     | Planned     |
-| 17    | Public AI assistant                              | Planned     |
-| 18    | Responsive UI polish and mobile testing          | Planned     |
-| 19    | Security, audit, validation, and testing         | Planned     |
-| 20    | Deployment documentation and final package       | Planned     |
+| 9     | Job opening management                           | **Done**    |
+| 10    | Candidate application and CV upload              | **Done**    |
+| 11    | CV parsing and data extraction                   | **Done**    |
+| 12    | Candidate scoring engine                         | **Done**    |
+| 13    | HR AI candidate review                           | **Done**    |
+| 14    | Candidate workflow pipeline                      | **Done**    |
+| 15    | Interview management                             | **Done**    |
+| 16    | HR advanced search, filters, reports, export     | **Done**    |
+| 17    | Public AI assistant                              | **Done**    |
+| 18    | Responsive UI polish and mobile testing          | Partial     |
+| 19    | Security, audit, validation, and testing         | Partial     |
+| 20    | Deployment documentation and final package       | In progress |
+
+### Phase 18 — outstanding gaps
+- Responsive Tailwind classes are applied throughout, but there is no
+  formal mobile test pass at 360 / 390 / 430 / 768 / 1024 / 1440
+  breakpoints, and no documented device-compatibility matrix.
+
+### Phase 19 — outstanding gaps
+- 306 backend tests across 27 files; audit logging on every HR write;
+  soft deletes on candidates and applications; Pydantic validation on
+  every endpoint; AI safety guards covered by tests.
+- **No rate limiting** on public endpoints
+  (`/contact`, `/candidate-applications`, `/ai-assistant/ask`).
+- No explicit XSS / CSRF / SQL-injection test cases.
+- No admin viewer for the `public_ai_queries` usage log.
+- No documented privacy / data-retention policy.
+
+### Phase 20 — in progress
+- `docs/deployment-guide.md` was a placeholder until this iteration.
+- AWS Ubuntu install guide, PostgreSQL hardening + backup, Nginx
+  reverse proxy, systemd units for uvicorn (with gunicorn workers)
+  and Next.js, Cloudflare DNS / SSL, log rotation, monitoring, and
+  the troubleshooting runbook are being added in this phase.
 
 ## Phase 8 deliverables
 
