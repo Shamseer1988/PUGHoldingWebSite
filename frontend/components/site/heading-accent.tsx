@@ -40,46 +40,30 @@ interface HeadingAccentProps {
    *   "Three pillars, <span class=section-heading__accent>one group</span>"
    */
   value: string;
-  /** Opt into the underline scaleX 0 -> 1 reveal animation. */
-  reveal?: boolean;
   className?: string;
 }
 
 /**
  * Renders a section heading string with the closing words painted in
- * the reusable `.section-heading__accent` style (gold text + custom
- * pseudo-element underline). Use inside an `<h2>` / `<h3>` — this is
- * a span-level component so it composes with whatever heading tag
- * the surrounding section already owns.
+ * the reusable `.section-heading__accent` style — the same animated
+ * gradient-shifting gold treatment the hero uses on
+ * "Paris United Group". Use inside an `<h2>` / `<h3>` — this is a
+ * span-level component so it composes with whatever heading tag the
+ * surrounding section already owns.
  *
- * The space immediately before the accent is rendered as a
- * non-breaking space so the underline doesn't slip onto the wrong
- * line when the heading wraps. Trailing punctuation that admins
- * sometimes leave outside the marker (e.g. the final ".") is
- * preserved verbatim.
+ * The accent renders as inline text (no `inline-block`, no reserved
+ * padding) so it sits on the exact baseline of the surrounding
+ * heading and wraps naturally.
  */
-export function HeadingAccent({ value, reveal, className }: HeadingAccentProps) {
+export function HeadingAccent({ value, className }: HeadingAccentProps) {
   const { base, accent, trail } = splitHeadingAccent(value);
   if (!accent) {
     return <span className={className}>{value}</span>;
   }
-
-  // Trim trailing whitespace off `base` so we can control the gap
-  // explicitly with a non-breaking space. Without this the existing
-  // " " inside the source string would be rendered as the gap and
-  // could break-wrap independently from the accent run.
-  const baseTrimmed = base.replace(/\s+$/, "");
-
   return (
     <span className={className}>
-      {baseTrimmed}
-      {baseTrimmed && " "}
-      <span
-        className={cn("section-heading__accent")}
-        {...(reveal ? { "data-accent-reveal": "" } : {})}
-      >
-        {accent}
-      </span>
+      {base}
+      <span className={cn("section-heading__accent")}>{accent}</span>
       {trail}
     </span>
   );

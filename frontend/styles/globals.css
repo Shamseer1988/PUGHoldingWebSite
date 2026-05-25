@@ -261,88 +261,47 @@
   /* Reusable premium gold accent for section headings.
      Used on the highlighted closing words of the homepage section
      titles ("...one group", "...by excellence", "...Paris United
-     Group", "...updates", "...one trusted group."). Visually
-     paired with `.brand-gold-shift-text` from the hero, but with a
-     calmer flat gold + a custom pseudo-element underline so the
-     end-of-heading emphasis reads as an editorial marker rather
-     than a shimmer.
+     Group", "...updates", "...one trusted group."). Shares the
+     exact same animated gradient-shifting gold treatment as
+     `.brand-gold-shift-text` (the "Paris United Group" wordmark in
+     the hero / Business Overview heading) — same shimmer, same
+     palette, so the accent style reads as one consistent brand
+     voice across the homepage.
 
-     Layout notes:
-       - `inline-block` so the pseudo-element underline can take its
-         width from the accent text alone, never the whole heading.
-       - `padding-bottom` reserves room for the underline so it
-         never crashes into the next line when the heading wraps.
-       - The leading non-breaking space immediately before the
-         accent in the JSX keeps the gap consistent across browsers
-         (regular ` ` collapses inconsistently when the accent
-         starts a new wrapped line). */
+     No pseudo-element underline, no inline-block: the accent
+     renders as inline text with `background-clip: text`, which
+     keeps it on the exact baseline of the surrounding heading and
+     wraps naturally without reserving extra padding. */
   .section-heading__accent {
-    position: relative;
-    display: inline-block;
-    color: hsl(36 48% 38%);
-    font-weight: 600;
-    padding-bottom: 0.18em;
-    /* Tiny breathing room on the left so the accent doesn't crash
-       into the preceding word when the heading is on a single line
-       and the previous word ends in a comma. */
-    margin-inline-start: 0.05em;
-  }
-  .section-heading__accent::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 3px;
-    border-radius: 999px;
     background: linear-gradient(
-      90deg,
-      hsla(32, 45%, 38%, 0) 0%,
-      hsl(36 60% 50%) 20%,
-      hsl(38 70% 60%) 50%,
-      hsl(36 60% 50%) 80%,
-      hsla(32, 45%, 38%, 0) 100%
+      100deg,
+      hsl(32 45% 36%) 0%,
+      hsl(36 48% 55%) 30%,
+      hsl(36 60% 65%) 55%,
+      hsl(36 48% 55%) 80%,
+      hsl(32 45% 36%) 100%
     );
-    box-shadow: 0 1px 6px hsla(36, 60%, 55%, 0.35);
-    transform-origin: left center;
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-gradient-shift 9s ease-in-out infinite;
   }
   .dark .section-heading__accent {
-    color: hsl(36 70% 70%);
-  }
-  .dark .section-heading__accent::after {
     background: linear-gradient(
-      90deg,
-      hsla(40, 80%, 80%, 0) 0%,
-      hsl(38 75% 65%) 20%,
-      hsl(42 85% 78%) 50%,
-      hsl(38 75% 65%) 80%,
-      hsla(40, 80%, 80%, 0) 100%
+      100deg,
+      hsl(36 50% 60%) 0%,
+      hsl(36 70% 75%) 30%,
+      hsl(40 80% 92%) 55%,
+      hsl(36 70% 75%) 80%,
+      hsl(36 50% 60%) 100%
     );
-    box-shadow: 0 1px 8px hsla(40, 80%, 70%, 0.45);
-  }
-  /* Optional left-to-right reveal animation. Apply with the
-     `data-accent-reveal` attribute (or `.section-heading__accent--reveal`)
-     so callers that use GSAP/Intersection-Observer reveals can
-     opt-in without affecting headings that should appear fully
-     drawn. Default is no animation so the underline is visible on
-     first paint. */
-  .section-heading__accent[data-accent-reveal]::after,
-  .section-heading__accent--reveal::after {
-    transform: scaleX(0);
-    animation: section-heading-accent-reveal 0.9s cubic-bezier(0.22, 1, 0.36, 1)
-      0.15s forwards;
-  }
-  @keyframes section-heading-accent-reveal {
-    to {
-      transform: scaleX(1);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .section-heading__accent[data-accent-reveal]::after,
-    .section-heading__accent--reveal::after {
-      animation: none;
-      transform: scaleX(1);
-    }
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
   }
 
   /* Floating accent blobs that bob softly behind the hero. Two
@@ -384,6 +343,7 @@
   @media (prefers-reduced-motion: reduce) {
     .hero-gradient-text,
     .brand-gold-shift-text,
+    .section-heading__accent,
     .hero-orb,
     .hero-scroll-mouse,
     .hero-scroll-dot,
