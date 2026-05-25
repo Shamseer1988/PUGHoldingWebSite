@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # ============================================================
-#  Paris United Group Holding — daily PostgreSQL backup
+#  Paris United Group — daily PostgreSQL backup
 #
 #  Cron entry (root):
-#    30 2 * * * /usr/local/bin/pug-pg-backup >> /var/log/pug/backup.log 2>&1
+#    30 2 * * * /usr/local/bin/pugweb-pg-backup >> /var/log/pugweb/backup.log 2>&1
 #
-#  Reads the DB credentials from /opt/pug/app/backend/.env so there's
-#  one source of truth and no copy-paste drift.
+#  Reads the DB credentials from the backend .env so there's one
+#  source of truth and no copy-paste drift.
 # ============================================================
 set -euo pipefail
 
-ENV_FILE=/opt/pug/app/backend/.env
+ENV_FILE=/home/parisgroup/PugWebSite/backend/.env
 BACKUP_DIR=/var/backups/pug
 RETENTION_DAYS=14
 

@@ -1,0 +1,43 @@
+[Unit]
+# Paris United Group Holding — Next.js production server for the
+# public website. Coexists on the same Ubuntu EC2 host as the
+# existing PUG Accounts app by binding strictly to 127.0.0.1:3000.
+# Runs the pre-built application (`npm run build` must have been done).
+Description=PUG Website Next.js Frontend
+After=network.target pugweb-backend.service
+Wants=pugweb-backend.service
+
+[Service]
+Type=simple
+User=parisgroup
+Group=parisgroup
+WorkingDirectory=/home/parisgroup/PugWebSite/frontend
+
+# .env.production is read automatically by Next at startup.
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# `npm run start` resolves to `next start` per package.json; the -H /
+# -p flags pin the bind to loopback so only Nginx can reach it.
+ExecStart=/usr/bin/npm run start -- -p 3000 -H 127.0.0.1
+
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/parisgroup/PugWebSite/frontend /var/log/pugweb
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

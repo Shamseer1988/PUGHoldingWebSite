@@ -1,0 +1,63 @@
+[Unit]
+# Paris United Group Holding — FastAPI backend for the public website
+# + HR ATS. Coexists on the same Ubuntu EC2 host as the existing PUG
+# Accounts app (pugaccounts.service on :5000) by binding strictly to
+# 127.0.0.1:8000. Nginx is responsible for the public traffic.
+#
+# Gunicorn boots N uvicorn workers; gunicorn handles process
+# supervision while uvicorn handles the ASGI protocol.
+Description=PUG Website FastAPI Backend (gunicorn + uvicorn workers)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+User=parisgroup
+Group=parisgroup
+WorkingDirectory=/home/parisgroup/PugWebSite/backend
+
+# Source the production .env. The Pydantic Settings layer in
+# app.core.config also reads this file directly, so this is
+# belt-and-braces — the leading dash makes it optional in case
+# you ever boot the unit without the file in place.
+EnvironmentFile=-/home/parisgroup/PugWebSite/backend/.env
+
+# Worker count: 3 is a safe baseline for this dual-app host. Bump on
+# a larger instance.
+Environment=GUNICORN_WORKERS=3
+Environment=PATH=/home/parisgroup/PugWebSite/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Bind to loopback only — Nginx fronts the public traffic.
+ExecStart=/home/parisgroup/PugWebSite/backend/.venv/bin/gunicorn app.main:app \
+    --bind 127.0.0.1:8000 \
+    --workers ${GUNICORN_WORKERS} \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --timeout 60 \
+    --graceful-timeout 30 \
+    --keep-alive 5 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info
+
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Restart on crash but back off if it crashes repeatedly.
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Sandboxing — limit blast radius if a worker is compromised.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/parisgroup/PugWebSite /var/www/pug/uploads /var/log/pugweb
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
