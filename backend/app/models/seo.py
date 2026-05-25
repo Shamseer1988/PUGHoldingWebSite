@@ -123,47 +123,47 @@ class SeoSetting(Base):
     default_twitter_image: Mapped[Optional[str]] = mapped_column(String(500))
 
     enable_sitemap: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     enable_robots: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     enable_open_graph: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     enable_twitter_cards: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     enable_json_ld: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     enable_canonical: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     enable_hreflang: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="0"
+        Boolean, nullable=False, default=False, server_default="false"
     )
     enable_breadcrumb_schema: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
     sitemap_default_changefreq: Mapped[Optional[str]] = mapped_column(String(20))
     sitemap_default_priority: Mapped[Optional[float]] = mapped_column(Float())
     sitemap_include_static: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     sitemap_include_companies: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     sitemap_include_cms_pages: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     sitemap_include_news: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
     robots_use_default: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     robots_custom_content: Mapped[Optional[str]] = mapped_column(Text)
     robots_extra_disallows: Mapped[Optional[str]] = mapped_column(Text)
@@ -202,10 +202,10 @@ class SeoVerification(Base):
         String(30),
         nullable=False,
         default=VERIFICATION_STATUS_PENDING,
-        server_default=VERIFICATION_STATUS_PENDING,
+        server_default=f"'{VERIFICATION_STATUS_PENDING}'",
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -244,22 +244,25 @@ class TrackingIntegration(Base):
     tracking_id: Mapped[Optional[str]] = mapped_column(String(120))
     secondary_id: Mapped[Optional[str]] = mapped_column(String(120))
     data_layer_name: Mapped[str] = mapped_column(
-        String(60), nullable=False, default="dataLayer", server_default="dataLayer"
+        String(60), nullable=False, default="dataLayer", server_default="'dataLayer'"
     )
     placement: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=PLACEMENT_HEAD, server_default=PLACEMENT_HEAD
+        String(20),
+        nullable=False,
+        default=PLACEMENT_HEAD,
+        server_default=f"'{PLACEMENT_HEAD}'",
     )
     enable_noscript: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     consent_mode_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="0"
+        Boolean, nullable=False, default=False, server_default="false"
     )
     debug_mode: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="0"
+        Boolean, nullable=False, default=False, server_default="false"
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
