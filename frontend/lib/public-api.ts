@@ -196,6 +196,53 @@ export async function getHomepageLeadership(): Promise<HomepageLeadershipSection
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Trusted Brands showcase
+// ---------------------------------------------------------------------------
+
+
+export interface HomepageTrustedBrand {
+  id: number;
+  brand_name: string;
+  logo_url: string | null;
+  logo_url_alt: string | null;
+  link_url: string | null;
+  category: string | null;
+  is_highlight: boolean;
+  display_order: number;
+  is_active: boolean;
+}
+
+export interface HomepageTrustedBrandsSection {
+  enabled: boolean;
+  eyebrow: string | null;
+  title: string | null;
+  subtitle: string | null;
+  animation_enabled: boolean;
+  layout_mode: "marquee" | "grid" | "carousel";
+  brands: HomepageTrustedBrand[];
+}
+
+const FALLBACK_TRUSTED_BRANDS: HomepageTrustedBrandsSection = {
+  enabled: true,
+  eyebrow: "Trusted brands we work with",
+  title: "Trusted by strong brands",
+  subtitle: null,
+  animation_enabled: true,
+  layout_mode: "marquee",
+  brands: [],
+};
+
+export async function getHomepageTrustedBrands(): Promise<HomepageTrustedBrandsSection> {
+  return (
+    (await fetchPublic<HomepageTrustedBrandsSection>(
+      "/public/homepage/trusted-brands"
+    )) ?? FALLBACK_TRUSTED_BRANDS
+  );
+}
+
+
 export async function getMediaGallery(
   options: {
     kind?: "image" | "video";

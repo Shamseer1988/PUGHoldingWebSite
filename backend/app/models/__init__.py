@@ -21,6 +21,7 @@ from app.models.cms import (
     NewsItem,
     NewsletterSubscriber,
     SiteSetting,
+    TrustedBrand,
 )
 from app.models.hr_ats import (
     Candidate,
@@ -62,6 +63,7 @@ __all__ = [
     "NewsItem",
     "NewsletterSubscriber",
     "SiteSetting",
+    "TrustedBrand",
     # HR ATS
     "Candidate",
     "CandidateAIReview",

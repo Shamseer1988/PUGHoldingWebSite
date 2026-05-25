@@ -25,6 +25,7 @@ from app.models.cms import (
     NewsItem,
     NewsletterSubscriber,
     SiteSetting,
+    TrustedBrand,
 )
 from app.models.hr_ats import JOB_STATUS_OPEN, JobOpening
 from app.schemas.cms import (
@@ -36,6 +37,8 @@ from app.schemas.cms import (
     FeaturedSection,
     HeroSlideRead,
     HomepageLeadershipResponse,
+    HomepageTrustedBrand,
+    HomepageTrustedBrandsResponse,
     LeadershipMessageCardRead,
     LeadershipRead,
     MediaAssetRead,
@@ -295,6 +298,83 @@ def get_homepage_leadership(
 
 
 # ---------------------------------------------------------------------------
+# Homepage Trusted Brands showcase
+# ---------------------------------------------------------------------------
+
+_ALLOWED_BRAND_LAYOUTS = {"marquee", "grid", "carousel"}
+
+
+@router.get(
+    "/homepage/trusted-brands",
+    response_model=HomepageTrustedBrandsResponse,
+)
+def get_homepage_trusted_brands(
+    db: Session = Depends(get_db),
+) -> HomepageTrustedBrandsResponse:
+    """Section settings + active trusted-brand rows for the homepage.
+
+    The frontend uses ``layout_mode`` ("marquee", "grid", or
+    "carousel") to pick a presentation. We only ship active rows so
+    a draft brand never accidentally renders.
+    """
+    settings = db.get(SiteSetting, 1)
+
+    enabled = True
+    eyebrow: Optional[str] = "Trusted brands we work with"
+    title: Optional[str] = "Trusted by strong brands"
+    subtitle: Optional[str] = None
+    animation_enabled = True
+    layout_mode = "marquee"
+
+    if settings is not None:
+        enabled = settings.home_brand_section_enabled
+        eyebrow = settings.home_brand_eyebrow or eyebrow
+        title = (
+            settings.home_brand_title
+            or settings.home_brand_strip_title  # backwards-compat
+            or title
+        )
+        subtitle = settings.home_brand_subtitle or subtitle
+        animation_enabled = settings.home_brand_animation_enabled
+        candidate = (settings.home_brand_layout_mode or "marquee").strip().lower()
+        if candidate in _ALLOWED_BRAND_LAYOUTS:
+            layout_mode = candidate
+
+    brands = (
+        db.execute(
+            select(TrustedBrand)
+            .where(TrustedBrand.is_active.is_(True))
+            .order_by(TrustedBrand.display_order, TrustedBrand.id)
+        )
+        .scalars()
+        .all()
+    )
+
+    return HomepageTrustedBrandsResponse(
+        enabled=enabled,
+        eyebrow=eyebrow,
+        title=title,
+        subtitle=subtitle,
+        animation_enabled=animation_enabled,
+        layout_mode=layout_mode,
+        brands=[
+            HomepageTrustedBrand(
+                id=b.id,
+                brand_name=b.brand_name,
+                logo_url=b.logo_url,
+                logo_url_alt=b.logo_url_alt,
+                link_url=b.link_url,
+                category=b.category,
+                is_highlight=b.is_highlight,
+                display_order=b.display_order,
+                is_active=b.is_active,
+            )
+            for b in brands
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Read: news
 # ---------------------------------------------------------------------------
 
@@ -487,6 +567,9 @@ def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
             featured_companies_animation_enabled=True,
             home_leadership_section_enabled=True,
             home_leadership_animation_enabled=True,
+            home_brand_section_enabled=True,
+            home_brand_animation_enabled=True,
+            home_brand_layout_mode="marquee",
         )
     return settings
 

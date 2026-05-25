@@ -20,6 +20,7 @@ import {
   MessageSquareQuote,
   Search,
   Settings,
+  Sparkles,
   Users,
   X,
 } from "lucide-react";
@@ -57,6 +58,7 @@ const NAV: NavGroup[] = [
       { label: "Hero slides", href: "/admin/hero-slides", icon: BarChart3 },
       { label: "Companies", href: "/admin/companies", icon: Building2 },
       { label: "Leadership", href: "/admin/leadership", icon: MessageSquareQuote },
+      { label: "Trusted brands", href: "/admin/brands", icon: Sparkles },
       { label: "News & events", href: "/admin/news", icon: Megaphone },
       { label: "Media gallery", href: "/admin/media", icon: ImageIcon },
       { label: "Pages", href: "/admin/pages", icon: FileText },

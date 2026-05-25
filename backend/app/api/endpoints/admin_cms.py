@@ -1460,3 +1460,107 @@ def delete_navigation_item(
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Trusted Brands (homepage showcase)
+# ---------------------------------------------------------------------------
+
+
+from app.models.cms import TrustedBrand  # noqa: E402  (sibling import)
+from app.schemas.cms import (  # noqa: E402
+    TrustedBrandCreate,
+    TrustedBrandRead,
+    TrustedBrandUpdate,
+)
+
+
+@router.get("/brands", response_model=List[TrustedBrandRead])
+def list_brands(db: Session = Depends(get_db)) -> List[TrustedBrand]:
+    return (
+        db.execute(
+            select(TrustedBrand).order_by(TrustedBrand.display_order, TrustedBrand.id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+@router.post(
+    "/brands",
+    response_model=TrustedBrandRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_brand(
+    payload: TrustedBrandCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> TrustedBrand:
+    brand = TrustedBrand(**payload.model_dump())
+    db.add(brand)
+    db.flush()
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.brand.create",
+        target_type="brand",
+        target_id=brand.id,
+        details={"brand_name": brand.brand_name},
+    )
+    db.commit()
+    db.refresh(brand)
+    return brand
+
+
+@router.patch("/brands/{brand_id}", response_model=TrustedBrandRead)
+def update_brand(
+    brand_id: int,
+    payload: TrustedBrandUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> TrustedBrand:
+    brand = db.get(TrustedBrand, brand_id)
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for k, v in changes.items():
+        setattr(brand, k, v)
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.brand.update",
+        target_type="brand",
+        target_id=brand.id,
+        details={"changed_keys": list(changes.keys())},
+    )
+    db.commit()
+    db.refresh(brand)
+    return brand
+
+
+@router.delete("/brands/{brand_id}")
+def delete_brand(
+    brand_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> Response:
+    brand = db.get(TrustedBrand, brand_id)
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    db.delete(brand)
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.brand.delete",
+        target_type="brand",
+        target_id=brand_id,
+        details={"brand_name": brand.brand_name},
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

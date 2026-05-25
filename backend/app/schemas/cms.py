@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +436,13 @@ class SiteSettingRead(BaseModel):
     # Trusted brands
     home_brand_logos: Optional[str] = None
     home_brand_strip_title: Optional[str] = None
+    # Upgraded Trusted Brands section
+    home_brand_section_enabled: bool = True
+    home_brand_eyebrow: Optional[str] = None
+    home_brand_title: Optional[str] = None
+    home_brand_subtitle: Optional[str] = None
+    home_brand_animation_enabled: bool = True
+    home_brand_layout_mode: str = "marquee"
 
     # Unified Leadership Messages section
     home_leadership_section_enabled: bool = True
@@ -494,6 +501,12 @@ class SiteSettingUpdate(BaseModel):
 
     home_brand_logos: Optional[str] = None
     home_brand_strip_title: Optional[str] = None
+    home_brand_section_enabled: Optional[bool] = None
+    home_brand_eyebrow: Optional[str] = None
+    home_brand_title: Optional[str] = None
+    home_brand_subtitle: Optional[str] = None
+    home_brand_animation_enabled: Optional[bool] = None
+    home_brand_layout_mode: Optional[str] = None
 
     home_leadership_section_enabled: Optional[bool] = None
     home_leadership_section_eyebrow: Optional[str] = None
@@ -712,3 +725,79 @@ class CMSPageListItem(BaseModel):
     display_order: int
     published_at: Optional[datetime] = None
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Trusted Brands showcase
+# ---------------------------------------------------------------------------
+
+
+_ALLOWED_BRAND_LAYOUTS = {"marquee", "grid", "carousel"}
+
+
+class TrustedBrandBase(BaseModel):
+    """Shared admin fields for a brand row."""
+
+    brand_name: str = Field(min_length=1, max_length=160)
+    logo_url: str = Field(min_length=1, max_length=500)
+    logo_url_alt: Optional[str] = Field(default=None, max_length=500)
+    link_url: Optional[str] = Field(default=None, max_length=500)
+    category: Optional[str] = Field(default=None, max_length=80)
+    is_highlight: bool = False
+    display_order: int = 0
+    is_active: bool = True
+
+
+class TrustedBrandCreate(TrustedBrandBase):
+    pass
+
+
+class TrustedBrandUpdate(BaseModel):
+    brand_name: Optional[str] = Field(default=None, max_length=160)
+    logo_url: Optional[str] = Field(default=None, max_length=500)
+    logo_url_alt: Optional[str] = Field(default=None, max_length=500)
+    link_url: Optional[str] = Field(default=None, max_length=500)
+    category: Optional[str] = Field(default=None, max_length=80)
+    is_highlight: Optional[bool] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class TrustedBrandRead(TrustedBrandBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class HomepageTrustedBrand(BaseModel):
+    """Brand projection consumed by the public homepage."""
+
+    id: int
+    brand_name: str
+    logo_url: Optional[str] = None
+    logo_url_alt: Optional[str] = None
+    link_url: Optional[str] = None
+    category: Optional[str] = None
+    is_highlight: bool = False
+    display_order: int = 0
+    is_active: bool = True
+
+
+class HomepageTrustedBrandsResponse(BaseModel):
+    enabled: bool
+    eyebrow: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    animation_enabled: bool = True
+    layout_mode: str = "marquee"
+    brands: List[HomepageTrustedBrand] = Field(default_factory=list)
+
+    @field_validator("layout_mode")
+    @classmethod
+    def _validate_layout(cls, v: str) -> str:
+        key = (v or "marquee").strip().lower()
+        if key not in _ALLOWED_BRAND_LAYOUTS:
+            return "marquee"
+        return key

@@ -161,6 +161,38 @@ class CompanyService(Base):
     company: Mapped[Company] = relationship(back_populates="services")
 
 
+class TrustedBrand(Base, TimestampMixin):
+    """Brand logo row for the homepage 'Trusted Brands We Work With' section.
+
+    Carries enough metadata for the new luxury showcase: a display
+    name (shown on hover / for screen readers), the logo URL, an
+    optional click-through link, an optional category tag, a
+    highlight toggle that lets admins emphasise a specific brand,
+    and the usual display_order / is_active controls.
+    """
+
+    __tablename__ = "trusted_brands"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    brand_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    logo_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Optional secondary logo variant — admins can supply a light /
+    # alt artwork for the dark luxury theme. Falls back to logo_url
+    # when null.
+    logo_url_alt: Mapped[Optional[str]] = mapped_column(String(500))
+    link_url: Mapped[Optional[str]] = mapped_column(String(500))
+    category: Mapped[Optional[str]] = mapped_column(String(80))
+    is_highlight: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
 class CompanyBrandLogo(Base):
     """Logo image displayed inside the Group Companies showcase marquee.
 
@@ -400,6 +432,24 @@ class SiteSetting(Base, TimestampMixin):
     # Trusted-brands strip -------------------------------------------------
     home_brand_logos: Mapped[Optional[str]] = mapped_column(Text)
     home_brand_strip_title: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Trusted-brands section (Phase 2 redesign) ---------------------------
+    # Section-level controls for the upgraded "Trusted Brands We Work
+    # With" showcase. The per-brand rows live in `trusted_brands`.
+    home_brand_section_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    home_brand_eyebrow: Mapped[Optional[str]] = mapped_column(String(120))
+    home_brand_title: Mapped[Optional[str]] = mapped_column(String(255))
+    home_brand_subtitle: Mapped[Optional[str]] = mapped_column(Text)
+    home_brand_animation_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    # `marquee` (default), `grid`, or `carousel`. Frontend picks the
+    # layout based on this hint.
+    home_brand_layout_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="marquee", server_default="'marquee'"
+    )
 
     # Homepage Leadership Messages section --------------------------------
     home_leadership_section_enabled: Mapped[bool] = mapped_column(

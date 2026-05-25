@@ -4,9 +4,9 @@ import { ArrowRight, Briefcase, MessageSquare, Phone } from "lucide-react";
 import { FeaturedCompaniesShowcase } from "@/components/site/featured-companies-showcase";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { HomeAboutSection } from "@/components/site/home-about-section";
-import { HomeBrandStrip } from "@/components/site/home-brand-strip";
 import { JobCard } from "@/components/site/job-card";
 import { LeadershipMessagesSection } from "@/components/site/leadership-messages-section";
+import { TrustedBrandsSection } from "@/components/site/trusted-brands-section";
 import { NewsCard } from "@/components/site/news-card";
 import { NewsletterForm } from "@/components/site/newsletter-form";
 import { Reveal, RevealGroup } from "@/components/site/reveal";
@@ -19,6 +19,7 @@ import {
   getFeaturedCompaniesSection,
   getHeroSlides,
   getHomepageLeadership,
+  getHomepageTrustedBrands,
   getNews,
   getPublicJobs,
   getSiteSettings,
@@ -27,11 +28,12 @@ import {
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const [hero, featured, leadershipSection, news, settings, openJobs] =
+  const [hero, featured, leadershipSection, trustedBrands, news, settings, openJobs] =
     await Promise.all([
       getHeroSlides(),
       getFeaturedCompaniesSection(),
       getHomepageLeadership(),
+      getHomepageTrustedBrands(),
       getNews({ limit: 3 }),
       getSiteSettings(),
       getPublicJobs(),
@@ -80,10 +82,7 @@ export default async function HomePage() {
 
       <LeadershipMessagesSection data={leadershipSection} />
 
-      <HomeBrandStrip
-        logos={settings.home_brand_logos}
-        title={settings.home_brand_strip_title}
-      />
+      <TrustedBrandsSection data={trustedBrands} />
 
       {news.length > 0 && (
         <Section

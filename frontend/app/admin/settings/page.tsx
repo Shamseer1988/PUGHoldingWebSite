@@ -518,33 +518,24 @@ export default function SiteSettingsAdminPage() {
 
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Homepage · Trusted brands strip</CardTitle>
+              <CardTitle className="text-base">
+                Homepage · Trusted Brands
+              </CardTitle>
               <CardDescription>
-                A horizontal logo wall rendered above the leadership section.
-                Paste one logo URL per line — either uploaded
-                <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">/api/v1/uploads/…</code>
-                paths or public assets like
-                <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">/images/home/brands/brand_01.png</code>.
+                The premium luxury showcase replaced the old logo-strip
+                textarea. Section copy, layout mode, and per-brand cards
+                (logo upload, link, order, highlight) all live on the
+                dedicated <strong>Trusted brands</strong> page in the
+                sidebar.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <Field label="Section title">
-                <Input
-                  value={form.home_brand_strip_title ?? ""}
-                  onChange={(e) => set("home_brand_strip_title", e.target.value)}
-                  disabled={saving}
-                  placeholder="Trusted brands we work with"
-                />
-              </Field>
-              <Field label="Logo URLs (one per line)">
-                <Textarea
-                  rows={6}
-                  value={form.home_brand_logos ?? ""}
-                  onChange={(e) => set("home_brand_logos", e.target.value)}
-                  disabled={saving}
-                  placeholder={"/images/home/brands/brand_01.png\n/images/home/brands/brand_02.png"}
-                />
-              </Field>
+            <CardContent>
+              <a
+                href="/admin/brands"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+              >
+                Open Trusted Brands manager →
+              </a>
             </CardContent>
           </Card>
 

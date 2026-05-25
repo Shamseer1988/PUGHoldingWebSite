@@ -26,6 +26,7 @@ from app.models.cms import (
     LeadershipMessage,
     NewsItem,
     SiteSetting,
+    TrustedBrand,
 )
 
 
@@ -447,6 +448,34 @@ def _upsert_leadership(db: Session) -> int:
     return len(LEADERSHIP)
 
 
+TRUSTED_BRANDS = [
+    {"brand_name": "Paris Hyper Market", "logo_url": "/images/home/brands/brand_01.png"},
+    {"brand_name": "Paris Express", "logo_url": "/images/home/brands/brand_02.png"},
+    {"brand_name": "Al Mihrab Grocery", "logo_url": "/images/home/brands/brand_03.png"},
+    {"brand_name": "Doha Fashion", "logo_url": "/images/home/brands/brand_04.png"},
+    {"brand_name": "Greentech W.L.L", "logo_url": "/images/home/brands/brand_05.png"},
+    {"brand_name": "Paris Packing", "logo_url": "/images/home/brands/brand_06.png"},
+    {"brand_name": "YellowTech Garage", "logo_url": "/images/home/brands/brand_07.png"},
+    {"brand_name": "Maharib Fish", "logo_url": "/images/home/brands/brand_08.png"},
+    {"brand_name": "Paris Estates", "logo_url": "/images/home/brands/brand_09.png"},
+    {"brand_name": "Paris Build", "logo_url": "/images/home/brands/brand_10.png"},
+]
+
+
+def _upsert_trusted_brands(db: Session) -> int:
+    existing = {b.brand_name: b for b in db.execute(select(TrustedBrand)).scalars()}
+    for order, data in enumerate(TRUSTED_BRANDS, start=1):
+        payload = {**data, "display_order": order, "is_active": True}
+        row = existing.get(data["brand_name"])
+        if row is None:
+            db.add(TrustedBrand(**payload))
+        else:
+            for k, v in payload.items():
+                setattr(row, k, v)
+    db.flush()
+    return len(TRUSTED_BRANDS)
+
+
 def _upsert_news(db: Session) -> int:
     existing = {n.slug: n for n in db.execute(select(NewsItem)).scalars()}
     for data in NEWS:
@@ -539,6 +568,7 @@ def seed(db: Session) -> None:
     slides = _upsert_hero_slides(db)
     companies = _upsert_companies(db)
     leadership = _upsert_leadership(db)
+    brands = _upsert_trusted_brands(db)
     news = _upsert_news(db)
     _upsert_site_settings(db)
     db.commit()
@@ -547,6 +577,7 @@ def seed(db: Session) -> None:
     print(f"  hero_slides         : {slides}")
     print(f"  companies           : {companies}")
     print(f"  leadership_messages : {leadership}")
+    print(f"  trusted_brands      : {brands}")
     print(f"  news_items          : {news}")
     print(f"  site_settings       : 1 (id=1)")
 
