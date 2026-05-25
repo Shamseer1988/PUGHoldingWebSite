@@ -822,8 +822,29 @@ function PreviewMediaStack({
     });
   }, [activeIndex, allowVideo, intersected, tabHidden, companies.length]);
 
+  // The active company drives an always-visible gradient backdrop
+  // rendered OUTSIDE the layer stack so the preview frame is never
+  // blank. The per-layer gradient inside PreviewMediaItem still
+  // exists for the active layer's brand colour, but if GSAP fails
+  // to load or a layer is mid-transition with opacity 0, this
+  // outer gradient holds the surface.
+  const activeCompany = companies[activeIndex] ?? companies[0];
+  const backdropAccent =
+    activeCompany?.accent || "from-pug-green-600 to-pug-gold-500";
+
   return (
     <div ref={sectionRef} className="relative h-full w-full group-media-shine">
+      {/* Always-on brand gradient backdrop. Changes colour as the
+          visitor scrolls between companies. Never opacity-animated,
+          so even if a layer above is mid-transition (or GSAP failed
+          to load entirely), the surface still shows the brand. */}
+      <div
+        aria-hidden
+        className={cn(
+          "absolute inset-0 bg-gradient-to-br transition-[background-color] duration-500",
+          backdropAccent
+        )}
+      />
       {companies.map((company, i) => (
         <PreviewMediaItem
           key={company.id}
