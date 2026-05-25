@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Loader2, Save } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Save } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ImageUpload } from "@/components/admin/image-upload";
@@ -73,6 +73,9 @@ const EMPTY_FORM: Form = {
   theme_accent_hex: "",
   theme_heading_font: "",
   theme_body_font: "",
+  maintenance_mode_enabled: false,
+  maintenance_message: "",
+  maintenance_eta: "",
 };
 
 export default function SiteSettingsAdminPage() {
@@ -153,6 +156,103 @@ export default function SiteSettingsAdminPage() {
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card
+            className={
+              form.maintenance_mode_enabled
+                ? "border-amber-500/40 bg-amber-500/5 lg:col-span-2 dark:bg-amber-500/[0.04]"
+                : "lg:col-span-2"
+            }
+          >
+            <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <AlertTriangle
+                      className={
+                        form.maintenance_mode_enabled
+                          ? "h-4 w-4 text-amber-600 dark:text-amber-400"
+                          : "h-4 w-4 text-muted-foreground"
+                      }
+                    />
+                    Site status — Under Construction mode
+                  </CardTitle>
+                  <CardDescription>
+                    When enabled, the public website shows a single
+                    maintenance page on every URL. The admin and HR
+                    portals stay reachable so you can switch it back
+                    off.
+                  </CardDescription>
+                </div>
+                <label
+                  className="relative inline-flex shrink-0 cursor-pointer items-center gap-3"
+                  htmlFor="maintenance-toggle"
+                >
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {form.maintenance_mode_enabled ? "Enabled" : "Disabled"}
+                  </span>
+                  <input
+                    id="maintenance-toggle"
+                    type="checkbox"
+                    role="switch"
+                    aria-checked={form.maintenance_mode_enabled}
+                    className="peer sr-only"
+                    checked={form.maintenance_mode_enabled}
+                    onChange={(e) =>
+                      set("maintenance_mode_enabled", e.target.checked)
+                    }
+                    disabled={saving}
+                  />
+                  <span
+                    aria-hidden
+                    className="block h-6 w-11 rounded-full bg-muted transition peer-checked:bg-amber-500 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+                  />
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute right-[26px] top-1/2 block h-5 w-5 -translate-y-1/2 translate-x-0 rounded-full bg-white shadow transition peer-checked:translate-x-5"
+                  />
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {form.maintenance_mode_enabled && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100"
+                >
+                  <p className="font-medium">
+                    Public site is currently hidden from visitors.
+                  </p>
+                  <p className="mt-1">
+                    Every page under <code>parisunitedgroup.com</code>
+                    {" "}is showing the maintenance screen. Save changes
+                    above, then verify on the live site.
+                  </p>
+                </div>
+              )}
+              <Field label="Custom message (optional)">
+                <Textarea
+                  value={form.maintenance_message ?? ""}
+                  onChange={(e) =>
+                    set("maintenance_message", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Our website is getting a fresh polish. We'll be back online shortly — thank you for your patience."
+                  rows={3}
+                  maxLength={500}
+                />
+              </Field>
+              <Field label="Expected back-online time (optional)">
+                <Input
+                  value={form.maintenance_eta ?? ""}
+                  onChange={(e) => set("maintenance_eta", e.target.value)}
+                  disabled={saving}
+                  placeholder="e.g. Tonight at 9 PM GMT"
+                  maxLength={120}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Brand</CardTitle>

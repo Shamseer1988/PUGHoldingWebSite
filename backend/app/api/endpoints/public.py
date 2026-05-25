@@ -576,6 +576,7 @@ def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
             home_brand_section_enabled=True,
             home_brand_animation_enabled=True,
             home_brand_layout_mode="marquee",
+            maintenance_mode_enabled=False,
         )
     return settings
 

@@ -214,6 +214,17 @@ export interface SiteSettings {
   theme_accent_hex: string | null;
   theme_heading_font: string | null;
   theme_body_font: string | null;
+
+  /**
+   * When true the public site renders a maintenance page in place of
+   * every public route. Admin (`/admin/*`) and HR (`/hr/*`) portals are
+   * unaffected so the team can still log in to turn it back off.
+   */
+  maintenance_mode_enabled: boolean;
+  /** Optional override copy shown on the maintenance page. */
+  maintenance_message: string | null;
+  /** Short "Back by" hint, e.g. "Tonight at 9 PM GMT". */
+  maintenance_eta: string | null;
 }
 
 export interface UploadResponse {

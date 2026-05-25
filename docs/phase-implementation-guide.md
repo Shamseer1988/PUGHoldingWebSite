@@ -37,6 +37,18 @@ lives at the repo root in
 | 19    | Security, audit, validation, and testing         | **Done**    |
 | 20    | Deployment documentation and final package       | **Done**    |
 
+### Post-launch features
+
+**Under-construction / maintenance mode** — `site_settings.maintenance_mode_enabled`
+- Toggle + custom message + ETA in **Site settings → Site status**.
+- When enabled, every public route renders a single branded
+  maintenance page (`components/site/maintenance-page.tsx`). The
+  admin and HR portals stay reachable so the team can turn it
+  back off.
+- Migration `20260525_0017_maintenance_mode.py`. Audit-logged
+  via the existing `cms.site_settings.update` action. 5
+  regression tests in `backend/tests/test_maintenance_mode.py`.
+
 ### Phase 18 deliverables
 - [`docs/responsive-qa-matrix.md`](responsive-qa-matrix.md) — manual
   QA matrix covering every public, admin, and HR route at six

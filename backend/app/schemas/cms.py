@@ -459,6 +459,11 @@ class SiteSettingRead(BaseModel):
     theme_heading_font: Optional[str] = Field(default=None, max_length=120)
     theme_body_font: Optional[str] = Field(default=None, max_length=120)
 
+    # Maintenance / Under-construction mode
+    maintenance_mode_enabled: bool = False
+    maintenance_message: Optional[str] = None
+    maintenance_eta: Optional[str] = Field(default=None, max_length=120)
+
 
 class SiteSettingUpdate(BaseModel):
     site_name: Optional[str] = None
@@ -520,6 +525,11 @@ class SiteSettingUpdate(BaseModel):
     theme_accent_hex: Optional[str] = None
     theme_heading_font: Optional[str] = None
     theme_body_font: Optional[str] = None
+
+    # Maintenance / Under-construction mode
+    maintenance_mode_enabled: Optional[bool] = None
+    maintenance_message: Optional[str] = None
+    maintenance_eta: Optional[str] = Field(default=None, max_length=120)
 
 
 # ---------------------------------------------------------------------------

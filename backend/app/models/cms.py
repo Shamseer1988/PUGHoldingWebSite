@@ -476,6 +476,18 @@ class SiteSetting(Base, TimestampMixin):
     theme_heading_font: Mapped[Optional[str]] = mapped_column(String(120))
     theme_body_font: Mapped[Optional[str]] = mapped_column(String(120))
 
+    # Maintenance / Under-construction mode --------------------------------
+    # When ``maintenance_mode_enabled`` is True the public site renders
+    # a single maintenance page in place of every public route. Admin
+    # and HR portals are unaffected so the team can still log in and
+    # turn it back off. Optional ``maintenance_message`` overrides the
+    # default copy; ``maintenance_eta`` shows a "Back by" hint.
+    maintenance_mode_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    maintenance_message: Mapped[Optional[str]] = mapped_column(Text)
+    maintenance_eta: Mapped[Optional[str]] = mapped_column(String(120))
+
 
 # ---------------------------------------------------------------------------
 # Public navigation menu (Phase 5 follow-up)

@@ -312,6 +312,9 @@ const FALLBACK_SETTINGS: SiteSettings = {
   theme_accent_hex: null,
   theme_heading_font: null,
   theme_body_font: null,
+  maintenance_mode_enabled: false,
+  maintenance_message: null,
+  maintenance_eta: null,
 };
 
 export async function getSiteSettings(): Promise<SiteSettings> {
