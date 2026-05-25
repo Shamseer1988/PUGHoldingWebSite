@@ -13,13 +13,16 @@ import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { parseContactMapEmbed } from "@/lib/contact-map";
-import { getSiteSettings } from "@/lib/public-api";
+import { getSitePage, getSiteSettings } from "@/lib/public-api";
 
 export const metadata = { title: "Contact Us" };
 export const revalidate = 60;
 
 export default async function ContactPage() {
-  const settings = await getSiteSettings();
+  const [settings, page] = await Promise.all([
+    getSiteSettings(),
+    getSitePage("contact"),
+  ]);
   const mapEmbed = parseContactMapEmbed(settings.contact_map_embed);
 
   const contactRows = [
@@ -58,12 +61,16 @@ export default async function ContactPage() {
   return (
     <>
       <PageHero
-        eyebrow="Contact"
-        title="Talk to Paris United Group"
-        description="Reach the right department fast. Use the form below or any of the quick actions on the right."
+        eyebrow={page?.hero_eyebrow ?? "Contact"}
+        title={page?.hero_title ?? "Talk to Paris United Group"}
+        description={
+          page?.hero_description ??
+          "Reach the right department fast. Use the form below or any of the quick actions on the right."
+        }
         accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
-        imageUrl={settings.contact_banner_image_url}
-        mobileImageUrl={settings.contact_banner_mobile_url}
+        imageUrl={page?.banner_image_url}
+        mobileImageUrl={page?.banner_mobile_url}
+        videoUrl={page?.banner_video_url}
       />
 
       <Section className="pt-12">

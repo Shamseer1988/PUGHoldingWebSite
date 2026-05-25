@@ -44,6 +44,8 @@ from app.models.cms import (
     NavigationItem,
     NewsItem,
     NewsletterSubscriber,
+    SITE_PAGE_KEYS,
+    SitePage,
     SiteSetting,
 )
 from app.schemas.cms import (
@@ -74,6 +76,8 @@ from app.schemas.cms import (
     NewsRead,
     NewsUpdate,
     NewsletterSubscriberRead,
+    SitePageRead,
+    SitePageUpdate,
     SiteSettingRead,
     SiteSettingUpdate,
     UploadResponse,
@@ -1564,3 +1568,76 @@ def delete_brand(
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Predefined site pages — about, companies, careers, contact, news, media
+# ---------------------------------------------------------------------------
+
+
+def _validate_page_key(page_key: str) -> str:
+    """Reject unknown page keys so admins can't silently create orphan rows."""
+    key = page_key.strip().lower()
+    if key not in SITE_PAGE_KEYS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown site page '{page_key}'.",
+        )
+    return key
+
+
+def _get_or_create_site_page(db: Session, page_key: str) -> SitePage:
+    page = db.execute(
+        select(SitePage).where(SitePage.page_key == page_key)
+    ).scalar_one_or_none()
+    if page is None:
+        # Lazy-create so admins of installations that pre-date the
+        # 20260525_0019 seed step still get a writable row.
+        page = SitePage(page_key=page_key, sections={})
+        db.add(page)
+        db.commit()
+        db.refresh(page)
+    return page
+
+
+@router.get("/site-pages", response_model=List[SitePageRead])
+def list_site_pages(db: Session = Depends(get_db)) -> List[SitePage]:
+    """Every known site page (one row per key). Missing rows are
+    created on the fly so the admin UI always has something to render."""
+    return [_get_or_create_site_page(db, k) for k in SITE_PAGE_KEYS]
+
+
+@router.get("/site-pages/{page_key}", response_model=SitePageRead)
+def get_site_page(
+    page_key: str,
+    db: Session = Depends(get_db),
+) -> SitePage:
+    return _get_or_create_site_page(db, _validate_page_key(page_key))
+
+
+@router.put("/site-pages/{page_key}", response_model=SitePageRead)
+def update_site_page(
+    page_key: str,
+    payload: SitePageUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> SitePage:
+    key = _validate_page_key(page_key)
+    page = _get_or_create_site_page(db, key)
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(page, field, value)
+    page.updated_by_id = user.id
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.site_page.update",
+        target_type="site_page",
+        target_id=key,
+        details={"changed_keys": list(changes.keys())},
+    )
+    db.commit()
+    db.refresh(page)
+    return page

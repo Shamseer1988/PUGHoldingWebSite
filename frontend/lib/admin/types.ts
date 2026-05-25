@@ -305,6 +305,48 @@ export interface MediaUploadResult {
   deduped: boolean;
 }
 
+
+/**
+ * A predefined public page whose hero + banner + named sections are
+ * admin-editable. Mirrors the backend `SitePage` model.
+ *
+ * `sections` is a free-form dict keyed by section name. Each section
+ * has at minimum a `body`; some also carry a `title` or `eyebrow`.
+ * The shape is intentionally loose so adding new sections is a
+ * frontend-only change.
+ */
+export type SitePageKey =
+  | "about"
+  | "companies"
+  | "careers"
+  | "contact"
+  | "news"
+  | "media";
+
+export interface SitePageSection {
+  eyebrow?: string | null;
+  title?: string | null;
+  body?: string | null;
+}
+
+export interface SitePage {
+  id: number;
+  page_key: SitePageKey;
+  hero_eyebrow: string | null;
+  hero_title: string | null;
+  hero_description: string | null;
+  banner_image_url: string | null;
+  banner_mobile_url: string | null;
+  banner_video_url: string | null;
+  sections: Record<string, SitePageSection>;
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string | null;
+  updated_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CMSPageListItem {
   id: number;
   slug: string;

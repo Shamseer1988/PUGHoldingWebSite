@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -643,6 +644,80 @@ class CMSPage(Base, TimestampMixin):
         Integer, nullable=False, default=0, server_default="0"
     )
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    updated_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Predefined site pages — admin-editable hero + banner + named sections
+# ---------------------------------------------------------------------------
+
+
+# The set of page keys the public Next.js routes consume. New routes
+# can be added later; the admin UI only shows keys that match this set.
+SITE_PAGE_KEYS = (
+    "about",
+    "companies",
+    "careers",
+    "contact",
+    "news",
+    "media",
+)
+
+
+class SitePage(Base, TimestampMixin):
+    """A predefined public page whose hero + banner + named sections
+    are admin-editable.
+
+    Unlike :class:`CMSPage` (which is a free-form admin-created page
+    with a slug + body), each :class:`SitePage` row corresponds to an
+    existing Next.js route (``/about``, ``/careers``, ``/contact``,
+    …). The frontend layout for each route is fixed; only the *copy*
+    flowing into the hero + named cards (Vision, Mission, History,
+    Leadership header) is editable.
+
+    ``sections`` is a free-form JSON object keyed by section name.
+    The frontend reads the values it knows about; unknown keys are
+    silently ignored, so adding new sections is a frontend change
+    only — no migration needed.
+
+    Example shape::
+
+        {
+            "vision": {"title": "Our vision", "body": "..."},
+            "mission": {"title": "Our mission", "body": "..."},
+            "history_intro": {"body": "We started with..."},
+            "leadership_header": {"eyebrow": "Leadership", "title": "..."},
+        }
+    """
+
+    __tablename__ = "cms_site_pages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    page_key: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
+
+    hero_eyebrow: Mapped[Optional[str]] = mapped_column(String(120))
+    hero_title: Mapped[Optional[str]] = mapped_column(String(255))
+    hero_description: Mapped[Optional[str]] = mapped_column(Text)
+
+    banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
+    banner_video_url: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # Free-form per-page named sections. See the docstring for the
+    # expected shape. Defaults to {} so callers can read without
+    # null-guarding the whole field.
+    sections: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict, server_default="{}"
+    )
+
+    seo_title: Mapped[Optional[str]] = mapped_column(String(255))
+    seo_description: Mapped[Optional[str]] = mapped_column(String(500))
+    seo_keywords: Mapped[Optional[str]] = mapped_column(String(500))
+
     updated_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )

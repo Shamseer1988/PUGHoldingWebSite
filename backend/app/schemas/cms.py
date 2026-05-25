@@ -819,3 +819,44 @@ class HomepageTrustedBrandsResponse(BaseModel):
         if key not in _ALLOWED_BRAND_LAYOUTS:
             return "marquee"
         return key
+
+
+# ---------------------------------------------------------------------------
+# Predefined site pages (About, Companies, Careers, Contact, News, Media)
+# ---------------------------------------------------------------------------
+
+
+class SitePageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    page_key: str
+    hero_eyebrow: Optional[str] = None
+    hero_title: Optional[str] = None
+    hero_description: Optional[str] = None
+    banner_image_url: Optional[str] = None
+    banner_mobile_url: Optional[str] = None
+    banner_video_url: Optional[str] = None
+    sections: dict = Field(default_factory=dict)
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
+    seo_keywords: Optional[str] = None
+    updated_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SitePageUpdate(BaseModel):
+    """Upsert payload — every field optional so a partial save just
+    patches what the admin actually touched."""
+
+    hero_eyebrow: Optional[str] = Field(default=None, max_length=120)
+    hero_title: Optional[str] = Field(default=None, max_length=255)
+    hero_description: Optional[str] = None
+    banner_image_url: Optional[str] = Field(default=None, max_length=500)
+    banner_mobile_url: Optional[str] = Field(default=None, max_length=500)
+    banner_video_url: Optional[str] = Field(default=None, max_length=500)
+    sections: Optional[dict] = None
+    seo_title: Optional[str] = Field(default=None, max_length=255)
+    seo_description: Optional[str] = Field(default=None, max_length=500)
+    seo_keywords: Optional[str] = Field(default=None, max_length=500)

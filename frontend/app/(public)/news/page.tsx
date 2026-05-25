@@ -1,15 +1,15 @@
 import { NewsCard } from "@/components/site/news-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
-import { getNews, getSiteSettings } from "@/lib/public-api";
+import { getNews, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "News & Events" };
 export const revalidate = 60;
 
 export default async function NewsPage() {
-  const [allNews, settings] = await Promise.all([
+  const [allNews, page] = await Promise.all([
     getNews(),
-    getSiteSettings(),
+    getSitePage("news"),
   ]);
   const featured = allNews.filter((n) => n.is_featured);
   const others = allNews.filter((n) => !n.is_featured);
@@ -17,12 +17,16 @@ export default async function NewsPage() {
   return (
     <>
       <PageHero
-        eyebrow="News & events"
-        title="What's happening at Paris United Group"
-        description="Store launches, partnerships, CSR initiatives, and updates from across the group."
+        eyebrow={page?.hero_eyebrow ?? "News & events"}
+        title={page?.hero_title ?? "What's happening at Paris United Group"}
+        description={
+          page?.hero_description ??
+          "Store launches, partnerships, CSR initiatives, and updates from across the group."
+        }
         accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
-        imageUrl={settings.news_banner_image_url}
-        mobileImageUrl={settings.news_banner_mobile_url}
+        imageUrl={page?.banner_image_url}
+        mobileImageUrl={page?.banner_mobile_url}
+        videoUrl={page?.banner_video_url}
       />
 
       {featured.length > 0 && (

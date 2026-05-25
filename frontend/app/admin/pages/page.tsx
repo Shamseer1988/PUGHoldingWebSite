@@ -20,8 +20,16 @@ import Link from "next/link";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
 import { ImageUpload } from "@/components/admin/image-upload";
+import { SITE_PAGE_LIST } from "@/app/admin/pages/site-pages-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -187,11 +195,11 @@ export default function PagesAdminPage() {
   return (
     <AdminShell
       title="Pages"
-      description="Free-form content pages like About us, Privacy policy, etc."
+      description="Edit the predefined public pages or create free-form content pages of your own."
       actions={
-        <Button onClick={openNew} size="sm" aria-label="Add a new page">
+        <Button onClick={openNew} size="sm" aria-label="Add a new custom page">
           <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New page</span>
+          <span className="hidden sm:inline">New custom page</span>
         </Button>
       }
     >
@@ -205,6 +213,76 @@ export default function PagesAdminPage() {
           {error}
         </div>
       )}
+
+      {/* Site pages — predefined Next.js routes whose hero / banner /
+          named sections are admin-editable. */}
+      <section className="mb-10">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Site pages</h2>
+            <p className="text-xs text-muted-foreground">
+              Predefined routes — About, Companies, Careers, Contact, News,
+              and Media. Click <em>Edit</em> on any card to change the hero
+              copy, banner image, and named sections.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {SITE_PAGE_LIST.map((cfg) => {
+            const Icon = cfg.icon;
+            return (
+              <Card
+                key={cfg.key}
+                className="group/site-card transition-all hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-pug-gold-500/10 text-pug-gold-700 ring-1 ring-pug-gold-500/20 dark:text-pug-gold-300">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <Link
+                      href={cfg.route}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/site-card:opacity-100"
+                    >
+                      View live ↗
+                    </Link>
+                  </div>
+                  <CardTitle className="mt-3 text-base">{cfg.label}</CardTitle>
+                  <CardDescription className="line-clamp-2 text-xs">
+                    {cfg.description}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {cfg.route}
+                    </code>
+                    <Button asChild size="sm" variant="secondary">
+                      <Link
+                        href={`/admin/pages/site/${cfg.key}`}
+                        aria-label={`Edit ${cfg.label}`}
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                        Edit
+                      </Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="mb-3">
+        <h2 className="text-base font-semibold">Custom pages</h2>
+        <p className="text-xs text-muted-foreground">
+          Free-form pages with their own slug — useful for Privacy Policy,
+          Terms of Service, microsites, etc.
+        </p>
+      </div>
 
       {items === null ? (
         <p className="text-sm text-muted-foreground">

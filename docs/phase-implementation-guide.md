@@ -49,6 +49,41 @@ lives at the repo root in
   via the existing `cms.site_settings.update` action. 5
   regression tests in `backend/tests/test_maintenance_mode.py`.
 
+**Editable site pages (universal hero / banner / sections CMS)** — migration `20260525_0019`
+- New `cms_site_pages` table with one row per predefined route
+  (about, companies, careers, contact, news, media). Hero (eyebrow /
+  title / description), banner (desktop / mobile / video), `sections`
+  (free-form JSON keyed by section name), and SEO overrides.
+- Backend endpoints:
+  - `GET /api/v1/public/site-pages/{key}` — public read used by the
+    Next.js routes
+  - `GET /api/v1/admin/cms/site-pages` — admin list
+  - `GET /api/v1/admin/cms/site-pages/{key}` — admin read
+  - `PUT /api/v1/admin/cms/site-pages/{key}` — admin upsert (audited
+    via `cms.site_page.update`)
+- Migration seeds each row with the copy that was previously
+  hardcoded in `frontend/lib/dummy-data/site-content.ts` plus the
+  matching Next.js modules, and copies the existing
+  `site_settings.<page>_banner_*` URLs into the new table so nothing
+  goes missing on upgrade. The deprecated banner columns stay in
+  the DB as a safety net.
+- Admin UI:
+  - `/admin/pages` shows a **Site pages** card grid (one card per
+    predefined route) above the existing **Custom pages** CRUD.
+  - `/admin/pages/site/[key]` is a dedicated editor with Hero,
+    Banner, Sections, and SEO cards. The Sections card is driven
+    by a registry (`app/admin/pages/site-pages-config.ts`) — About
+    surfaces Vision / Mission / History intro / Leadership header
+    editors; other pages skip it.
+  - The **Page banners** card was removed from `/admin/settings`
+    (the form filters out banner keys so saving Settings no longer
+    overwrites the per-page banner data).
+- Public pages (about, companies, careers, contact, news, media)
+  fetch their `getSitePage(key)` row and use it for the hero,
+  banner, and named sections. Every field falls back to the
+  bundled default so the site never renders blank.
+- 7 new tests in `backend/tests/test_site_pages.py`.
+
 **Media-page banner + per-asset visibility** — migration `20260525_0018`
 - `site_settings.media_banner_image_url` / `media_banner_mobile_url`
   fill the gap in the page-banner customisation (about / careers /

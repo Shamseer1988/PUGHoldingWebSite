@@ -30,6 +30,8 @@ from app.models.cms import (
     NavigationItem,
     NewsItem,
     NewsletterSubscriber,
+    SITE_PAGE_KEYS,
+    SitePage,
     SiteSetting,
     TrustedBrand,
 )
@@ -52,6 +54,7 @@ from app.schemas.cms import (
     NewsRead,
     NewsletterSubscribe,
     NewsletterSubscriberRead,
+    SitePageRead,
     SiteSettingRead,
 )
 from app.schemas.hr_ats import (
@@ -505,6 +508,31 @@ def get_public_page(slug: str, db: Session = Depends(get_db)) -> CMSPage:
     ).scalar_one_or_none()
     if page is None:
         raise HTTPException(status_code=404, detail="Page not found")
+    return page
+
+
+@router.get("/site-pages/{page_key}", response_model=SitePageRead)
+def get_public_site_page(
+    page_key: str, db: Session = Depends(get_db)
+) -> SitePage:
+    """Hero + banner + named sections for a predefined route.
+
+    Unknown keys 404 so the public site never silently renders empty
+    content from a typo. Missing rows for a known key are created on
+    the fly with empty fields — better to return the editable shell
+    than to crash the Next.js page.
+    """
+    key = page_key.strip().lower()
+    if key not in SITE_PAGE_KEYS:
+        raise HTTPException(status_code=404, detail="Site page not found")
+    page = db.execute(
+        select(SitePage).where(SitePage.page_key == key)
+    ).scalar_one_or_none()
+    if page is None:
+        page = SitePage(page_key=key, sections={})
+        db.add(page)
+        db.commit()
+        db.refresh(page)
     return page
 
 

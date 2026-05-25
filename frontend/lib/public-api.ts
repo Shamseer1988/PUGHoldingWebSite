@@ -18,6 +18,8 @@ import type {
   LeadershipMessage,
   NewsItem,
   NewsletterSubscriber,
+  SitePage,
+  SitePageKey,
   SiteSettings,
 } from "@/lib/admin/types";
 import { env } from "@/lib/env";
@@ -324,6 +326,18 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     (await fetchPublic<SiteSettings>("/public/site-settings")) ??
     FALLBACK_SETTINGS
   );
+}
+
+
+/**
+ * Predefined page content (hero + banner + named sections).
+ *
+ * Returns `null` if the API is unreachable; callers should fall back
+ * to whatever defaults the page was rendering before the CMS row
+ * existed.
+ */
+export async function getSitePage(key: SitePageKey): Promise<SitePage | null> {
+  return (await fetchPublic<SitePage>(`/public/site-pages/${key}`)) ?? null;
 }
 
 // Navigation menu (Phase 5 follow-up) -----------------------------------
