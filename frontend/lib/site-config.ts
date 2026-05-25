@@ -151,3 +151,11 @@ export const FOOTER_COLUMNS: FooterColumn[] = [
     ],
   },
 ];
+
+/** Legal links rendered in the footer's bottom bar (separate from the
+ *  main nav columns). Kept in one place so the footer and any future
+ *  cookie-banner share the same source of truth. */
+export const FOOTER_LEGAL_LINKS: { label: string; href: string }[] = [
+  { label: "Privacy Policy", href: "/privacy-policy" },
+  { label: "Terms & Conditions", href: "/terms-and-conditions" },
+];

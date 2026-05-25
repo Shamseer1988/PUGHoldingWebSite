@@ -484,4 +484,24 @@
     35%  { opacity: 1; }
     100% { transform: translateX(120%);  opacity: 0; }
   }
+
+  /* ----------------------------------------------------------------
+     Footer top accent — slow gold shimmer that sweeps across the
+     1px hairline at the top of the footer. Pure CSS so it doesn't
+     compete with the GSAP scroll-reveal that animates the columns.
+     ---------------------------------------------------------------- */
+  .footer-shimmer {
+    animation: footer-shimmer-sweep 6s ease-in-out infinite;
+  }
+
+  @keyframes footer-shimmer-sweep {
+    0%   { transform: translateX(0%);   opacity: 0; }
+    20%  { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { transform: translateX(400%); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .footer-shimmer { animation: none; }
+  }
 }
