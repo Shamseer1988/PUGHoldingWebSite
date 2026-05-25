@@ -18,6 +18,7 @@ import {
   Megaphone,
   Menu as MenuIcon,
   MessageSquareQuote,
+  Search,
   Settings,
   Users,
   X,
@@ -73,6 +74,7 @@ const NAV: NavGroup[] = [
     label: "System",
     items: [
       { label: "Site settings", href: "/admin/settings", icon: Settings },
+      { label: "SEO configuration", href: "/admin/seo", icon: Search },
       {
         label: "AI settings",
         href: "/admin/ai-settings",

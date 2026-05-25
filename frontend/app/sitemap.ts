@@ -1,18 +1,26 @@
 /**
- * Dynamic sitemap.xml — auto-generated from the live CMS payloads.
+ * Dynamic sitemap.xml — admin-driven.
  *
- * Next.js takes a `MetadataRoute.Sitemap` array and turns it into a
- * valid `sitemap.xml` at `/sitemap.xml`. We:
- *   1. List every static public route (Home, About, Careers, etc.).
- *   2. Append a row per active company, published news article, open
- *      job, and published CMS page using the existing public API
- *      helpers.
+ * Phase 1 of the SEO Configuration module makes this honour the
+ * include_* + default_changefreq + default_priority toggles set
+ * under Admin → Settings → SEO Configuration → Sitemap.
  *
- * No admin UI is required — admins control what shows up by flipping
- * the same is_active / is_published / status fields they already use
- * for the public site itself. If the backend is unreachable at build
- * time we fall through to a minimal static set so the route never
- * blows up.
+ * The static-route table is kept here (rather than the backend)
+ * because Next owns the routing — only the frontend knows which
+ * static pages exist. Toggles selected by the admin gate which
+ * dynamic groups join.
+ *
+ * Behaviour:
+ *   - `enable_sitemap = false` → return an empty array (Next emits a
+ *     well-formed but content-free sitemap.xml so the URL still
+ *     resolves and crawlers see "no entries").
+ *   - `sitemap_default_changefreq` / `_default_priority` override
+ *     the per-entry defaults below when the admin has set them.
+ *   - `sitemap_include_companies` / `_cms_pages` / `_news` skip the
+ *     corresponding loops when off.
+ *
+ * If the backend is unreachable we fall back to "enable everything"
+ * — a flaky API shouldn't accidentally strip the sitemap.
  */
 import type { MetadataRoute } from "next";
 
@@ -23,6 +31,7 @@ import {
   getPages,
   getPublicJobs,
 } from "@/lib/public-api";
+import { getPublicSeoHead } from "@/lib/seo-api";
 
 
 const STATIC_ROUTES: Array<{ path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"] }> = [
@@ -44,43 +53,57 @@ function urlFor(path: string): string {
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
+  const flags = await getPublicSeoHead().catch(() => null);
 
-  // Pull every dynamic list in parallel. Each helper already swallows
-  // errors and returns `[]` on failure, so a flaky backend just trims
-  // the sitemap instead of failing the build.
+  if (flags && !flags.enable_sitemap) {
+    return [];
+  }
+
+  // Defaults — admin overrides win when present.
+  const overrideFreq = (flags?.sitemap_default_changefreq ?? null) as
+    | MetadataRoute.Sitemap[number]["changeFrequency"]
+    | null;
+  const overridePriority = flags?.sitemap_default_priority ?? null;
+  const includeStatic = flags?.sitemap_include_static ?? true;
+  const includeCompanies = flags?.sitemap_include_companies ?? true;
+  const includeNews = flags?.sitemap_include_news ?? true;
+  const includeCmsPages = flags?.sitemap_include_cms_pages ?? true;
+
   const [companies, news, jobs, pages] = await Promise.all([
-    getCompanies().catch(() => []),
-    getNews().catch(() => []),
+    includeCompanies ? getCompanies().catch(() => []) : [],
+    includeNews ? getNews().catch(() => []) : [],
     getPublicJobs().catch(() => []),
-    getPages().catch(() => []),
+    includeCmsPages ? getPages().catch(() => []) : [],
   ]);
 
-  const entries: MetadataRoute.Sitemap = STATIC_ROUTES.map((route) => ({
-    url: urlFor(route.path),
-    lastModified: now,
-    changeFrequency: route.changeFrequency,
-    priority: route.priority,
-  }));
+  const entries: MetadataRoute.Sitemap = [];
+
+  if (includeStatic) {
+    for (const route of STATIC_ROUTES) {
+      entries.push({
+        url: urlFor(route.path),
+        lastModified: now,
+        changeFrequency: overrideFreq ?? route.changeFrequency,
+        priority: overridePriority ?? route.priority,
+      });
+    }
+  }
 
   for (const company of companies) {
     entries.push({
       url: urlFor(`/companies/${company.slug}`),
-      lastModified: company.updated_at
-        ? new Date(company.updated_at)
-        : now,
-      changeFrequency: "monthly",
-      priority: 0.7,
+      lastModified: company.updated_at ? new Date(company.updated_at) : now,
+      changeFrequency: overrideFreq ?? "monthly",
+      priority: overridePriority ?? 0.7,
     });
   }
 
   for (const item of news) {
     entries.push({
       url: urlFor(`/news/${item.slug}`),
-      lastModified: item.updated_at
-        ? new Date(item.updated_at)
-        : now,
-      changeFrequency: "weekly",
-      priority: 0.6,
+      lastModified: item.updated_at ? new Date(item.updated_at) : now,
+      changeFrequency: overrideFreq ?? "weekly",
+      priority: overridePriority ?? 0.6,
     });
   }
 
@@ -88,8 +111,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     entries.push({
       url: urlFor(`/careers/${job.slug}`),
       lastModified: job.updated_at ? new Date(job.updated_at) : now,
-      changeFrequency: "daily",
-      priority: 0.7,
+      changeFrequency: overrideFreq ?? "daily",
+      priority: overridePriority ?? 0.7,
     });
   }
 
@@ -97,8 +120,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     entries.push({
       url: urlFor(`/pages/${page.slug}`),
       lastModified: page.updated_at ? new Date(page.updated_at) : now,
-      changeFrequency: "monthly",
-      priority: 0.5,
+      changeFrequency: overrideFreq ?? "monthly",
+      priority: overridePriority ?? 0.5,
     });
   }
 

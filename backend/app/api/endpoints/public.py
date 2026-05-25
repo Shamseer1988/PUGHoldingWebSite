@@ -849,3 +849,151 @@ def ask_pug_ai(
         session_id=payload.session_id,
         model_name=result.model_name,
     )
+
+
+# ---------------------------------------------------------------------------
+# SEO Configuration — public surface (Phase 1)
+# ---------------------------------------------------------------------------
+#
+# The public Next.js layout consumes these four endpoints to render
+# the SEO `<head>`, the HTML verification file route, and the
+# `/sitemap.xml` + `/robots.txt` content. No admin authentication —
+# they're meant to be cached at the edge.
+
+from fastapi.responses import PlainTextResponse  # noqa: E402
+
+from app.models.seo import (  # noqa: E402
+    SeoSetting,
+    SeoVerification,
+    TrackingIntegration,
+    VERIFICATION_TYPE_HTML_FILE,
+)
+from app.schemas.seo import PublicSeoHeadFeed  # noqa: E402
+from app.services.seo import (  # noqa: E402
+    build_robots_txt,
+    find_active_verification_file,
+    public_integrations,
+    public_verification_metas,
+)
+
+
+def _seo_settings_or_default(db: Session) -> Optional[SeoSetting]:
+    """Return the singleton SeoSetting row if it exists, else None.
+
+    We deliberately don't lazy-create the row here — public endpoints
+    should be read-only. The row materialises the first time an admin
+    edits SEO settings.
+    """
+    return (
+        db.execute(select(SeoSetting).order_by(SeoSetting.id))
+        .scalars()
+        .first()
+    )
+
+
+@router.get("/seo/head", response_model=PublicSeoHeadFeed)
+def public_seo_head(db: Session = Depends(get_db)) -> PublicSeoHeadFeed:
+    """Bundle of everything the public layout needs for the SEO `<head>`.
+
+    The Next.js root layout fetches this once and renders verification
+    meta tags + tracking scripts. Inactive rows are filtered out
+    server-side so the response only carries what should actually
+    render.
+    """
+    settings = _seo_settings_or_default(db)
+    verifications = (
+        db.execute(select(SeoVerification).where(SeoVerification.is_active.is_(True)))
+        .scalars()
+        .all()
+    )
+    integrations = (
+        db.execute(select(TrackingIntegration).where(TrackingIntegration.is_active.is_(True)))
+        .scalars()
+        .all()
+    )
+    return PublicSeoHeadFeed(
+        site_name=settings.site_name if settings else None,
+        default_meta_title=settings.default_meta_title if settings else None,
+        default_meta_description=settings.default_meta_description if settings else None,
+        canonical_base_url=settings.canonical_base_url if settings else None,
+        default_language=settings.default_language if settings else None,
+        enable_canonical=settings.enable_canonical if settings else True,
+        enable_open_graph=settings.enable_open_graph if settings else True,
+        enable_twitter_cards=settings.enable_twitter_cards if settings else True,
+        default_og_image=settings.default_og_image if settings else None,
+        default_twitter_image=settings.default_twitter_image if settings else None,
+        enable_sitemap=settings.enable_sitemap if settings else True,
+        sitemap_include_static=settings.sitemap_include_static if settings else True,
+        sitemap_include_companies=settings.sitemap_include_companies if settings else True,
+        sitemap_include_cms_pages=settings.sitemap_include_cms_pages if settings else True,
+        sitemap_include_news=settings.sitemap_include_news if settings else True,
+        sitemap_default_changefreq=settings.sitemap_default_changefreq if settings else None,
+        sitemap_default_priority=settings.sitemap_default_priority if settings else None,
+        verification_metas=public_verification_metas(verifications),
+        integrations=public_integrations(integrations),
+    )
+
+
+@router.get(
+    "/seo/verify/{filename}",
+    response_class=PlainTextResponse,
+    responses={
+        200: {"content": {"text/plain": {}}},
+        404: {"description": "No active verification file with that name"},
+    },
+)
+def public_seo_verify_file(
+    filename: str, db: Session = Depends(get_db)
+) -> PlainTextResponse:
+    """Serve the content of an active HTML / TXT verification file.
+
+    Called via a Next.js rewrite at the site root, e.g.
+    ``GET /googleXXX.html`` → ``GET /api/v1/public/seo/verify/googleXXX.html``.
+
+    Filename validation runs again here so the route can never be
+    coerced into serving anything outside the allow-list, even if a
+    rewrite ever changes upstream.
+    """
+    # Reject any traversal / slash attempts immediately.
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    rows = (
+        db.execute(
+            select(SeoVerification).where(
+                SeoVerification.verification_type == VERIFICATION_TYPE_HTML_FILE,
+                SeoVerification.is_active.is_(True),
+                SeoVerification.html_filename == filename,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    record = rows[0] if rows else None
+    if record is None or not record.html_file_content:
+        raise HTTPException(status_code=404, detail="Verification file not found")
+
+    # Google's docs say `google*.html` should be served as text/plain.
+    return PlainTextResponse(
+        content=record.html_file_content,
+        media_type="text/plain; charset=utf-8",
+    )
+
+
+@router.get(
+    "/seo/robots",
+    response_class=PlainTextResponse,
+    responses={200: {"content": {"text/plain": {}}}},
+)
+def public_seo_robots(db: Session = Depends(get_db)) -> PlainTextResponse:
+    """Return the rendered ``robots.txt`` body.
+
+    The Next.js root layer at ``app/robots.ts`` calls this and returns
+    the text verbatim, so admins can override the file without a
+    redeploy.
+    """
+    settings = _seo_settings_or_default(db)
+    return PlainTextResponse(
+        content=build_robots_txt(settings),
+        media_type="text/plain; charset=utf-8",
+    )

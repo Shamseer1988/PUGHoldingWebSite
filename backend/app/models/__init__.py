@@ -38,6 +38,11 @@ from app.models.hr_ats import (
     JobOpening,
     OfferTracking,
 )
+from app.models.seo import (
+    SeoSetting,
+    SeoVerification,
+    TrackingIntegration,
+)
 
 __all__ = [
     "TimestampMixin",
@@ -72,4 +77,8 @@ __all__ = [
     "InterviewFeedback",
     "JobOpening",
     "OfferTracking",
+    # SEO
+    "SeoSetting",
+    "SeoVerification",
+    "TrackingIntegration",
 ]

@@ -7,6 +7,7 @@ from app.api.endpoints import (
     admin_ai,
     admin_auth,
     admin_cms,
+    admin_seo,
     admin_users,
     health,
     hr_auth,
@@ -23,6 +24,7 @@ api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(public.router)
 api_router.include_router(admin_auth.router)
 api_router.include_router(admin_cms.router)
+api_router.include_router(admin_seo.router)
 api_router.include_router(admin_ai.router)
 api_router.include_router(admin_users.router)
 api_router.include_router(hr_auth.router)
