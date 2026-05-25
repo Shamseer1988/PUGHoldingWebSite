@@ -23,10 +23,6 @@ export default function HrLoginPage() {
         badge="HR ATS Portal"
         title="Sign in to the HR portal"
         subtitle="Manage job openings, candidate applications, interviews, and reports."
-        seedHint={{
-          email: "hrmanager@pug.example.com",
-          password: "ChangeMe!123",
-        }}
       />
     </main>
   );

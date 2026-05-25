@@ -68,6 +68,15 @@ export function PageHero({
             aria-hidden
             src={resolvedImage}
             alt=""
+            // LCP optimisation: this is the hero — fetch it eagerly and
+            // with high priority. The browser still respects the
+            // ``hidden sm:block`` so only the visible variant takes
+            // bandwidth on each breakpoint.
+            loading="eager"
+            decoding="async"
+            // @ts-expect-error — fetchPriority is a valid HTML attr in
+            // React 18+ but the typings haven't caught up everywhere.
+            fetchpriority="high"
             className={cn(
               "pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover",
               resolvedMobile && "hidden sm:block"
@@ -79,6 +88,10 @@ export function PageHero({
               aria-hidden
               src={resolvedMobile}
               alt=""
+              loading="eager"
+              decoding="async"
+              // @ts-expect-error — see note above
+              fetchpriority="high"
               className="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover sm:hidden"
             />
           )}

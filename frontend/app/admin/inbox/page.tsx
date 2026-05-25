@@ -216,7 +216,8 @@ export default function InboxAdminPage() {
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
                   The reply is stored against the message and audit-logged.
-                  Email delivery wires up in Phase 6 once SMTP settings are configured.
+                  Outbound email is sent only when SMTP credentials are
+                  configured under Site settings.
                 </p>
                 <div className="mt-3 flex justify-end">
                   <Button onClick={reply} disabled={busy || !replyBody.trim()}>

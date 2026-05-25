@@ -24,10 +24,6 @@ export default function AdminLoginPage() {
         badge="Website Admin"
         title="Sign in to the admin panel"
         subtitle="Manage menus, hero slides, pages, companies, news, media, and site settings."
-        seedHint={{
-          email: "websiteadmin@pug.example.com",
-          password: "ChangeMe!123",
-        }}
       />
     </main>
   );

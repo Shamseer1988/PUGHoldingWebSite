@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import api_router
+from app.core.cache_headers import PublicCacheHeadersMiddleware
 from app.core.config import get_settings
 
 
@@ -55,6 +56,10 @@ def create_app() -> FastAPI:
 
     # Phase 19: rate limiting for the public write endpoints is applied
     # per-route via FastAPI dependencies — see app.core.rate_limit.
+
+    # Edge cache headers on public GET responses. Toggle off in dev
+    # via PUBLIC_CACHE_HEADERS_ENABLED=false if it gets in the way.
+    app.add_middleware(PublicCacheHeadersMiddleware)
 
     app.include_router(api_router, prefix="/api/v1")
 

@@ -55,9 +55,8 @@ export function RequireSystemScope({
         setting can&rsquo;t silently affect both the website and HR portals.
       </p>
       <p className="mt-3 text-xs text-muted-foreground">
-        Ask a Super Admin to sign in (the default seed account is{" "}
-        <code className="rounded bg-muted px-1">superadmin@pug.example.com</code>),
-        or have one promote your role under <em>Users &amp; roles</em>.
+        Ask a Super Admin to sign in, or have one promote your role under{" "}
+        <em>Users &amp; roles</em>.
       </p>
       <div className="mt-5">
         <Button asChild size="sm" variant="outline">
