@@ -281,12 +281,13 @@ export function Footer({ settings }: FooterProps) {
             )}
           </div>
 
-          {/* Nav columns */}
-          <div
-            ref={navRef}
-            className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-7 lg:grid-cols-3"
-          >
-            {FOOTER_COLUMNS.map((column) => (
+          {/* Right side — nav columns stacked above the Find-us card so
+              the card slots into the otherwise-empty band beneath
+              Group / Sectors / Connect, on the same visual row as the
+              brand column. */}
+          <div ref={navRef} className="space-y-8 lg:col-span-7 lg:space-y-10">
+            <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-3">
+              {FOOTER_COLUMNS.map((column) => (
               <div key={column.title} data-footer-column>
                 <h3 className="relative inline-flex items-center text-xs font-bold uppercase tracking-[0.22em] text-foreground">
                   {column.title}
@@ -319,11 +320,12 @@ export function Footer({ settings }: FooterProps) {
                 </ul>
               </div>
             ))}
-          </div>
+            </div>
 
-          {/* Find-us card — fills the empty space under the nav columns
-              on lg+ and stacks below everything else on smaller widths. */}
-          <FindUsCard settings={settings} />
+            {/* Find-us card — fills the empty space under the nav columns
+                on lg+ and stacks below everything else on smaller widths. */}
+            <FindUsCard settings={settings} />
+          </div>
         </div>
 
         {/* Back-to-top — its own centered row above the bottom bar
@@ -423,8 +425,7 @@ function FindUsCard({ settings }: { settings: SiteSettings }) {
     : null;
 
   return (
-    <div className="md:col-span-2 lg:col-span-7 lg:col-start-6">
-      <div className="relative overflow-hidden rounded-2xl border border-pug-gold-500/20 bg-background/40 p-5 shadow-[0_18px_45px_-25px_rgba(15,53,32,0.35)] backdrop-blur-md dark:bg-pug-green-950/40">
+    <div className="relative overflow-hidden rounded-2xl border border-pug-gold-500/20 bg-background/40 p-5 shadow-[0_18px_45px_-25px_rgba(15,53,32,0.35)] backdrop-blur-md dark:bg-pug-green-950/40">
         {/* Ambient brand glow */}
         <span
           aria-hidden
@@ -475,7 +476,6 @@ function FindUsCard({ settings }: { settings: SiteSettings }) {
             )}
           </div>
         </div>
-      </div>
     </div>
   );
 }
