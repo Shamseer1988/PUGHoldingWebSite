@@ -53,6 +53,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Phase 19: rate limiting for the public write endpoints is applied
+    # per-route via FastAPI dependencies — see app.core.rate_limit.
+
     app.include_router(api_router, prefix="/api/v1")
 
     # Static mount for user-uploaded assets (CMS images, etc.).

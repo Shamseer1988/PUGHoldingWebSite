@@ -15,6 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context
 from app.core.database import get_db
+from app.core.rate_limit import (
+    rate_limit_ai_assistant,
+    rate_limit_apply,
+    rate_limit_contact,
+    rate_limit_newsletter,
+)
 from app.models.cms import (
     CMSPage,
     Company,
@@ -652,6 +658,7 @@ def get_featured_companies_section(
     "/contact",
     response_model=ContactMessageRead,
     status_code=201,
+    dependencies=[Depends(rate_limit_contact)],
 )
 def submit_contact_message(
     payload: ContactSubmit,
@@ -709,6 +716,7 @@ def create_contact_message(
     "/newsletter",
     response_model=NewsletterSubscriberRead,
     status_code=201,
+    dependencies=[Depends(rate_limit_newsletter)],
 )
 def subscribe_to_newsletter(
     payload: NewsletterSubscribe,
@@ -794,6 +802,7 @@ def subscribe_to_newsletter(
     "/candidate-applications",
     response_model=ApplicationSubmissionResponse,
     status_code=201,
+    dependencies=[Depends(rate_limit_apply)],
 )
 async def submit_candidate_application(
     request: Request,
@@ -891,7 +900,11 @@ async def submit_candidate_application(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/ai-assistant/ask", response_model=PublicAIAskResponse)
+@router.post(
+    "/ai-assistant/ask",
+    response_model=PublicAIAskResponse,
+    dependencies=[Depends(rate_limit_ai_assistant)],
+)
 def ask_pug_ai(
     payload: PublicAIAskRequest,
     request: Request,

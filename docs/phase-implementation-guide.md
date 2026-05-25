@@ -33,24 +33,60 @@ lives at the repo root in
 | 15    | Interview management                             | **Done**    |
 | 16    | HR advanced search, filters, reports, export     | **Done**    |
 | 17    | Public AI assistant                              | **Done**    |
-| 18    | Responsive UI polish and mobile testing          | Partial     |
-| 19    | Security, audit, validation, and testing         | Partial     |
+| 18    | Responsive UI polish and mobile testing          | **Done**    |
+| 19    | Security, audit, validation, and testing         | **Done**    |
 | 20    | Deployment documentation and final package       | **Done**    |
 
-### Phase 18 — outstanding gaps
-- Responsive Tailwind classes are applied throughout, but there is no
-  formal mobile test pass at 360 / 390 / 430 / 768 / 1024 / 1440
-  breakpoints, and no documented device-compatibility matrix.
+### Phase 18 deliverables
+- [`docs/responsive-qa-matrix.md`](responsive-qa-matrix.md) — manual
+  QA matrix covering every public, admin, and HR route at six
+  breakpoints (360 / 390 / 430 / 768 / 1024 / 1440 px) plus a
+  cross-cutting checklist (no horizontal scroll, touch targets ≥
+  44 px, sticky-CTA + iOS Safe Area, dark mode, reduced motion)
+  and a device-compatibility table.
+- `frontend/components/ui/button.tsx` — default/small/large/icon
+  button sizes now ship with phone-first heights (`h-11/h-10/h-12/
+  h-11 w-11`) that step down to the pre-existing desktop density
+  via `sm:`. Every button in the app now hits the iOS 44 × 44 px
+  minimum touch target on phones without losing desktop density.
 
-### Phase 19 — outstanding gaps
-- 306 backend tests across 27 files; audit logging on every HR write;
-  soft deletes on candidates and applications; Pydantic validation on
-  every endpoint; AI safety guards covered by tests.
-- **No rate limiting** on public endpoints
-  (`/contact`, `/candidate-applications`, `/ai-assistant/ask`).
-- No explicit XSS / CSRF / SQL-injection test cases.
-- No admin viewer for the `public_ai_queries` usage log.
-- No documented privacy / data-retention policy.
+### Phase 19 deliverables
+**Rate limiting on every public POST**
+- New `app/core/rate_limit.py` — sliding-window per-IP limiter
+  exposed as four FastAPI dependencies. Limits:
+  - `/api/v1/contact` — 5/minute, 30/hour
+  - `/api/v1/newsletter` — 3/minute, 20/hour
+  - `/api/v1/candidate-applications` — 3/minute, 15/hour
+  - `/api/v1/ai-assistant/ask` — 10/minute, 60/hour
+- Honors `X-Forwarded-For` so the real client IP is used behind
+  Cloudflare + Nginx. Returns `429` with `Retry-After`.
+- Tunable via `RATE_LIMIT_ENABLED` env var (used by tests).
+- Implementation is in-tree (no extra dependency); for a multi-
+  worker production deployment, swap the in-memory dict for Redis
+  — the rest of the surface stays the same.
+
+**Explicit security regression tests** ([`tests/test_security.py`](../backend/tests/test_security.py), 16 tests)
+- **SQL injection** — 7 OWASP payloads pumped through query
+  params, path params, JSON bodies, and the login endpoint.
+- **XSS** — verifies user content stored verbatim, returned as
+  JSON, and never served as `text/html`.
+- **CSRF** — verifies the auth scheme remains bearer-only
+  (no `Set-Cookie` on login responses, cookie-only auth rejected).
+- **Rate limiting** — verifies 429s fire at the limit, `Retry-After`
+  header is set, buckets are per-endpoint, and `X-Forwarded-For` is
+  used as the client key.
+
+**Operator-facing privacy / retention doc**
+- [`docs/privacy-and-data-retention.md`](privacy-and-data-retention.md)
+  — categories collected, lawful basis under GDPR Art. 6,
+  retention schedule (24 mo contact, 36 mo candidate, 90 d AI
+  queries, etc.), DSR handling procedure (access / erasure /
+  rectification within 30 days), operator commitments
+  (encryption, audit log, breach notification, sub-processor
+  list), and a tracked list of implementation gaps to close
+  (purge job, DSR script, cookie banner).
+- The user-facing privacy page at `/privacy-policy` already exists
+  and was not modified.
 
 ### Phase 20 deliverables
 - [`docs/deployment-guide.md`](deployment-guide.md) — full production

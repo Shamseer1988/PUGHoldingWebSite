@@ -26,6 +26,9 @@ bcrypt==4.2.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
 
+# Phase 19 — rate limiting is implemented in-tree (app/core/rate_limit.py)
+# as a FastAPI dependency. No third-party dependency required.
+
 # Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
