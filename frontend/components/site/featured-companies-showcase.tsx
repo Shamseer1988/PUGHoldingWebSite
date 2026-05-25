@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Building2, Sparkles } from "lucide-react";
 
+import { CompanyLogo } from "@/components/site/company-logo";
 import { HeadingAccent } from "@/components/site/heading-accent";
 import type { Company } from "@/lib/admin/types";
 import type { FeaturedSectionPayload } from "@/lib/public-api";
@@ -304,16 +305,13 @@ const CompanyPanel = React.forwardRef<
       </div>
 
       <div className="mt-6 flex items-center gap-3">
-        <span
-          className={cn(
-            "inline-flex h-10 w-10 items-center justify-center rounded-lg text-sm font-bold text-white shadow-md",
-            "bg-gradient-to-br",
-            company.accent || "from-pug-green-600 to-pug-gold-500"
-          )}
-          aria-hidden
-        >
-          {company.initials}
-        </span>
+        <CompanyLogo
+          logoUrl={company.brand_logo_url}
+          initials={company.initials}
+          accent={company.accent || "from-pug-green-600 to-pug-gold-500"}
+          name={company.name}
+          size="sm"
+        />
         {company.branches && (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Building2 className="h-3.5 w-3.5" />

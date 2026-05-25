@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft, Building2, Mail, MapPin, Phone, Play } from "lucide-react";
 
 import { CATEGORY_LABELS, CompanyCard } from "@/components/site/company-card";
+import { CompanyLogo } from "@/components/site/company-logo";
 import { GlassCard } from "@/components/site/glass-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
@@ -14,7 +15,6 @@ import {
   getMediaGallery,
   resolveAssetUrl,
 } from "@/lib/public-api";
-import { cn } from "@/lib/utils";
 
 export const revalidate = 60;
 
@@ -73,15 +73,13 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
           <GlassCard className="p-6 sm:p-8">
             <div className="flex items-start gap-4">
-              <span
-                className={cn(
-                  "inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br text-lg font-bold tracking-wide text-white shadow-md",
-                  company.accent
-                )}
-                aria-hidden
-              >
-                {company.initials}
-              </span>
+              <CompanyLogo
+                logoUrl={company.brand_logo_url}
+                initials={company.initials}
+                accent={company.accent}
+                name={company.name}
+                size="lg"
+              />
               <div>
                 <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
                   About {company.name}

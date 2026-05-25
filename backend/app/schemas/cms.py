@@ -161,6 +161,7 @@ class CompanyBase(BaseModel):
         default="from-pug-green-500 to-pug-gold-500", max_length=255
     )
     initials: str = Field(min_length=1, max_length=8)
+    brand_logo_url: Optional[str] = Field(default=None, max_length=500)
     phone: Optional[str] = Field(default=None, max_length=40)
     email: Optional[str] = Field(default=None, max_length=255)
     address: Optional[str] = Field(default=None, max_length=500)
@@ -195,6 +196,7 @@ class CompanyUpdate(BaseModel):
     branches: Optional[str] = None
     accent: Optional[str] = None
     initials: Optional[str] = None
+    brand_logo_url: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None

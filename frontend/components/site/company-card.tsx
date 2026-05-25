@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { ArrowUpRight, Building2 } from "lucide-react";
 
+import { CompanyLogo } from "@/components/site/company-logo";
 import { GlassCard } from "@/components/site/glass-card";
 import { Badge } from "@/components/ui/badge";
 import type { Company } from "@/lib/admin/types";
-import { cn } from "@/lib/utils";
 
 const CATEGORY_LABELS: Record<Company["category"], string> = {
   distribution: "Distribution",
@@ -23,7 +23,13 @@ export function CompanyCard({ company, compact = false }: CompanyCardProps) {
     <Link href={`/companies/${company.slug}`} className="group block h-full">
       <GlassCard className="flex h-full flex-col p-5 transition-transform group-hover:-translate-y-1">
         <div className="flex items-start justify-between gap-3">
-          <LogoTile accent={company.accent} initials={company.initials} />
+          <CompanyLogo
+            logoUrl={company.brand_logo_url}
+            initials={company.initials}
+            accent={company.accent}
+            name={company.name}
+            size="md"
+          />
           <Badge variant="muted" className="capitalize">
             {CATEGORY_LABELS[company.category]}
           </Badge>
@@ -67,20 +73,6 @@ export function CompanyCard({ company, compact = false }: CompanyCardProps) {
         </div>
       </GlassCard>
     </Link>
-  );
-}
-
-function LogoTile({ accent, initials }: { accent: string; initials: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br text-base font-bold tracking-wide text-white shadow-md",
-        accent
-      )}
-      aria-hidden
-    >
-      {initials}
-    </span>
   );
 }
 

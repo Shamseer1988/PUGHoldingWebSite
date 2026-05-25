@@ -63,6 +63,7 @@ export interface Company {
   branches: string | null;
   accent: string;
   initials: string;
+  brand_logo_url: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;

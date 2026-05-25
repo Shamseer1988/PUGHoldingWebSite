@@ -111,6 +111,11 @@ class Company(Base, TimestampMixin):
         server_default="from-pug-green-500 to-pug-gold-500",
     )
     initials: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Optional uploaded brand logo. When set, the public site renders
+    # this image instead of the gradient `initials` tile on company
+    # cards, the homepage Group Companies showcase, and the detail
+    # page. Falls back to initials automatically when null.
+    brand_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     email: Mapped[Optional[str]] = mapped_column(String(255))
     address: Mapped[Optional[str]] = mapped_column(String(500))

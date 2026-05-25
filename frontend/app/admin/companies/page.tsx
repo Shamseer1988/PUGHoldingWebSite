@@ -16,6 +16,7 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { EmptyState } from "@/components/admin/empty-state";
 import { ImageUpload } from "@/components/admin/image-upload";
 import { VideoUpload } from "@/components/admin/video-upload";
+import { CompanyLogo } from "@/components/site/company-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,6 @@ import {
 } from "@/components/ui/table";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
 import type { Company, CompanyCategory } from "@/lib/admin/types";
-import { cn } from "@/lib/utils";
 
 interface CompanyFormState {
   slug: string;
@@ -49,6 +49,7 @@ interface CompanyFormState {
   branches: string;
   accent: string;
   initials: string;
+  brand_logo_url: string | null;
   phone: string;
   email: string;
   address: string;
@@ -84,6 +85,7 @@ const EMPTY_FORM: CompanyFormState = {
   branches: "",
   accent: "from-pug-green-500 to-pug-gold-500",
   initials: "",
+  brand_logo_url: null,
   phone: "",
   email: "",
   address: "",
@@ -146,6 +148,7 @@ export default function CompaniesAdminPage() {
       branches: item.branches ?? "",
       accent: item.accent,
       initials: item.initials,
+      brand_logo_url: item.brand_logo_url ?? null,
       phone: item.phone ?? "",
       email: item.email ?? "",
       address: item.address ?? "",
@@ -192,6 +195,7 @@ export default function CompaniesAdminPage() {
         branches: form.branches.trim() || null,
         accent: form.accent.trim(),
         initials: form.initials.trim(),
+        brand_logo_url: form.brand_logo_url || null,
         phone: form.phone.trim() || null,
         email: form.email.trim() || null,
         address: form.address.trim() || null,
@@ -298,15 +302,13 @@ export default function CompaniesAdminPage() {
                 <TableRow key={item.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <span
-                        className={cn(
-                          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-xs font-bold text-white",
-                          item.accent
-                        )}
-                        aria-hidden
-                      >
-                        {item.initials}
-                      </span>
+                      <CompanyLogo
+                        logoUrl={item.brand_logo_url}
+                        initials={item.initials}
+                        accent={item.accent}
+                        name={item.name}
+                        size="xs"
+                      />
                       <div className="min-w-0">
                         <p className="flex items-center gap-1.5 truncate font-medium">
                           <span className="truncate">{item.name}</span>
@@ -479,7 +481,7 @@ function CompanyDrawer({
                   <option value="services">Services</option>
                 </Select>
               </Field>
-              <Field label="Initials" required hint="2–3 chars on the logo tile">
+              <Field label="Initials" required hint="Fallback when no logo">
                 <Input
                   required
                   maxLength={8}
@@ -488,6 +490,18 @@ function CompanyDrawer({
                   disabled={saving}
                 />
               </Field>
+            </div>
+
+            <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
+              <ImageUpload
+                label="Brand logo"
+                value={form.brand_logo_url}
+                onChange={(url) => set("brand_logo_url", url)}
+                disabled={saving}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Optional. When set, this logo replaces the {form.initials || "initials"} tile on the public site, the homepage Group Companies card, and the company detail page. Leave empty to keep the gradient initials tile.
+              </p>
             </div>
 
             <Field label="Short description" hint="Shown on cards">
