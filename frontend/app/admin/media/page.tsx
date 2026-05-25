@@ -7,6 +7,8 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Eye,
+  EyeOff,
   Filter,
   Image as ImageIcon,
   Loader2,
@@ -288,6 +290,15 @@ function MediaCard({
           )}
           {asset.kind}
         </span>
+        {!asset.is_public && (
+          <span
+            title="Hidden from the public Media gallery"
+            className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 backdrop-blur dark:bg-amber-500/20 dark:text-amber-200"
+          >
+            <EyeOff className="h-3 w-3" />
+            Hidden
+          </span>
+        )}
       </div>
       <div className="space-y-1 p-3">
         <p className="truncate text-sm font-medium">
@@ -358,6 +369,7 @@ function EditDialog({
   const [title, setTitle] = React.useState(asset.title ?? "");
   const [altText, setAltText] = React.useState(asset.alt_text ?? "");
   const [tags, setTags] = React.useState(asset.tags ?? "");
+  const [isPublic, setIsPublic] = React.useState(asset.is_public);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -372,6 +384,7 @@ function EditDialog({
           title: title.trim() || null,
           alt_text: altText.trim() || null,
           tags: tags.trim() || null,
+          is_public: isPublic,
         }
       );
       onSaved(updated);
@@ -448,6 +461,69 @@ function EditDialog({
             </code>{" "}
             to make it appear inside that company&rsquo;s Gallery section.
           </p>
+        </div>
+
+        <div
+          className={cn(
+            "flex items-start gap-3 rounded-xl border p-3",
+            isPublic
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : "border-amber-500/40 bg-amber-500/5"
+          )}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+              isPublic
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+            )}
+          >
+            {isPublic ? (
+              <Eye className="h-4 w-4" />
+            ) : (
+              <EyeOff className="h-4 w-4" />
+            )}
+          </span>
+          <div className="flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">
+                  Show in the public photo album
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  When off, this asset is hidden from{" "}
+                  <em>/media</em> and per-company galleries. It stays
+                  usable for hero slides, CMS pages, and other admin
+                  pickers.
+                </p>
+              </div>
+              <label
+                className="relative inline-flex shrink-0 cursor-pointer items-center"
+                htmlFor={`media-public-${asset.id}`}
+              >
+                <input
+                  id={`media-public-${asset.id}`}
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={isPublic}
+                  className="peer sr-only"
+                  checked={isPublic}
+                  onChange={(e) => setIsPublic(e.target.checked)}
+                  disabled={saving}
+                />
+                <span
+                  aria-hidden
+                  className="block h-6 w-11 rounded-full bg-muted transition peer-checked:bg-emerald-500 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute left-0.5 top-1/2 block h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition peer-checked:translate-x-5"
+                />
+              </label>
+            </div>
+          </div>
         </div>
 
         {error && (

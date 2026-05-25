@@ -167,6 +167,72 @@ def test_public_media_endpoint_returns_assets(
     assert rows[0]["kind"] == "image"
 
 
+def test_media_is_public_defaults_true(client, db_session: Session, seed_auth):
+    """A fresh upload is visible in the public album by default."""
+    headers = _admin_auth(client, seed_auth["password"])
+    body = client.post(
+        MEDIA_UPLOAD,
+        headers=headers,
+        files={"file": ("default.png", io.BytesIO(TINY_PNG), "image/png")},
+    ).json()
+    assert body["asset"]["is_public"] is True
+
+
+def test_admin_can_hide_asset_from_public_album(
+    client, db_session: Session, seed_auth
+):
+    """Toggling is_public=False removes the asset from /public/media but
+    keeps it in the admin listing."""
+    headers = _admin_auth(client, seed_auth["password"])
+    body = client.post(
+        MEDIA_UPLOAD,
+        headers=headers,
+        files={"file": ("private.png", io.BytesIO(TINY_PNG), "image/png")},
+    ).json()
+    asset_id = body["asset"]["id"]
+
+    # Public sees it.
+    public_first = client.get("/api/v1/public/media").json()
+    assert any(row["id"] == asset_id for row in public_first)
+
+    # Hide it.
+    patched = client.patch(
+        f"{MEDIA_LIST}/{asset_id}",
+        headers=headers,
+        json={"is_public": False},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["is_public"] is False
+
+    # Public no longer sees it.
+    public_after = client.get("/api/v1/public/media").json()
+    assert not any(row["id"] == asset_id for row in public_after)
+
+    # Admin still does (so it can be re-shown or used as a hero image).
+    admin_view = client.get(MEDIA_LIST, headers=headers).json()
+    assert any(row["id"] == asset_id for row in admin_view)
+
+
+def test_media_banner_urls_round_trip_through_site_settings(
+    client, db_session: Session, seed_auth
+):
+    """The new media-page banner URLs persist and surface on the public
+    site-settings endpoint that the Media page consumes."""
+    headers = _admin_auth(client, seed_auth["password"])
+    resp = client.patch(
+        "/api/v1/admin/cms/site-settings",
+        headers=headers,
+        json={
+            "media_banner_image_url": "/uploads/img/media-hero.jpg",
+            "media_banner_mobile_url": "/uploads/img/media-hero-m.jpg",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    pub = client.get("/api/v1/public/site-settings").json()
+    assert pub["media_banner_image_url"] == "/uploads/img/media-hero.jpg"
+    assert pub["media_banner_mobile_url"] == "/uploads/img/media-hero-m.jpg"
+
+
 def test_media_search_filter(client, db_session: Session, seed_auth):
     headers = _admin_auth(client, seed_auth["password"])
     body = client.post(

@@ -529,6 +529,7 @@ def list_public_media(
     galleries)."""
     stmt = (
         select(MediaAsset)
+        .where(MediaAsset.is_public.is_(True))
         .order_by(desc(MediaAsset.created_at))
         .limit(limit)
     )

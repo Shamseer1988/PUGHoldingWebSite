@@ -52,6 +52,8 @@ const EMPTY_FORM: Form = {
   contact_banner_mobile_url: "",
   news_banner_image_url: "",
   news_banner_mobile_url: "",
+  media_banner_image_url: "",
+  media_banner_mobile_url: "",
   home_about_image_url: "",
   home_about_title: "",
   home_about_body: "",
@@ -569,6 +571,36 @@ export default function SiteSettingsAdminPage() {
                     <ImageUpload
                       value={form.news_banner_mobile_url}
                       onChange={(url) => set("news_banner_mobile_url", url ?? "")}
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 border-t border-border/60 pt-5">
+                <h3 className="text-sm font-semibold">Media page</h3>
+                <p className="text-xs text-muted-foreground">
+                  Banner shown above the &ldquo;Around the group&rdquo; photo
+                  album. Leave both empty to fall back to the brand gradient.
+                </p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Desktop banner</Label>
+                    <ImageUpload
+                      value={form.media_banner_image_url}
+                      onChange={(url) =>
+                        set("media_banner_image_url", url ?? "")
+                      }
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Mobile banner</Label>
+                    <ImageUpload
+                      value={form.media_banner_mobile_url}
+                      onChange={(url) =>
+                        set("media_banner_mobile_url", url ?? "")
+                      }
                       disabled={saving}
                     />
                   </div>

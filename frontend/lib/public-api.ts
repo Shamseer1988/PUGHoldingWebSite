@@ -294,6 +294,8 @@ const FALLBACK_SETTINGS: SiteSettings = {
   contact_banner_mobile_url: null,
   news_banner_image_url: null,
   news_banner_mobile_url: null,
+  media_banner_image_url: null,
+  media_banner_mobile_url: null,
   home_about_image_url: null,
   home_about_title: null,
   home_about_body: null,

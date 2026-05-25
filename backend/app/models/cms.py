@@ -424,6 +424,8 @@ class SiteSetting(Base, TimestampMixin):
     contact_banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
     news_banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
     news_banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
+    media_banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    media_banner_mobile_url: Mapped[Optional[str]] = mapped_column(String(500))
 
     # Homepage "About" + "Founder" sections -------------------------------
     home_about_image_url: Mapped[Optional[str]] = mapped_column(String(500))
@@ -588,6 +590,15 @@ class MediaAsset(Base, TimestampMixin):
     alt_text: Mapped[Optional[str]] = mapped_column(String(500))
     # Comma-separated free-form tags (kept simple — no relation table).
     tags: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # When False the asset is hidden from the public /media gallery
+    # (and per-company galleries). It stays usable everywhere admins
+    # can pick it from — hero slides, CMS pages, leadership photos
+    # — so the toggle is "show in the public photo album" rather than
+    # "soft-delete".
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true", index=True
+    )
 
     uploaded_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")

@@ -425,6 +425,8 @@ class SiteSettingRead(BaseModel):
     contact_banner_mobile_url: Optional[str] = None
     news_banner_image_url: Optional[str] = None
     news_banner_mobile_url: Optional[str] = None
+    media_banner_image_url: Optional[str] = None
+    media_banner_mobile_url: Optional[str] = None
 
     # Homepage extras
     home_about_image_url: Optional[str] = None
@@ -497,6 +499,8 @@ class SiteSettingUpdate(BaseModel):
     contact_banner_mobile_url: Optional[str] = None
     news_banner_image_url: Optional[str] = None
     news_banner_mobile_url: Optional[str] = None
+    media_banner_image_url: Optional[str] = None
+    media_banner_mobile_url: Optional[str] = None
 
     home_about_image_url: Optional[str] = None
     home_about_title: Optional[str] = None
@@ -652,6 +656,7 @@ class MediaAssetRead(BaseModel):
     title: Optional[str] = None
     alt_text: Optional[str] = None
     tags: Optional[str] = None
+    is_public: bool = True
     uploaded_by_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
@@ -663,6 +668,7 @@ class MediaAssetUpdate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     alt_text: Optional[str] = Field(default=None, max_length=500)
     tags: Optional[str] = Field(default=None, max_length=500)
+    is_public: Optional[bool] = None
 
 
 class MediaUploadResult(BaseModel):

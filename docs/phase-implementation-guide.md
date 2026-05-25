@@ -49,6 +49,23 @@ lives at the repo root in
   via the existing `cms.site_settings.update` action. 5
   regression tests in `backend/tests/test_maintenance_mode.py`.
 
+**Media-page banner + per-asset visibility** — migration `20260525_0018`
+- `site_settings.media_banner_image_url` / `media_banner_mobile_url`
+  fill the gap in the page-banner customisation (about / careers /
+  contact / news already had them; media did not). Wired into the
+  admin Settings page and the public `/media` route's `PageHero`.
+- `cms_media_assets.is_public` (bool, default true, indexed) hides
+  individual images / videos from the public Media gallery without
+  deleting them — they stay usable as hero slides, CMS-page images,
+  leadership photos, etc. Admin Media page surfaces a "Hidden" badge
+  on each thumbnail and a toggle in the edit dialog.
+- The public Media component (`components/site/media-gallery.tsx`)
+  was redesigned to a glass-album style: frosted panel, brand-tinted
+  ambient blobs, editorial masonry grid (every 9th tile spans 2×2),
+  per-category coloured hover glows, animated tab pills with counts,
+  and a deeper-shadowed lightbox. 3 new tests in
+  `backend/tests/test_media_and_pages.py`.
+
 ### Phase 18 deliverables
 - [`docs/responsive-qa-matrix.md`](responsive-qa-matrix.md) — manual
   QA matrix covering every public, admin, and HR route at six

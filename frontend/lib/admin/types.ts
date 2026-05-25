@@ -188,6 +188,8 @@ export interface SiteSettings {
   contact_banner_mobile_url: string | null;
   news_banner_image_url: string | null;
   news_banner_mobile_url: string | null;
+  media_banner_image_url: string | null;
+  media_banner_mobile_url: string | null;
 
   // Homepage About + Founder
   home_about_image_url: string | null;
@@ -285,6 +287,14 @@ export interface MediaAsset {
   title: string | null;
   alt_text: string | null;
   tags: string | null;
+  /**
+   * When false the asset is hidden from the public /media gallery
+   * (and per-company galleries). It stays available everywhere else
+   * admins can pick it from — hero slides, CMS pages, leadership
+   * photos — so this is "show in the public photo album" rather than
+   * a soft-delete.
+   */
+  is_public: boolean;
   uploaded_by_id: number | null;
   created_at: string;
   updated_at: string;
