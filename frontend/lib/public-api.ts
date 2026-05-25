@@ -496,13 +496,32 @@ export async function getFeaturedCompaniesSection(): Promise<FeaturedCompaniesSe
  * not by Next.js — so we prefix with `env.apiBaseUrl`'s origin.
  * External URLs (http://, https://) and Next.js public assets
  * (anything else starting with `/`) pass through unchanged.
+ *
+ * LAN-access edge case: when `NEXT_PUBLIC_API_BASE_URL` was built
+ * with a loopback host (localhost / 127.0.0.1) but the page itself
+ * was loaded from a non-loopback host (e.g. another device on the
+ * LAN hitting http://192.168.x.y:3000), the browser would otherwise
+ * try to fetch the image from ITS OWN loopback and fail. In that
+ * scenario we swap the API host for the current page's hostname,
+ * preserving the backend's port — so the image is fetched from the
+ * dev machine over the LAN instead.
  */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+
 export function resolveAssetUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/api/")) {
     try {
       const base = new URL(env.apiBaseUrl);
+      if (
+        typeof window !== "undefined" &&
+        LOOPBACK_HOSTS.has(base.hostname) &&
+        !LOOPBACK_HOSTS.has(window.location.hostname)
+      ) {
+        const port = base.port ? `:${base.port}` : "";
+        return `${window.location.protocol}//${window.location.hostname}${port}${url}`;
+      }
       return `${base.origin}${url}`;
     } catch {
       return url;

@@ -202,13 +202,10 @@ export function Footer({ settings }: FooterProps) {
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-12">
           {/* Brand column — logo, tagline, contact, social */}
           <div ref={brandRef} className="lg:col-span-5">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-3 transition-opacity hover:opacity-80"
-              aria-label={`${settings.site_name} — home`}
-            >
-              <Logo />
-            </Link>
+            {/* `Logo` already renders its own <Link href="/"> so we do
+                NOT wrap it in another anchor — that would produce
+                nested <a> tags and trigger a hydration error. */}
+            <Logo />
 
             <p className="mt-5 max-w-md text-sm leading-relaxed text-muted-foreground">
               {settings.tagline ??
