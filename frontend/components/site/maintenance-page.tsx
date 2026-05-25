@@ -29,21 +29,25 @@ export function MaintenancePage({ settings }: MaintenancePageProps) {
   return (
     <main
       id="main-content"
-      className="relative isolate flex min-h-screen flex-col items-center justify-center overflow-hidden bg-pug-green-950 px-4 py-12 text-white sm:px-6"
+      // Inline style backstops the Tailwind class so the dark background
+      // is guaranteed even if a parent layer or the OS light-mode tries
+      // to bleed through.
+      style={{ backgroundColor: "hsl(145 60% 6%)", colorScheme: "dark" }}
+      className="relative isolate flex min-h-screen flex-col items-center justify-center overflow-hidden bg-pug-green-900 px-4 py-12 text-white sm:px-6"
     >
       {/* Layered background — ambient gradient + soft blobs.
           Pure CSS so the page works with JS disabled. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-pug-green-950 via-pug-green-900 to-pug-green-950"
+        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-pug-green-900 via-pug-green-800 to-pug-green-900"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/4 -z-10 h-[28rem] w-[28rem] rounded-full bg-pug-gold-500/20 blur-3xl"
+        className="pointer-events-none absolute -top-32 left-1/4 -z-10 h-[28rem] w-[28rem] rounded-full bg-pug-gold-500/25 blur-3xl"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-[-10rem] right-[10%] -z-10 h-[22rem] w-[22rem] rounded-full bg-pug-gold-500/10 blur-3xl"
+        className="pointer-events-none absolute bottom-[-10rem] right-[10%] -z-10 h-[22rem] w-[22rem] rounded-full bg-pug-gold-500/15 blur-3xl"
       />
 
       {/* Subtle grid pattern */}
@@ -82,7 +86,7 @@ export function MaintenancePage({ settings }: MaintenancePageProps) {
           />
           <span
             aria-hidden
-            className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-pug-gold-400 to-pug-gold-600 text-pug-green-950 shadow-lg shadow-pug-gold-500/30 sm:h-20 sm:w-20"
+            className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-pug-gold-400 to-pug-gold-600 text-pug-green-900 shadow-lg shadow-pug-gold-500/30 sm:h-20 sm:w-20"
           >
             <Wrench
               className="h-7 w-7 sm:h-9 sm:w-9 motion-safe:animate-[spin_8s_linear_infinite]"
