@@ -534,6 +534,11 @@ function CompanyHighlight({
       className={cn(
         // Glassmorphism card — same surface language as the rest of
         // the public site. Light/dark via existing tokens.
+        //
+        // Hidden under md (< 768 px) — the description + brand-logos
+        // marquee feels redundant alongside the company illustration
+        // on phone widths. Tablet and up still see it.
+        "hidden md:block",
         "relative overflow-hidden rounded-3xl border border-pug-gold-500/15 bg-white/70 p-5 shadow-[0_4px_30px_-18px_rgba(15,42,28,0.18)] backdrop-blur-sm sm:p-6",
         "dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_4px_30px_-18px_rgba(0,0,0,0.6)]",
         className
