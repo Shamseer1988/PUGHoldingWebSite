@@ -657,6 +657,11 @@ class MediaAssetRead(BaseModel):
     alt_text: Optional[str] = None
     tags: Optional[str] = None
     is_public: bool = True
+    # Resized WebP + JPEG URLs keyed by variant name. Shape:
+    # {"webp": {"thumb": ..., "medium": ..., "large": ...},
+    #  "jpg":  {"thumb": ..., "medium": ..., "large": ...}}
+    # NULL when optimization was skipped (videos, SVG, broken files).
+    variants: Optional[dict] = None
     uploaded_by_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime

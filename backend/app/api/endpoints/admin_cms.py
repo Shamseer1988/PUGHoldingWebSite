@@ -832,10 +832,21 @@ async def upload_image(
     # Public URL — served by the StaticFiles mount in app/main.py.
     url = f"/api/v1/uploads/cms/{filename}"
 
+    # Resize + WebP variants so the public site doesn't ship the
+    # full-res original. See app/services/image_optimization.py.
+    from app.services.image_optimization import optimize_image
+
+    variant_set = optimize_image(
+        target,
+        public_base_url="/api/v1/uploads/cms",
+        mime_type=file.content_type,
+    )
+    variants_payload = variant_set.as_dict() if variant_set is not None else None
+
     # Phase 5 follow-up — persist a MediaAsset row so the gallery can
     # list this file. Dedupe by file_hash; if a row already exists,
     # return it instead of creating a duplicate.
-    _upsert_media_asset(
+    asset, _deduped = _upsert_media_asset(
         db,
         kind=MEDIA_KIND_IMAGE,
         filename=filename,
@@ -846,6 +857,9 @@ async def upload_image(
         file_hash=content_hash,
         uploaded_by_id=user.id,
     )
+    if variants_payload is not None and asset.variants != variants_payload:
+        asset.variants = variants_payload
+        db.flush()
 
     ctx = get_request_context(request)
     record_audit(
@@ -971,6 +985,21 @@ async def upload_media(
         target.write_bytes(data)
     url = f"/api/v1/uploads/cms/{filename}"
 
+    # Generate WebP + JPEG variants for images so the public site
+    # serves a fraction of the original byte size. Video uploads
+    # and SVGs skip this step (the helper returns None).
+    variants_payload: Optional[dict] = None
+    if kind == MEDIA_KIND_IMAGE:
+        from app.services.image_optimization import optimize_image
+
+        variant_set = optimize_image(
+            target,
+            public_base_url="/api/v1/uploads/cms",
+            mime_type=content_type,
+        )
+        if variant_set is not None:
+            variants_payload = variant_set.as_dict()
+
     asset, deduped = _upsert_media_asset(
         db,
         kind=kind,
@@ -982,6 +1011,13 @@ async def upload_media(
         file_hash=content_hash,
         uploaded_by_id=user.id,
     )
+
+    # Persist variants whether or not this is a dedup hit — re-running
+    # the optimizer for a deduped file is harmless and lets us pick up
+    # variants for assets uploaded before the pipeline existed.
+    if variants_payload is not None and asset.variants != variants_payload:
+        asset.variants = variants_payload
+        db.flush()
 
     if not deduped:
         ctx = get_request_context(request)

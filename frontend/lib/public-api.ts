@@ -16,6 +16,7 @@ import type {
   ContactMessage,
   HeroSlide,
   LeadershipMessage,
+  MediaVariants,
   NewsItem,
   NewsletterSubscriber,
   SitePage,
@@ -139,6 +140,7 @@ export interface PublicMediaAsset {
   title: string | null;
   alt_text: string | null;
   tags: string | null;
+  variants: MediaVariants | null;
   created_at: string;
   updated_at: string;
 }
