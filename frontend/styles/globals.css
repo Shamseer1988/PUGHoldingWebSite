@@ -3,72 +3,82 @@
 @tailwind utilities;
 
 /* ============================================================
- * shadcn/ui CSS variables - light + dark themes.
- * Colours follow the slate base palette and are tuned for the
- * premium glassmorphism look defined in the project brief.
+ * Paris United Group Holding — brand theme.
+ *
+ * Palette anchored to the logo:
+ *   Primary  : deep forest green ("PARIS UNITED GROUP" wordmark)
+ *   Accent   : warm tan / gold   (mandala symbol + "HOLDING" line)
+ *   Surfaces : warm cream in light mode, deep emerald-charcoal in dark
  * ============================================================ */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Surfaces */
+    --background: 40 30% 98%;          /* warm cream-white */
+    --foreground: 145 35% 12%;          /* near-black with green undertone */
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 145 35% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 145 35% 12%;
 
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    /* Brand primary (deep forest green from the wordmark) */
+    --primary: 145 45% 20%;
+    --primary-foreground: 40 30% 98%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Brand accent (warm tan / gold from the mandala) */
+    --accent: 36 45% 55%;
+    --accent-foreground: 145 35% 12%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Secondary surface (subtle cream) */
+    --secondary: 40 25% 94%;
+    --secondary-foreground: 145 35% 12%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Muted surface */
+    --muted: 40 20% 95%;
+    --muted-foreground: 145 12% 38%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 70% 45%;
+    --destructive-foreground: 40 30% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 40 25% 88%;
+    --input: 40 25% 88%;
+    --ring: 145 45% 28%;
 
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 145 28% 7%;
+    --foreground: 40 30% 95%;
 
-    --card: 222.2 84% 6.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 145 28% 9%;
+    --card-foreground: 40 30% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 145 28% 7%;
+    --popover-foreground: 40 30% 95%;
 
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    /* Lighter green in dark mode so it pops on dark surfaces */
+    --primary: 140 55% 55%;
+    --primary-foreground: 145 35% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    /* Slightly warmer gold in dark mode */
+    --accent: 36 60% 65%;
+    --accent-foreground: 145 35% 10%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --secondary: 145 20% 14%;
+    --secondary-foreground: 40 30% 95%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --muted: 145 20% 14%;
+    --muted-foreground: 40 12% 65%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 40 30% 95%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --border: 145 20% 16%;
+    --input: 145 20% 16%;
+    --ring: 140 55% 50%;
   }
 }
 
@@ -82,26 +92,416 @@
     @apply bg-background text-foreground;
   }
 
-  /* Phase 1 mobile safety net: prevent the horizontal scroll
-   * issue called out in the design brief. */
+  /* Phase 3 mobile safety net: prevent horizontal scroll across all
+   * breakpoints (tested at 360 / 390 / 430 / 768 / 1024 / 1440 px).
+   *
+   * IMPORTANT: use `overflow-x: clip` rather than `hidden`. `hidden`
+   * creates a scroll-container context on <html>/<body> which silently
+   * breaks every `position: sticky` element on the page. `clip` blocks
+   * horizontal overflow the same way without creating that context.
+   *
+   * Fallback to `hidden` for older browsers (~Safari < 16). They lose
+   * sticky on the showcase but keep the no-horizontal-scroll guarantee.
+   */
   html,
   body {
     max-width: 100%;
     overflow-x: hidden;
+  }
+  @supports (overflow: clip) {
+    html,
+    body {
+      overflow-x: clip;
+    }
   }
 
   body {
     @apply antialiased min-h-screen;
     text-rendering: optimizeLegibility;
   }
+
+  img,
+  video,
+  iframe,
+  canvas,
+  svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  html.transition * {
+    transition: background-color 200ms ease, color 200ms ease,
+      border-color 200ms ease;
+  }
 }
 
 @layer utilities {
+  /* Glass surface that picks up the warm/cream brand background. */
   .glass {
-    @apply bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-xl;
+    @apply backdrop-blur-xl border shadow-xl;
+    background-color: hsl(var(--card) / 0.7);
+    border-color: hsl(var(--border) / 0.6);
+  }
+  .dark .glass {
+    background-color: hsl(var(--card) / 0.55);
   }
 
   .glass-card {
     @apply glass rounded-2xl;
+  }
+
+  /* Soft brand-coloured decorative blobs usable inside hero / sections. */
+  .bg-decor::before,
+  .bg-decor::after {
+    content: "";
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: -1;
+  }
+  .bg-decor::before {
+    top: -10%;
+    left: -10%;
+    width: 18rem;
+    height: 18rem;
+    background-color: hsl(var(--primary) / 0.25);
+  }
+  .bg-decor::after {
+    bottom: -10%;
+    right: -10%;
+    width: 20rem;
+    height: 20rem;
+    background-color: hsl(var(--accent) / 0.22);
+  }
+
+  /* Inline brand gradient text helper. */
+  .brand-text {
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--primary)),
+      hsl(var(--accent))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* ---------- Hero slider — cute + modern accents ---------------------- */
+
+  /* Brand-gold to ivory gradient text used on the last 1–2 headline
+     words. Wider gradient size so the slow shift below feels organic. */
+  .hero-gradient-text {
+    background: linear-gradient(
+      100deg,
+      #f5e8c3 0%,
+      #e6c270 30%,
+      #ffffff 55%,
+      #e6c270 80%,
+      #f5e8c3 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-gradient-shift 9s ease-in-out infinite;
+  }
+
+  @keyframes hero-gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+  }
+
+  /* Brand-gold shifting text used on body-section headings (e.g.
+     "Paris United Group" inside "A snapshot of …"). Same shimmer as
+     the hero, but tuned to stay legible on both the warm cream light
+     surface and the deep emerald dark surface — gold-dominant in
+     light mode, brightened with an ivory mid-stop in dark mode.
+
+     Uses HSL stops sourced from the existing pug-gold-* palette so
+     the colour stays in lockstep with the brand tokens. */
+  .brand-gold-shift-text {
+    background: linear-gradient(
+      100deg,
+      hsl(32 45% 36%) 0%,
+      hsl(36 48% 55%) 30%,
+      hsl(36 60% 65%) 55%,
+      hsl(36 48% 55%) 80%,
+      hsl(32 45% 36%) 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-gradient-shift 9s ease-in-out infinite;
+  }
+  .dark .brand-gold-shift-text {
+    background: linear-gradient(
+      100deg,
+      hsl(36 50% 60%) 0%,
+      hsl(36 70% 75%) 30%,
+      hsl(40 80% 92%) 55%,
+      hsl(36 70% 75%) 80%,
+      hsl(36 50% 60%) 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* Reusable premium gold accent for section headings.
+     Used on the highlighted closing words of the homepage section
+     titles ("...one group", "...by excellence", "...Paris United
+     Group", "...updates", "...one trusted group."). Shares the
+     exact same animated gradient-shifting gold treatment as
+     `.brand-gold-shift-text` (the "Paris United Group" wordmark in
+     the hero / Business Overview heading) — same shimmer, same
+     palette, so the accent style reads as one consistent brand
+     voice across the homepage.
+
+     No pseudo-element underline, no inline-block: the accent
+     renders as inline text with `background-clip: text`, which
+     keeps it on the exact baseline of the surrounding heading and
+     wraps naturally without reserving extra padding. */
+  .section-heading__accent {
+    background: linear-gradient(
+      100deg,
+      hsl(32 45% 36%) 0%,
+      hsl(36 48% 55%) 30%,
+      hsl(36 60% 65%) 55%,
+      hsl(36 48% 55%) 80%,
+      hsl(32 45% 36%) 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-gradient-shift 9s ease-in-out infinite;
+  }
+  .dark .section-heading__accent {
+    background: linear-gradient(
+      100deg,
+      hsl(36 50% 60%) 0%,
+      hsl(36 70% 75%) 30%,
+      hsl(40 80% 92%) 55%,
+      hsl(36 70% 75%) 80%,
+      hsl(36 50% 60%) 100%
+    );
+    background-size: 220% 220%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* Floating accent blobs that bob softly behind the hero. Two
+     variants with slightly different rhythms so they never sync up. */
+  .hero-orb {
+    animation: hero-orb-float 8s ease-in-out infinite;
+  }
+  .hero-orb--gold {
+    animation-duration: 9s;
+  }
+  .hero-orb--green {
+    animation-duration: 11s;
+    animation-delay: -3s;
+  }
+  @keyframes hero-orb-float {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50%      { transform: translate3d(0, -22px, 0); }
+  }
+
+  /* Scroll-hint mouse outline with a dropping dot. */
+  .hero-scroll-mouse {
+    animation: hero-mouse-pulse 2.6s ease-in-out infinite;
+  }
+  .hero-scroll-dot {
+    animation: hero-scroll-dot 1.8s ease-in-out infinite;
+  }
+  @keyframes hero-scroll-dot {
+    0%   { transform: translateY(0); opacity: 0; }
+    35%  { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(10px); opacity: 0; }
+  }
+  @keyframes hero-mouse-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.18); }
+    50%      { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
+  }
+
+  /* Honour the user's motion preference — kill every hero CSS animation
+     plus any other shimmer that reuses the hero keyframes. */
+  @media (prefers-reduced-motion: reduce) {
+    .hero-gradient-text,
+    .brand-gold-shift-text,
+    .section-heading__accent,
+    .hero-orb,
+    .hero-scroll-mouse,
+    .hero-scroll-dot,
+    .brand-marquee__track,
+    .group-media-shine::after {
+      animation: none !important;
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Group Companies — brand / service marquee strip
+     ----------------------------------------------------------------
+     Pure CSS infinite loop. The track contains the chip list twice
+     so translating by -50% lands on the second copy in exactly the
+     position of the first one (seamless). Hovering pauses the loop,
+     and a soft mask fades the leftmost/rightmost edges so chips
+     glide in and out instead of popping. */
+  .brand-marquee {
+    position: relative;
+    overflow: hidden;
+    --marquee-fade: 32px;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black var(--marquee-fade),
+      black calc(100% - var(--marquee-fade)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black var(--marquee-fade),
+      black calc(100% - var(--marquee-fade)),
+      transparent 100%
+    );
+  }
+  .brand-marquee__track {
+    display: inline-flex;
+    gap: 0.5rem;
+    /* Use w-max so the inline track is exactly its content width,
+       which makes the -50% translate land cleanly between copies. */
+    width: max-content;
+    animation: brand-marquee-scroll 26s linear infinite;
+  }
+  .brand-marquee:hover .brand-marquee__track,
+  .brand-marquee:focus-within .brand-marquee__track {
+    animation-play-state: paused;
+  }
+  .brand-marquee__chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.85rem;
+    border-radius: 9999px;
+    border: 1px solid hsl(var(--border) / 0.75);
+    background: hsl(var(--background) / 0.6);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    color: hsl(var(--muted-foreground));
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    transition: color 200ms ease, transform 200ms ease,
+      border-color 200ms ease, background 200ms ease;
+    filter: grayscale(1);
+  }
+  .brand-marquee__chip:hover {
+    color: hsl(var(--foreground));
+    border-color: hsl(36 60% 55% / 0.55);
+    background: hsl(36 60% 55% / 0.08);
+    transform: scale(1.04);
+    filter: grayscale(0);
+  }
+  /* Image variant — taller chip, no inner text padding, transparent
+     background so the logo reads as a stand-alone mark. Logos render
+     in full colour by default (override the grayscale that text chips
+     use) and grow slightly on hover. */
+  .brand-marquee__chip--image {
+    padding: 0.5rem 1rem;
+    background: hsl(var(--card));
+    border-color: hsl(var(--border) / 0.85);
+    filter: none;
+  }
+  .brand-marquee__chip--image:hover {
+    background: hsl(var(--card));
+    filter: none;
+  }
+  .brand-marquee__logo {
+    display: block;
+    height: 48px;
+    width: auto;
+    max-width: 144px;
+    object-fit: contain;
+    object-position: center;
+  }
+  @media (min-width: 640px) {
+    .brand-marquee__logo {
+      height: 56px;
+      max-width: 168px;
+    }
+  }
+  @keyframes brand-marquee-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+
+  /* ----------------------------------------------------------------
+     Group Companies media — soft light sweep used by GSAP during a
+     company-change transition. The animation only runs when the
+     parent element has `.is-sweeping` (set + removed by the React
+     code). Pure decoration; layout-safe (uses transform + opacity).
+     ---------------------------------------------------------------- */
+  .group-media-shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .group-media-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      115deg,
+      transparent 30%,
+      hsl(36 60% 70% / 0.18) 50%,
+      transparent 70%
+    );
+    transform: translateX(-120%);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+  .group-media-shine.is-sweeping::after {
+    animation: group-media-sweep 850ms ease-out;
+  }
+  @keyframes group-media-sweep {
+    0%   { transform: translateX(-120%); opacity: 0; }
+    35%  { opacity: 1; }
+    100% { transform: translateX(120%);  opacity: 0; }
+  }
+
+  /* ----------------------------------------------------------------
+     Footer top accent — slow gold shimmer that sweeps across the
+     1px hairline at the top of the footer. Pure CSS so it doesn't
+     compete with the GSAP scroll-reveal that animates the columns.
+     ---------------------------------------------------------------- */
+  .footer-shimmer {
+    animation: footer-shimmer-sweep 6s ease-in-out infinite;
+  }
+
+  @keyframes footer-shimmer-sweep {
+    0%   { transform: translateX(0%);   opacity: 0; }
+    20%  { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { transform: translateX(400%); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .footer-shimmer { animation: none; }
   }
 }

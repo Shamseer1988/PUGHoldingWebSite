@@ -17,37 +17,362 @@ lives at the repo root in
 | Phase | Title                                            | Status      |
 | ----- | ------------------------------------------------ | ----------- |
 | 1     | Project foundation                               | **Done**    |
-| 2     | Authentication, roles, separate logins           | Planned     |
-| 3     | Public website UI foundation                     | Planned     |
-| 4     | Public pages (dummy content)                     | Planned     |
-| 5     | Website admin content management                 | Planned     |
-| 6     | Public website backend API integration           | Planned     |
-| 7     | HR ATS database and core models                  | Planned     |
-| 8     | HR ATS admin dashboard                           | Planned     |
-| 9     | Job opening management                           | Planned     |
-| 10    | Candidate application and CV upload              | Planned     |
-| 11    | CV parsing and data extraction                   | Planned     |
-| 12    | Candidate scoring engine                         | Planned     |
-| 13    | HR AI candidate review                           | Planned     |
-| 14    | Candidate workflow pipeline                      | Planned     |
-| 15    | Interview management                             | Planned     |
-| 16    | HR advanced search, filters, reports, export     | Planned     |
-| 17    | Public AI assistant                              | Planned     |
-| 18    | Responsive UI polish and mobile testing          | Planned     |
-| 19    | Security, audit, validation, and testing         | Planned     |
-| 20    | Deployment documentation and final package       | Planned     |
+| 2     | Authentication, roles, separate logins           | **Done**    |
+| 3     | Public website UI foundation                     | **Done**    |
+| 4     | Public pages (dummy content)                     | **Done**    |
+| 5     | Website admin content management                 | **Done**    |
+| 6     | Public website backend API integration           | **Done**    |
+| 7     | HR ATS database and core models                  | **Done**    |
+| 8     | HR ATS admin dashboard                           | **Done**    |
+| 9     | Job opening management                           | **Done**    |
+| 10    | Candidate application and CV upload              | **Done**    |
+| 11    | CV parsing and data extraction                   | **Done**    |
+| 12    | Candidate scoring engine                         | **Done**    |
+| 13    | HR AI candidate review                           | **Done**    |
+| 14    | Candidate workflow pipeline                      | **Done**    |
+| 15    | Interview management                             | **Done**    |
+| 16    | HR advanced search, filters, reports, export     | **Done**    |
+| 17    | Public AI assistant                              | **Done**    |
+| 18    | Responsive UI polish and mobile testing          | **Done**    |
+| 19    | Security, audit, validation, and testing         | **Done**    |
+| 20    | Deployment documentation and final package       | **Done**    |
 
-## Phase 1 deliverables (this commit)
+### Post-launch features
 
-- Monorepo with `/backend`, `/frontend`, `/docs`.
-- Backend: FastAPI app factory, Pydantic v2 settings, SQLAlchemy 2 engine
-  and base class, Alembic config, health-check endpoint, smoke tests,
-  `requirements.txt`, `.env.example`, `run.py`.
-- Frontend: Next.js 14 App Router with TypeScript, Tailwind, shadcn
-  conventions (`components.json`, CSS variables), Framer Motion,
-  Lucide, theme provider, Phase 1 landing splash that pings the
-  backend health endpoint, placeholders for `/admin` and `/hr`.
-- Documentation set under `/docs`.
+**Under-construction / maintenance mode** — `site_settings.maintenance_mode_enabled`
+- Toggle + custom message + ETA in **Site settings → Site status**.
+- When enabled, every public route renders a single branded
+  maintenance page (`components/site/maintenance-page.tsx`). The
+  admin and HR portals stay reachable so the team can turn it
+  back off.
+- Migration `20260525_0017_maintenance_mode.py`. Audit-logged
+  via the existing `cms.site_settings.update` action. 5
+  regression tests in `backend/tests/test_maintenance_mode.py`.
+
+**Editable site pages (universal hero / banner / sections CMS)** — migration `20260525_0019`
+- New `cms_site_pages` table with one row per predefined route
+  (about, companies, careers, contact, news, media). Hero (eyebrow /
+  title / description), banner (desktop / mobile / video), `sections`
+  (free-form JSON keyed by section name), and SEO overrides.
+- Backend endpoints:
+  - `GET /api/v1/public/site-pages/{key}` — public read used by the
+    Next.js routes
+  - `GET /api/v1/admin/cms/site-pages` — admin list
+  - `GET /api/v1/admin/cms/site-pages/{key}` — admin read
+  - `PUT /api/v1/admin/cms/site-pages/{key}` — admin upsert (audited
+    via `cms.site_page.update`)
+- Migration seeds each row with the copy that was previously
+  hardcoded in `frontend/lib/dummy-data/site-content.ts` plus the
+  matching Next.js modules, and copies the existing
+  `site_settings.<page>_banner_*` URLs into the new table so nothing
+  goes missing on upgrade. The deprecated banner columns stay in
+  the DB as a safety net.
+- Admin UI:
+  - `/admin/pages` shows a **Site pages** card grid (one card per
+    predefined route) above the existing **Custom pages** CRUD.
+  - `/admin/pages/site/[key]` is a dedicated editor with Hero,
+    Banner, Sections, and SEO cards. The Sections card is driven
+    by a registry (`app/admin/pages/site-pages-config.ts`) — About
+    surfaces Vision / Mission / History intro / Leadership header
+    editors; other pages skip it.
+  - The **Page banners** card was removed from `/admin/settings`
+    (the form filters out banner keys so saving Settings no longer
+    overwrites the per-page banner data).
+- Public pages (about, companies, careers, contact, news, media)
+  fetch their `getSitePage(key)` row and use it for the hero,
+  banner, and named sections. Every field falls back to the
+  bundled default so the site never renders blank.
+- 7 new tests in `backend/tests/test_site_pages.py`.
+
+**Media-page banner + per-asset visibility** — migration `20260525_0018`
+- `site_settings.media_banner_image_url` / `media_banner_mobile_url`
+  fill the gap in the page-banner customisation (about / careers /
+  contact / news already had them; media did not). Wired into the
+  admin Settings page and the public `/media` route's `PageHero`.
+- `cms_media_assets.is_public` (bool, default true, indexed) hides
+  individual images / videos from the public Media gallery without
+  deleting them — they stay usable as hero slides, CMS-page images,
+  leadership photos, etc. Admin Media page surfaces a "Hidden" badge
+  on each thumbnail and a toggle in the edit dialog.
+- The public Media component (`components/site/media-gallery.tsx`)
+  was redesigned to a glass-album style: frosted panel, brand-tinted
+  ambient blobs, editorial masonry grid (every 9th tile spans 2×2),
+  per-category coloured hover glows, animated tab pills with counts,
+  and a deeper-shadowed lightbox. 3 new tests in
+  `backend/tests/test_media_and_pages.py`.
+
+### Phase 18 deliverables
+- [`docs/responsive-qa-matrix.md`](responsive-qa-matrix.md) — manual
+  QA matrix covering every public, admin, and HR route at six
+  breakpoints (360 / 390 / 430 / 768 / 1024 / 1440 px) plus a
+  cross-cutting checklist (no horizontal scroll, touch targets ≥
+  44 px, sticky-CTA + iOS Safe Area, dark mode, reduced motion)
+  and a device-compatibility table.
+- `frontend/components/ui/button.tsx` — default/small/large/icon
+  button sizes now ship with phone-first heights (`h-11/h-10/h-12/
+  h-11 w-11`) that step down to the pre-existing desktop density
+  via `sm:`. Every button in the app now hits the iOS 44 × 44 px
+  minimum touch target on phones without losing desktop density.
+
+### Phase 19 deliverables
+**Rate limiting on every public POST**
+- New `app/core/rate_limit.py` — sliding-window per-IP limiter
+  exposed as four FastAPI dependencies. Limits:
+  - `/api/v1/contact` — 5/minute, 30/hour
+  - `/api/v1/newsletter` — 3/minute, 20/hour
+  - `/api/v1/candidate-applications` — 3/minute, 15/hour
+  - `/api/v1/ai-assistant/ask` — 10/minute, 60/hour
+- Honors `X-Forwarded-For` so the real client IP is used behind
+  Cloudflare + Nginx. Returns `429` with `Retry-After`.
+- Tunable via `RATE_LIMIT_ENABLED` env var (used by tests).
+- Implementation is in-tree (no extra dependency); for a multi-
+  worker production deployment, swap the in-memory dict for Redis
+  — the rest of the surface stays the same.
+
+**Explicit security regression tests** ([`tests/test_security.py`](../backend/tests/test_security.py), 16 tests)
+- **SQL injection** — 7 OWASP payloads pumped through query
+  params, path params, JSON bodies, and the login endpoint.
+- **XSS** — verifies user content stored verbatim, returned as
+  JSON, and never served as `text/html`.
+- **CSRF** — verifies the auth scheme remains bearer-only
+  (no `Set-Cookie` on login responses, cookie-only auth rejected).
+- **Rate limiting** — verifies 429s fire at the limit, `Retry-After`
+  header is set, buckets are per-endpoint, and `X-Forwarded-For` is
+  used as the client key.
+
+**Operator-facing privacy / retention doc**
+- [`docs/privacy-and-data-retention.md`](privacy-and-data-retention.md)
+  — categories collected, lawful basis under GDPR Art. 6,
+  retention schedule (24 mo contact, 36 mo candidate, 90 d AI
+  queries, etc.), DSR handling procedure (access / erasure /
+  rectification within 30 days), operator commitments
+  (encryption, audit log, breach notification, sub-processor
+  list), and a tracked list of implementation gaps to close
+  (purge job, DSR script, cookie banner).
+- The user-facing privacy page at `/privacy-policy` already exists
+  and was not modified.
+
+### Phase 20 deliverables
+- [`docs/deployment-guide.md`](deployment-guide.md) — full production
+  walkthrough covering Ubuntu 22.04 server prep, PostgreSQL install +
+  hardening, backend deploy under gunicorn + uvicorn workers, Next.js
+  production service, Nginx reverse proxy with TLS, Cloudflare DNS +
+  Origin Certificate SSL, backup + restore runbook, log inspection,
+  rolling deploy + rollback procedures, and a 12-row troubleshooting
+  matrix.
+- [`deploy/systemd/pug-backend.service`](../deploy/systemd/pug-backend.service)
+  — sandboxed systemd unit for the API.
+- [`deploy/systemd/pug-frontend.service`](../deploy/systemd/pug-frontend.service)
+  — sandboxed systemd unit for Next.js.
+- [`deploy/nginx/pug-holding.conf`](../deploy/nginx/pug-holding.conf)
+  — Nginx site config: 80 → 443 redirect, TLS, `/api/v1/` → FastAPI,
+  `/_next/static/` cached, `/api/v1/uploads/` served off disk,
+  20 MB upload cap, security headers, gzip.
+- [`deploy/scripts/pg_backup.sh`](../deploy/scripts/pg_backup.sh) —
+  daily `pg_dump` with 14-day retention and an optional S3 hook.
+- [`deploy/logrotate/pug`](../deploy/logrotate/pug) — `logrotate`
+  config for `/var/log/pug/`.
+- [`deploy/README.md`](../deploy/README.md) — index pointing each
+  artifact at its destination on the server.
+
+## Phase 8 deliverables
+
+**Backend (dashboard + audit endpoints)**
+
+- `GET /api/v1/hr/dashboard` — aggregated read-only summary:
+  - **13 KPI cards**: open jobs, total candidates, applications (total
+    + this month), AI reviewed, AI recommended, HR review pending,
+    shortlisted, rejected, selected, joined, pending interviews,
+    pending offers.
+  - **Pipeline funnel**: canonical 10-stage funnel (`cv_received` →
+    `joined`) returned even when empty so the UI renders the shape.
+  - **Applications-per-month** trend (Python-side bucketing so SQLite
+    and Postgres share one code path).
+  - **Candidates by job** (top 10) + **by department** (top 10) rollups.
+  - **Pending interviews** (next 10 scheduled, joined to candidate +
+    job + interviewer) and **pending offers** (draft/sent, joined to
+    candidate + job).
+- `GET /api/v1/hr/audit-logs` — HR-scoped slice of the shared
+  `audit_logs` table with `action_prefix` filter.
+- Both routes mounted behind `require_hr_admin` — a website-admin
+  token is rejected with 403.
+- **5 new tests (58 total)** — scope guard, empty-state aggregations,
+  seeded-data aggregations, interview filtering (excludes past +
+  cancelled), unauthenticated rejection.
+
+**Frontend (HR shell + dashboard + stubs)**
+
+- New shell components (`components/hr/`):
+  - `HrShell` mirrors `AdminShell` but routes through `AuthGuard`
+    against the **hr** scope (separate localStorage slot from admin).
+  - `HrSidebar` with HR-branded "HR" pill on the logo, 4 nav groups
+    (Overview / Recruitment / Insights / System), and "Soon" badges
+    on modules deferred to later phases.
+  - `HrTopbar` + `HrEmptyState` helpers.
+- New typed client + types: `lib/hr/api.ts`, `lib/hr/types.ts`.
+- **`/hr` dashboard** — 13 KPI cards in a responsive grid, the pipeline
+  funnel (custom bar list), the monthly-trend area chart (Recharts),
+  pending interviews + pending offers tables with empty-state cards,
+  and two "applications by job / department" bar lists. All
+  brand-coloured (`pug-green-*` + `pug-gold-*`).
+- **`/hr/audit`** — HR-scoped audit log viewer with action-prefix
+  filter.
+- Stub pages with `HrEmptyState` cards for `/hr/jobs`, `/hr/candidates`,
+  `/hr/interviews`, `/hr/offers`, `/hr/reports`, `/hr/users` — each
+  explicitly labels which phase fills it in.
+
+The dashboard correctly shows empty / zero values today because
+candidates and interviews don't exist yet — they land in Phase 10 and
+Phase 15.
+
+## Phase 7 deliverables
+
+14 new SQLAlchemy models covering every HR ATS table called out in the
+master prompt — and the Alembic migration that creates them.
+
+**Tables (all `hr_*`)**
+
+- `hr_job_openings` — job postings (slug, title, department, division,
+  company, location, employment_type, experience range, salary range,
+  visa / nationality / language / notice preferences, description,
+  responsibilities, requirements, required_skills, preferred_skills,
+  status, posted_at, closed_at, created_by_id).
+- `hr_candidates` — master candidate record (name, email, mobile,
+  nationality, current location / designation / company, experience
+  totals incl. GCC + Qatar, expected_salary, notice_period, visa_status,
+  availability, blacklist + archive flags, source).
+- `hr_candidate_documents` — CV files (filename, path, mime_type, size,
+  sha256 hash for dedup, is_primary, uploaded_by).
+- `hr_candidate_extracted_data` — 1:1 with candidate; skills, education
+  (JSON), certifications (JSON), languages (JSON), previous_companies
+  (JSON), full_text, parser_version.
+- `hr_candidate_tags` — many tags per candidate, unique within candidate.
+- `hr_candidate_notes` — free-form HR notes.
+- `hr_candidate_job_applications` — the link table carrying pipeline
+  state (status, applied_at, source, cover_letter,
+  last_rejection_reason). Unique on (candidate_id, job_opening_id).
+- `hr_candidate_scores` — 1:1 with application; total /100, manual
+  override fields.
+- `hr_candidate_score_breakdowns` — 1:1 with score; one column per
+  weighted component (relevant_experience /25, required_skills /20,
+  education /10, industry_experience /10, gcc_qatar_experience /10,
+  salary_fit /10, notice_period /5, visa_status /5, language_match /5),
+  plus a JSON `notes` map for per-component explanations.
+- `hr_candidate_ai_reviews` — 1:1 with application; summary, strengths,
+  weaknesses, missing_information, risk_points, suggested_questions,
+  recommendation, model_name, token counts, raw_response JSON,
+  generated_at.
+- `hr_candidate_status_history` — pipeline state-change audit
+  (old_status, new_status, changed_by, remarks, rejection_reason,
+  blacklist_approval, created_at).
+- `hr_interviews` — round_name, round_number, scheduled_at, duration,
+  mode, location_or_link, interviewer_id, status, created_by_id.
+- `hr_interview_feedback` — rating, recommendation, free-form feedback,
+  per-axis sub-scores (technical, communication, cultural fit).
+- `hr_offer_tracking` — 1:1 with application; salary_offered,
+  joining_date, benefits_summary, status, sent_at, responded_at,
+  decline_reason.
+
+**Constants**
+
+Status / mode strings exposed as Python constants in `app.models.hr_ats`
+so every later phase shares the same vocabulary
+(`STATUS_*`, `JOB_STATUS_*`, `INTERVIEW_*`, `OFFER_*`, `AI_*`,
+`SCORE_WEIGHTS`). `SCORE_WEIGHTS` totals 100 (asserted at import time).
+
+**Cross-cutting**
+
+The existing `audit_logs` table (Phase 2) is reused for HR-scoped audit
+entries — every HR write action will populate it with `scope='hr'`
+and rich `details` JSON. No separate `hr_audit_logs` table.
+
+**Migration**
+
+`20260524_0001_phase7_hr_ats_tables` creates all 14 tables in dependency
+order, with FK constraints, the (candidate_id, job_opening_id) unique
+constraint, the (candidate_id, tag) unique constraint, and indexes on
+every column later phases will filter on (status, scheduled_at, slug,
+email, mobile, file_hash, etc.).
+
+**Seed**
+
+`python -m app.scripts.seed_hr` upserts the eight job openings the
+Phase 4 careers page already shows on the public site. Phase 9 will
+swap the public careers page to read from this table.
+
+**Tests (12 new, 53 total)**
+
+- `SCORE_WEIGHTS` sums to 100.
+- Job opening round-trip + slug uniqueness.
+- Candidate with documents, extracted_data, tags, notes round-trip.
+- Cascade delete on candidate removes children.
+- (candidate_id, tag) unique constraint.
+- Application unique on (candidate_id, job_opening_id).
+- Score + breakdown + AI review round-trip.
+- Status history insertion.
+- Interview + feedback round-trip.
+- Offer round-trip + uniqueness per application.
+
+## Phase 6 deliverables
+
+**Backend (new public router).** A 10-endpoint unauthenticated router
+at `/api/v1/public/*`:
+
+- `GET  /public/hero-slides`           active only, ordered.
+- `GET  /public/companies`             active only, optional `?category=`.
+- `GET  /public/companies/{slug}`      active only, 404 for hidden.
+- `GET  /public/leadership`            active only, ordered.
+- `GET  /public/news`                  published only, optional `?featured=` and `?limit=`.
+- `GET  /public/news/{slug}`           published only, 404 for drafts.
+- `GET  /public/site-settings`         falls back to defaults if not configured.
+- `POST /public/contact`               persists to `contact_messages`, audit-logged.
+- `POST /public/newsletter`            idempotent subscribe (re-activates inactive emails).
+
+13 new integration tests (41 total) covering active/published filters,
+404 behaviour, featured filter, idempotent newsletter, email validation.
+
+**Frontend (everything swapped from dummy data to API).**
+
+- `lib/public-api.ts` — typed server-side fetch helpers with 60-second
+  revalidation, graceful fallbacks (returns `null` / `[]` instead of
+  crashing if the backend is unreachable).
+- `lib/public-api-client.ts` — client-side helpers for newsletter and
+  contact submissions with typed errors.
+- All public pages now use `async` Server Components fetching from
+  `/api/v1/public/*`:
+  - Home: hero slides, featured companies, leadership preview, latest
+    news, contact phone/whatsapp from site settings.
+  - About: leadership messages.
+  - Companies list: filtered/grouped from API.
+  - Company detail: 404 for hidden/missing, related companies from API.
+  - News list: featured strip + others from API.
+  - News detail: 404 for drafts, related news from API.
+  - Contact: contact rows, phone, WhatsApp from site settings.
+  - Public layout: site settings flow down to the footer (tagline,
+    contact, dynamic social links).
+- Newsletter form: POSTs to `/public/newsletter` with error surface.
+- Contact form: POSTs to `/public/contact` with error surface.
+- `generateMetadata` on company + news detail pages pulls title and
+  description from the actual record.
+
+**Cleanup:**
+
+- Removed `lib/dummy-data/companies.ts`, `news.ts`, `leadership.ts`
+  (no longer used).
+- Trimmed `lib/dummy-data/site-content.ts` to only the bits that
+  still come from config (stats, sectors, vision/mission/values,
+  timeline). A Phase 5 follow-up CMS module can move those too.
+- Card components (`CompanyCard`, `NewsCard`, `LeadershipCard`,
+  `HeroSlider`) updated to use the API schema (snake_case fields,
+  `services: {id, name}[]`, etc.).
+
+**Still on dummy data (intentional):**
+
+- Careers list + job detail (`lib/dummy-data/jobs.ts`) — wires to
+  the HR ATS in Phase 9.
+- Media gallery (`lib/dummy-data/media.ts`) — needs the media CMS
+  module + file upload, deferred Phase 5 follow-up.
+- Apply Now form — wires to ATS candidate intake in Phase 10.
 
 ## Definition of done for any phase
 
@@ -55,7 +380,6 @@ lives at the repo root in
 - Backend tests pass: `pytest -q`.
 - Frontend type-check passes: `npm run type-check`.
 - Frontend production build succeeds: `npm run build`.
-- Documentation updated (this guide, setup guide, api reference,
-  testing checklist).
+- Documentation updated.
 - Summary message lists added files, migrations, run commands, and
   any open questions.

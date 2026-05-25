@@ -5,62 +5,154 @@ The backend exposes a versioned REST API mounted at `/api/v1`.
 ## Conventions
 
 - All requests/responses are JSON unless noted.
-- Authentication (added in Phase 2) is `Authorization: Bearer <token>`.
+- Authentication: `Authorization: Bearer <access_token>`.
 - Errors follow FastAPI defaults: `{ "detail": "..." }`.
 - Interactive docs: <http://localhost:8000/docs>.
 - OpenAPI schema: <http://localhost:8000/openapi.json>.
 
-## Phase 1 endpoints
+## Scopes
+
+Roles are tagged with one of three scopes:
+
+- `system` – grants every scope (used by the Super Admin).
+- `website` – Website Admin / CMS surface.
+- `hr` – HR ATS portal surface.
+
+Login endpoints reject users that do not hold a role for that surface,
+and `/me` endpoints reject access tokens issued for the other portal.
+
+---
+
+## Health
 
 ### `GET /`
 
-Returns service metadata and the location of the docs/health endpoints.
-
-```json
-{
-  "service": "PUG Holding API",
-  "version": "0.1.0",
-  "docs": "/docs",
-  "health": "/api/v1/health"
-}
-```
+Returns service metadata and the location of the docs / health endpoints.
 
 ### `GET /api/v1/health`
 
 Reports service status and a live PostgreSQL ping.
 
-**Response 200**
-
-```json
-{
-  "status": "ok",
-  "service": "PUG Holding API",
-  "version": "0.1.0",
-  "environment": "development",
-  "database": "connected",
-  "timestamp": "2026-05-23T10:23:45.123456+00:00"
-}
-```
-
-`database` is `"disconnected"` when PostgreSQL is unreachable.
-
 ### `GET /api/v1/health/live`
 
 Lightweight liveness probe (no database call).
 
-**Response 200**
+---
+
+## Public — `/api/v1/public`
+
+Unauthenticated read + form-submission endpoints consumed directly by
+the public website. Read endpoints filter to `is_active = true` /
+`is_published = true` rows. All endpoints are safe for any client.
+
+### Read
+
+- `GET /public/hero-slides` — active slides, ordered by `display_order`.
+- `GET /public/companies` — active companies. Optional `?category=distribution|retail|services`.
+- `GET /public/companies/{slug}` — single active company. 404 if missing / hidden.
+- `GET /public/leadership` — active leadership messages, ordered.
+- `GET /public/news` — published news, newest first. Optional `?featured=true|false`, `?limit=N`.
+- `GET /public/news/{slug}` — single published news item. 404 if missing / draft.
+- `GET /public/site-settings` — site name, tagline, contact, socials, SEO defaults. Falls back to defaults if no row exists yet.
+
+### Write
+
+- `POST /public/contact`
+  ```json
+  { "name": "…", "email": "…", "phone": "…", "department": "Sales",
+    "subject": "…", "message": "…" }
+  ```
+  Persists to `contact_messages` (visible in the admin inbox) and
+  writes a `public.contact.submit` audit entry.
+
+- `POST /public/newsletter`
+  ```json
+  { "email": "you@example.com" }
+  ```
+  Idempotent: re-subscribing an existing inactive email reactivates it.
+  Existing active emails return their current row. Writes a
+  `public.newsletter.subscribe` (or `.resubscribe`) audit entry.
+
+---
+
+## Website Admin Auth — `/api/v1/admin/auth`
+
+### `POST /api/v1/admin/auth/login`
+
+Body:
 
 ```json
-{ "status": "alive" }
+{ "email": "websiteadmin@pug.example.com", "password": "ChangeMe!123" }
 ```
+
+Response `200`:
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user": {
+    "id": 2,
+    "email": "websiteadmin@pug.example.com",
+    "full_name": "Website Admin",
+    "is_active": true,
+    "is_superuser": false,
+    "last_login_at": "...",
+    "roles": [ { "id": 2, "name": "Website Admin", "scope": "website", "permissions": [ ... ] } ],
+    "scopes": ["website"],
+    "permissions": ["website.menu.read", "website.menu.write", "..."]
+  }
+}
+```
+
+Failure modes:
+
+| Code | Reason                                                                |
+| ---- | --------------------------------------------------------------------- |
+| 401  | Invalid email or password / inactive account.                         |
+| 403  | Account exists but has no website-scoped role.                        |
+| 422  | Invalid request payload (e.g. malformed email).                       |
+
+Every attempt writes an `audit_logs` row tagged with one of:
+
+- `auth.login.success`
+- `auth.login.failed` (`details.reason`: `invalid_credentials` | `inactive`)
+- `auth.login.wrong_scope`
+
+### `POST /api/v1/admin/auth/logout`
+
+Requires a valid website-scoped bearer token. Returns `204` and writes an
+`auth.logout` audit row. The frontend is responsible for discarding the
+token.
+
+### `GET /api/v1/admin/auth/me`
+
+Returns the same `user` payload as login for the bearer holder.
+
+---
+
+## HR Admin Auth — `/api/v1/hr/auth`
+
+Identical surface, scoped to HR:
+
+- `POST /api/v1/hr/auth/login`
+- `POST /api/v1/hr/auth/logout`
+- `GET  /api/v1/hr/auth/me`
+
+A website-scoped token presented at any `/hr/auth/*` endpoint is
+rejected with `403`. The reverse is also enforced.
+
+---
 
 ## Future surfaces (added in later phases)
 
 - Public website APIs (Phase 6): site settings, menus, hero slides,
   pages, companies, leadership messages, news, jobs, careers
   applications, contact, newsletter, media, public AI assistant.
-- Website Admin APIs (Phase 5): login, CRUD for every CMS resource,
-  settings, audit log.
-- HR ATS APIs (Phase 7+): HR login, dashboard stats, jobs, candidates,
-  CV upload + parsing, scoring, AI review, workflow, interviews,
-  reports, exports, HR audit log.
+- Website Admin APIs (Phase 5): CRUD for every CMS resource, settings,
+  audit log.
+- HR ATS APIs (Phase 7+): dashboard stats, jobs, candidates, CV upload
+  + parsing, scoring, AI review, workflow, interviews, reports,
+  exports, HR audit log.

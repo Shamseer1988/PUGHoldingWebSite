@@ -8,12 +8,15 @@ middleware that every later phase will rely on.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import api_router
+from app.core.cache_headers import PublicCacheHeadersMiddleware
 from app.core.config import get_settings
 
 
@@ -51,7 +54,25 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Phase 19: rate limiting for the public write endpoints is applied
+    # per-route via FastAPI dependencies — see app.core.rate_limit.
+
+    # Edge cache headers on public GET responses. Toggle off in dev
+    # via PUBLIC_CACHE_HEADERS_ENABLED=false if it gets in the way.
+    app.add_middleware(PublicCacheHeadersMiddleware)
+
     app.include_router(api_router, prefix="/api/v1")
+
+    # Static mount for user-uploaded assets (CMS images, etc.).
+    # The directory is created on first upload, but ensure it exists
+    # at boot so the StaticFiles mount doesn't raise.
+    upload_root = Path(settings.upload_dir)
+    upload_root.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/api/v1/uploads",
+        StaticFiles(directory=str(upload_root)),
+        name="uploads",
+    )
 
     @app.get("/", tags=["Root"], summary="Root endpoint")
     def root() -> dict[str, str]:

@@ -21,12 +21,32 @@ email-validator==2.2.0
 # Environment
 python-dotenv==1.0.1
 
-# Security (placeholders for later phases)
-passlib[bcrypt]==1.7.4
+# Security
+bcrypt==4.2.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
+
+# Phase 19 — rate limiting is implemented in-tree (app/core/rate_limit.py)
+# as a FastAPI dependency. No third-party dependency required.
 
 # Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
 httpx==0.27.2
+
+# Phase 11 — CV parsing (text extraction from PDF / DOCX).
+# OCR for scanned CVs is optional — install Tesseract + `pip install
+# pytesseract Pillow` if you want it. The parser silently skips OCR
+# when either dependency is missing.
+pypdf==5.1.0
+python-docx==1.1.2
+
+# Phase 13 — Azure OpenAI client for the HR AI candidate review.
+# Mock mode works without an Azure deployment; live mode requires the
+# Azure-OpenAI endpoint + key set in .env.
+openai==1.54.0
+
+# Phase 16 — HR reports / exports. CSV uses the stdlib; Excel via
+# openpyxl, PDF via reportlab.
+openpyxl==3.1.5
+reportlab==4.2.5

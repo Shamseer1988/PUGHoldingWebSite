@@ -1,0 +1,813 @@
+"use client";
+
+import * as React from "react";
+import { AlertTriangle, CheckCircle2, Loader2, Save } from "lucide-react";
+
+import { AdminShell } from "@/components/admin/admin-shell";
+import { ImageUpload } from "@/components/admin/image-upload";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { adminApi, AdminApiError } from "@/lib/admin/api";
+import type { SiteSettings } from "@/lib/admin/types";
+import { parseContactMapEmbed } from "@/lib/contact-map";
+
+// Page-banner fields now live on each cms_site_page row and are
+// edited under Admin → Pages → Site pages. Excluding them here keeps
+// the settings form focused and prevents the PATCH from sending null
+// over working data.
+type Form = Omit<
+  SiteSettings,
+  | "id"
+  | "about_banner_image_url"
+  | "about_banner_video_url"
+  | "careers_banner_image_url"
+  | "careers_banner_mobile_url"
+  | "contact_banner_image_url"
+  | "contact_banner_mobile_url"
+  | "news_banner_image_url"
+  | "news_banner_mobile_url"
+  | "media_banner_image_url"
+  | "media_banner_mobile_url"
+>;
+
+const EMPTY_FORM: Form = {
+  site_name: "Paris United Group Holding",
+  tagline: "",
+  contact_phone: "",
+  contact_email: "",
+  contact_address: "",
+  contact_map_embed: "",
+  whatsapp_number: "",
+  social_linkedin: "",
+  social_instagram: "",
+  social_facebook: "",
+  social_youtube: "",
+  seo_default_title: "",
+  seo_default_description: "",
+  seo_keywords: "",
+  featured_companies_enabled: true,
+  featured_companies_eyebrow: "",
+  featured_companies_title: "",
+  featured_companies_subtitle: "",
+  featured_companies_cta_label: "",
+  featured_companies_cta_url: "",
+  featured_companies_animation_enabled: true,
+  // NOTE: about_/careers_/contact_/news_/media_banner_* used to be
+  // edited here. They moved to Admin → Pages → Site pages as part of
+  // the universal page-content rework. We deliberately leave them
+  // OUT of this form so the settings PATCH never overwrites the
+  // values that the migration copied into cms_site_pages (the
+  // columns stay in the database as a safety net).
+  home_about_image_url: "",
+  home_about_title: "",
+  home_about_body: "",
+  home_founder_image_url: "",
+  home_founder_name: "",
+  home_founder_role: "",
+  home_founder_message: "",
+  // ^ legacy fields — kept in the form payload only to satisfy
+  //   the TypeScript shape; the UI no longer surfaces them. They were
+  //   replaced by per-leader fields managed under /admin/leadership.
+  home_brand_logos: "",
+  home_brand_strip_title: "",
+  home_leadership_section_enabled: true,
+  home_leadership_section_eyebrow: "",
+  home_leadership_section_title: "",
+  home_leadership_section_subtitle: "",
+  home_leadership_animation_enabled: true,
+  theme_primary_hex: "",
+  theme_accent_hex: "",
+  theme_heading_font: "",
+  theme_body_font: "",
+  maintenance_mode_enabled: false,
+  maintenance_message: "",
+  maintenance_eta: "",
+};
+
+export default function SiteSettingsAdminPage() {
+  const [form, setForm] = React.useState<Form | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
+
+  React.useEffect(() => { refresh(); }, []);
+
+  async function refresh() {
+    try {
+      const data = await adminApi.get<SiteSettings>("/admin/cms/site-settings");
+      // Only spread keys the form actually surfaces — the API still
+      // returns banner_* fields that are now edited under Site pages,
+      // and we mustn't let them leak into state (then back into the
+      // PATCH) and overwrite the real values on save.
+      const allowed = new Set(Object.keys(EMPTY_FORM));
+      setForm({
+        ...EMPTY_FORM,
+        ...Object.fromEntries(
+          Object.entries(data).filter(([k]) => allowed.has(k))
+        ),
+      } as Form);
+    } catch (err) {
+      setError((err as AdminApiError).message);
+      setForm(EMPTY_FORM);
+    }
+  }
+
+  function set<K extends keyof Form>(k: K, v: Form[K]) {
+    setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
+  }
+
+  async function save() {
+    if (!form) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const body = Object.fromEntries(
+        Object.entries(form).map(([k, v]) => [k, typeof v === "string" && !v.trim() ? null : v])
+      );
+      const updated = await adminApi.patch<SiteSettings>(
+        "/admin/cms/site-settings",
+        body
+      );
+      const allowed = new Set(Object.keys(EMPTY_FORM));
+      setForm({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(updated).filter(([k]) => allowed.has(k))) } as Form);
+      setToast("Settings saved.");
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AdminShell
+      title="Site settings"
+      description="Brand name, contact details, social links, and default SEO metadata."
+      actions={
+        <Button
+          onClick={save}
+          disabled={!form || saving}
+          size="sm"
+          aria-label="Save site settings"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          <span className="hidden sm:inline">Save changes</span>
+        </Button>
+      }
+    >
+      <Toast message={toast} onClose={() => setToast(null)} />
+      {error && (
+        <div role="alert" className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-200">
+          {error}
+        </div>
+      )}
+
+      {form === null ? (
+        <p className="text-sm text-muted-foreground">
+          <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
+          Loading…
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card
+            className={
+              form.maintenance_mode_enabled
+                ? "border-amber-500/40 bg-amber-500/5 lg:col-span-2 dark:bg-amber-500/[0.04]"
+                : "lg:col-span-2"
+            }
+          >
+            <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <AlertTriangle
+                      className={
+                        form.maintenance_mode_enabled
+                          ? "h-4 w-4 text-amber-600 dark:text-amber-400"
+                          : "h-4 w-4 text-muted-foreground"
+                      }
+                    />
+                    Site status — Under Construction mode
+                  </CardTitle>
+                  <CardDescription>
+                    When enabled, the public website shows a single
+                    maintenance page on every URL. The admin and HR
+                    portals stay reachable so you can switch it back
+                    off.
+                  </CardDescription>
+                </div>
+                <label
+                  className="relative inline-flex shrink-0 cursor-pointer items-center gap-3"
+                  htmlFor="maintenance-toggle"
+                >
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {form.maintenance_mode_enabled ? "Enabled" : "Disabled"}
+                  </span>
+                  <input
+                    id="maintenance-toggle"
+                    type="checkbox"
+                    role="switch"
+                    aria-checked={form.maintenance_mode_enabled}
+                    className="peer sr-only"
+                    checked={form.maintenance_mode_enabled}
+                    onChange={(e) =>
+                      set("maintenance_mode_enabled", e.target.checked)
+                    }
+                    disabled={saving}
+                  />
+                  <span
+                    aria-hidden
+                    className="block h-6 w-11 rounded-full bg-muted transition peer-checked:bg-amber-500 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+                  />
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute right-[26px] top-1/2 block h-5 w-5 -translate-y-1/2 translate-x-0 rounded-full bg-white shadow transition peer-checked:translate-x-5"
+                  />
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {form.maintenance_mode_enabled && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100"
+                >
+                  <p className="font-medium">
+                    Public site is currently hidden from visitors.
+                  </p>
+                  <p className="mt-1">
+                    Every page under <code>parisunitedgroup.com</code>
+                    {" "}is showing the maintenance screen. Save changes
+                    above, then verify on the live site.
+                  </p>
+                </div>
+              )}
+              <Field label="Custom message (optional)">
+                <Textarea
+                  value={form.maintenance_message ?? ""}
+                  onChange={(e) =>
+                    set("maintenance_message", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Our website is getting a fresh polish. We'll be back online shortly — thank you for your patience."
+                  rows={3}
+                  maxLength={500}
+                />
+              </Field>
+              <Field label="Expected back-online time (optional)">
+                <Input
+                  value={form.maintenance_eta ?? ""}
+                  onChange={(e) => set("maintenance_eta", e.target.value)}
+                  disabled={saving}
+                  placeholder="e.g. Tonight at 9 PM GMT"
+                  maxLength={120}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Brand</CardTitle>
+              <CardDescription>Shown in metadata and the navbar wordmark.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="Site name" required>
+                <Input value={form.site_name} onChange={(e) => set("site_name", e.target.value)} disabled={saving} />
+              </Field>
+              <Field label="Tagline">
+                <Input value={form.tagline ?? ""} onChange={(e) => set("tagline", e.target.value)} disabled={saving} />
+              </Field>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Contact</CardTitle>
+              <CardDescription>Shown in the footer and contact page.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="Phone">
+                <Input value={form.contact_phone ?? ""} onChange={(e) => set("contact_phone", e.target.value)} disabled={saving} />
+              </Field>
+              <Field label="Email">
+                <Input type="email" value={form.contact_email ?? ""} onChange={(e) => set("contact_email", e.target.value)} disabled={saving} />
+              </Field>
+              <Field label="Address">
+                <Textarea rows={2} value={form.contact_address ?? ""} onChange={(e) => set("contact_address", e.target.value)} disabled={saving} />
+              </Field>
+              <Field label="WhatsApp number">
+                <Input value={form.whatsapp_number ?? ""} onChange={(e) => set("whatsapp_number", e.target.value)} disabled={saving} />
+              </Field>
+              <MapEmbedField
+                value={form.contact_map_embed ?? ""}
+                onChange={(next) => set("contact_map_embed", next)}
+                disabled={saving}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Social</CardTitle>
+              <CardDescription>Full URLs for each network.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="LinkedIn"><Input value={form.social_linkedin ?? ""} onChange={(e) => set("social_linkedin", e.target.value)} disabled={saving} /></Field>
+              <Field label="Instagram"><Input value={form.social_instagram ?? ""} onChange={(e) => set("social_instagram", e.target.value)} disabled={saving} /></Field>
+              <Field label="Facebook"><Input value={form.social_facebook ?? ""} onChange={(e) => set("social_facebook", e.target.value)} disabled={saving} /></Field>
+              <Field label="YouTube"><Input value={form.social_youtube ?? ""} onChange={(e) => set("social_youtube", e.target.value)} disabled={saving} /></Field>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Default SEO</CardTitle>
+              <CardDescription>Fallback metadata if a page doesn't define its own.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="Default title"><Input value={form.seo_default_title ?? ""} onChange={(e) => set("seo_default_title", e.target.value)} disabled={saving} /></Field>
+              <Field label="Default description"><Textarea rows={3} value={form.seo_default_description ?? ""} onChange={(e) => set("seo_default_description", e.target.value)} disabled={saving} /></Field>
+              <Field label="Keywords"><Input value={form.seo_keywords ?? ""} onChange={(e) => set("seo_keywords", e.target.value)} disabled={saving} placeholder="comma, separated" /></Field>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Theme</CardTitle>
+              <CardDescription>
+                Override the public site&rsquo;s primary + accent colours and fonts
+                without a deploy. Leave any field blank to keep the default Paris
+                United Group palette (deep green + warm gold) and Inter font.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Primary colour"
+                  hint="Hex code (e.g. #16432A) — drives buttons + accents."
+                >
+                  <ColorField
+                    value={form.theme_primary_hex ?? ""}
+                    onChange={(v) => set("theme_primary_hex", v)}
+                    disabled={saving}
+                    fallbackHex="#1F5236"
+                  />
+                </Field>
+                <Field
+                  label="Accent colour"
+                  hint="Hex code (e.g. #C89B3C) — used for highlights + gold pills."
+                >
+                  <ColorField
+                    value={form.theme_accent_hex ?? ""}
+                    onChange={(v) => set("theme_accent_hex", v)}
+                    disabled={saving}
+                    fallbackHex="#C89B3C"
+                  />
+                </Field>
+                <Field
+                  label="Heading font family"
+                  hint="CSS font family (e.g. 'Inter', 'Playfair Display')."
+                >
+                  <Input
+                    value={form.theme_heading_font ?? ""}
+                    onChange={(e) =>
+                      set("theme_heading_font", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="Inter"
+                  />
+                </Field>
+                <Field
+                  label="Body font family"
+                  hint="CSS font family for the rest of the site."
+                >
+                  <Input
+                    value={form.theme_body_font ?? ""}
+                    onChange={(e) => set("theme_body_font", e.target.value)}
+                    disabled={saving}
+                    placeholder="Inter"
+                  />
+                </Field>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Font family changes assume the font is already loaded by the
+                browser. To ship custom typefaces, upload them to the project
+                and add a <code className="rounded bg-muted px-1">@font-face</code> rule
+                in <code className="rounded bg-muted px-1">styles/globals.css</code>.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Homepage · Featured companies showcase</CardTitle>
+              <CardDescription>
+                Controls the dark pinned scroll section on the homepage. Companies are picked
+                by flipping the "Highlight on homepage" toggle inside each company.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Show the section">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.featured_companies_enabled}
+                      onChange={(e) =>
+                        set("featured_companies_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Render on the homepage
+                  </label>
+                </Field>
+                <Field label="Scroll animation">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.featured_companies_animation_enabled}
+                      onChange={(e) =>
+                        set("featured_companies_animation_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Enable GSAP scroll pin
+                  </label>
+                </Field>
+              </div>
+
+              <Field label="Eyebrow">
+                <Input
+                  value={form.featured_companies_eyebrow ?? ""}
+                  onChange={(e) => set("featured_companies_eyebrow", e.target.value)}
+                  disabled={saving}
+                  placeholder="Group companies"
+                />
+              </Field>
+
+              <Field label="Title">
+                <Input
+                  value={form.featured_companies_title ?? ""}
+                  onChange={(e) => set("featured_companies_title", e.target.value)}
+                  disabled={saving}
+                  placeholder="A diversified portfolio, one trusted group."
+                />
+              </Field>
+
+              <Field label="Subtitle">
+                <Textarea
+                  rows={2}
+                  value={form.featured_companies_subtitle ?? ""}
+                  onChange={(e) => set("featured_companies_subtitle", e.target.value)}
+                  disabled={saving}
+                  placeholder="Scroll to explore the businesses…"
+                />
+              </Field>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="CTA label">
+                  <Input
+                    value={form.featured_companies_cta_label ?? ""}
+                    onChange={(e) =>
+                      set("featured_companies_cta_label", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="View all companies"
+                  />
+                </Field>
+                <Field label="CTA URL">
+                  <Input
+                    value={form.featured_companies_cta_url ?? ""}
+                    onChange={(e) =>
+                      set("featured_companies_cta_url", e.target.value)
+                    }
+                    disabled={saving}
+                    placeholder="/companies"
+                  />
+                </Field>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* The per-page banner uploads that used to live here moved
+              under Admin → Pages → Site pages so each page owns its own
+              hero + banner together. The site_settings.*_banner_url
+              columns are kept in the database as a safety net but no
+              longer surfaced in the UI. */}
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Homepage · About the group</CardTitle>
+              <CardDescription>
+                The intro panel rendered between the business snapshot and
+                the featured companies showcase. The Chairman + MD messages
+                that used to live below this card are now managed from the{" "}
+                <strong>Leadership</strong> sidebar entry — each leader
+                carries their own photo, role label, quote, and paragraphs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Image</Label>
+                <ImageUpload
+                  value={form.home_about_image_url}
+                  onChange={(url) => set("home_about_image_url", url ?? "")}
+                  disabled={saving}
+                />
+              </div>
+              <Field label="Title">
+                <Input
+                  value={form.home_about_title ?? ""}
+                  onChange={(e) => set("home_about_title", e.target.value)}
+                  disabled={saving}
+                  placeholder="Building everyday life across the GCC"
+                />
+              </Field>
+              <Field label="Body">
+                <Textarea
+                  rows={4}
+                  value={form.home_about_body ?? ""}
+                  onChange={(e) => set("home_about_body", e.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">
+                Homepage · Trusted Brands
+              </CardTitle>
+              <CardDescription>
+                The premium luxury showcase replaced the old logo-strip
+                textarea. Section copy, layout mode, and per-brand cards
+                (logo upload, link, order, highlight) all live on the
+                dedicated <strong>Trusted brands</strong> page in the
+                sidebar.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <a
+                href="/admin/brands"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+              >
+                Open Trusted Brands manager →
+              </a>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">
+                Homepage · Leadership Messages section
+              </CardTitle>
+              <CardDescription>
+                Section copy + master toggles for the unified Chairman + MD
+                Leadership Messages card on the homepage. Each leader's body
+                copy (quote, message paragraphs, photo, signature) lives on
+                the leader row itself — open <strong>Leadership</strong> in
+                the sidebar and toggle "Feature on homepage Leadership
+                Messages section" for each one.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Show the section">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.home_leadership_section_enabled}
+                      onChange={(e) =>
+                        set("home_leadership_section_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Render on the homepage
+                  </label>
+                </Field>
+                <Field label="Scroll animation">
+                  <label className="inline-flex items-center gap-2 pt-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                      checked={form.home_leadership_animation_enabled}
+                      onChange={(e) =>
+                        set("home_leadership_animation_enabled", e.target.checked)
+                      }
+                      disabled={saving}
+                    />
+                    Enable GSAP reveal animation
+                  </label>
+                </Field>
+              </div>
+              <Field label="Eyebrow">
+                <Input
+                  value={form.home_leadership_section_eyebrow ?? ""}
+                  onChange={(e) =>
+                    set("home_leadership_section_eyebrow", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Leadership messages"
+                />
+              </Field>
+              <Field label="Title">
+                <Input
+                  value={form.home_leadership_section_title ?? ""}
+                  onChange={(e) =>
+                    set("home_leadership_section_title", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Guided by vision, driven by excellence"
+                />
+              </Field>
+              <Field label="Subtitle">
+                <Textarea
+                  rows={2}
+                  value={form.home_leadership_section_subtitle ?? ""}
+                  onChange={(e) =>
+                    set("home_leadership_section_subtitle", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="A message from the leadership of Paris United Group Holding."
+                />
+              </Field>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </AdminShell>
+  );
+}
+
+function Field({
+  label,
+  children,
+  required,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>
+        {label}
+        {required && <span className="ml-0.5 text-rose-500">*</span>}
+      </Label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function ColorField({
+  value,
+  onChange,
+  disabled,
+  fallbackHex,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  fallbackHex: string;
+}) {
+  // <input type="color"> requires a valid hex; if the admin has cleared
+  // the field we still show the picker pre-set to the fallback so they
+  // have a starting point, but we don't write that fallback back into
+  // the form unless they actually pick.
+  const pickerValue = /^#[0-9a-f]{6}$/i.test(value) ? value : fallbackHex;
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="color"
+        value={pickerValue}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        aria-label="Pick colour"
+        className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-border bg-background p-0.5"
+      />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={fallbackHex}
+        className="font-mono uppercase"
+      />
+      {value && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onChange("")}
+          disabled={disabled}
+        >
+          Clear
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Map embed field for the Contact card.
+ *
+ * Accepts a Google Maps / OpenStreetMap iframe snippet OR a bare
+ * embed URL. The same `parseContactMapEmbed` sanitiser the public
+ * Contact page runs is used here to:
+ *   - show a live iframe preview when the input parses cleanly, and
+ *   - surface a short error message + tip when it doesn't (wrong
+ *     host, bad protocol, missing src, etc.).
+ *
+ * The textarea always edits the raw admin string — sanitisation only
+ * happens at render time, so admins can paste freely and copy out
+ * what they entered.
+ */
+function MapEmbedField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+}) {
+  const parsed = React.useMemo(() => parseContactMapEmbed(value), [value]);
+  const hasInput = value.trim().length > 0;
+
+  return (
+    <Field label="Map embed (Google Maps / OpenStreetMap)">
+      <Textarea
+        rows={4}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={
+          'Paste a full <iframe> from Google Maps → Share → Embed a map.\n' +
+          'Or just the https://www.google.com/maps/embed?pb=... URL.'
+        }
+        className="font-mono text-xs"
+      />
+      <p className="text-[11px] text-muted-foreground">
+        Open Google Maps, find your office, click <strong>Share</strong> →
+        <strong> Embed a map</strong>, copy the full HTML, and paste it
+        above. The Contact page hides this card automatically until a
+        valid embed is saved. Allowed hosts: google.com, maps.google.com,
+        openstreetmap.org, bing.com.
+      </p>
+      {hasInput && parsed.error && (
+        <p
+          role="alert"
+          className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-700 dark:text-rose-200"
+        >
+          {parsed.error}
+        </p>
+      )}
+      {parsed.safeSrc && (
+        <div className="mt-2 space-y-1.5">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Preview
+          </p>
+          <div className="relative aspect-[16/9] w-full overflow-hidden rounded-lg border border-border/60 bg-muted">
+            <iframe
+              title="Map embed preview"
+              src={parsed.safeSrc}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+              className="absolute inset-0 h-full w-full border-0"
+            />
+          </div>
+        </div>
+      )}
+    </Field>
+  );
+}
+
+function Toast({ message, onClose }: { message: string | null; onClose: () => void }) {
+  React.useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [message, onClose]);
+  if (!message) return null;
+  return (
+    <div role="status" className="mb-4 inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200">
+      <CheckCircle2 className="h-4 w-4" />{message}
+    </div>
+  );
+}

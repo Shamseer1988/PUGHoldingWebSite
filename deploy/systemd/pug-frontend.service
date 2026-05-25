@@ -1,0 +1,43 @@
+[Unit]
+# Paris United Group Holding — Next.js production server.
+# Runs the pre-built application (`npm run build` must have been done).
+# Bind is loopback-only; Nginx handles the public traffic.
+Description=PUG Holding Frontend (Next.js)
+After=network.target pug-backend.service
+Wants=pug-backend.service
+
+[Service]
+Type=simple
+User=pug
+Group=pug
+WorkingDirectory=/opt/pug/app/frontend
+
+# .env.production is read automatically by Next at startup, so we don't
+# need an EnvironmentFile here. We set HOST/PORT explicitly to avoid
+# surprises.
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# `npm start` resolves to `next start -H 0.0.0.0` per package.json;
+# we override the bind to loopback via -H below to keep it private.
+ExecStart=/usr/bin/npm exec --no -- next start -H 127.0.0.1 -p 3000
+
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

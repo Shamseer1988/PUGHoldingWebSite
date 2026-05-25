@@ -1,0 +1,60 @@
+[Unit]
+# Paris United Group Holding — FastAPI backend.
+# Gunicorn boots N uvicorn workers; gunicorn handles process supervision
+# and graceful reloads while uvicorn handles the ASGI protocol.
+Description=PUG Holding API (FastAPI + Gunicorn + Uvicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+User=pug
+Group=pug
+WorkingDirectory=/opt/pug/app/backend
+
+# Source the production .env without exporting it to the journal.
+# The Pydantic Settings layer in app.core.config also reads this file
+# directly, so this line is belt-and-braces — comment it out if your
+# build of systemd doesn't support EnvironmentFile=-.
+EnvironmentFile=-/opt/pug/app/backend/.env
+
+# Worker count: (2 * cpu_cores) + 1 is a good baseline for sync-style
+# workloads, but with uvicorn workers (async) the project does well at
+# (cpu_cores). Override here if your instance has more cores.
+Environment=GUNICORN_WORKERS=3
+Environment=PATH=/opt/pug/app/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Bind to loopback only — Nginx handles the public traffic.
+ExecStart=/opt/pug/app/backend/.venv/bin/gunicorn app.main:app \
+    --bind 127.0.0.1:8000 \
+    --workers ${GUNICORN_WORKERS} \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --timeout 60 \
+    --graceful-timeout 30 \
+    --keep-alive 5 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info
+
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Restart on crash but back off if it crashes repeatedly.
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Sandboxing — limit blast radius if a worker is compromised.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/www/pug/uploads /var/log/pug
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
