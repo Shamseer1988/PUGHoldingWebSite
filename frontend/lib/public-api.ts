@@ -540,7 +540,23 @@ export function resolveAssetUrl(url: string | null | undefined): string | null {
         LOOPBACK_HOSTS.has(base.hostname) &&
         !LOOPBACK_HOSTS.has(window.location.hostname)
       ) {
-        const port = base.port ? `:${base.port}` : "";
+        // Production rewrite path: API base was baked in as
+        // http://localhost:8000 but the browser is on a real
+        // hostname. Keep the backend port ONLY when the page itself
+        // is on a non-standard port (LAN dev across machines). In
+        // production the page is on 443 / 80, so dropping the port
+        // means the URL resolves to https://www.example.com/...
+        // (i.e. Nginx routes it to the backend) instead of the
+        // unreachable https://www.example.com:8000/...
+        const onStandardPort =
+          window.location.port === "" ||
+          window.location.port === "80" ||
+          window.location.port === "443";
+        const port = onStandardPort
+          ? ""
+          : base.port
+            ? `:${base.port}`
+            : "";
         return `${window.location.protocol}//${window.location.hostname}${port}${url}`;
       }
       return `${base.origin}${url}`;
