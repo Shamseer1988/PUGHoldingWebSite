@@ -53,7 +53,6 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
   const accentRef = React.useRef<HTMLSpanElement | null>(null);
   const panelRef = React.useRef<HTMLDivElement | null>(null);
   const tilesRootRef = React.useRef<HTMLDivElement | null>(null);
-  const glowRef = React.useRef<HTMLDivElement | null>(null);
 
   const brands = React.useMemo(
     () => data.brands.filter((b) => b.is_active),
@@ -92,7 +91,6 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
       const accent = accentRef.current;
       const panel = panelRef.current;
       const root = tilesRootRef.current;
-      const glow = glowRef.current;
       if (!section) return;
 
       const ctx = gsap.context(() => {
@@ -126,21 +124,6 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
             0.35
           );
 
-        // Background glow — slow scrubbed drift, separate from the
-        // reveal so it persists past the one-shot timeline.
-        if (glow) {
-          gsap.to(glow, {
-            xPercent: 8,
-            yPercent: -5,
-            ease: "none",
-            scrollTrigger: {
-              trigger: section,
-              start: "top bottom",
-              end: "bottom top",
-              scrub: 0.8,
-            },
-          });
-        }
       }, section);
 
       cleanup = () => ctx.revert();
@@ -158,83 +141,28 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
     <Section
       className={cn(
         "trusted-brands-section relative overflow-hidden py-16 sm:py-24",
-        // Light-theme tokens — ivory/cream surface with muted gold +
-        // subtle green glow. Designed to read as a premium light
-        // panel sitting inside the warm cream of the rest of the
-        // light theme, NOT a dramatic dark island.
-        "[--tb-bg:#f8f5ef]",
-        "[--tb-glow-radial-a:rgba(36,105,75,0.14)]",
-        "[--tb-glow-radial-b:rgba(176,138,46,0.10)]",
+        // The section itself has NO background — it sits transparently
+        // on top of the page's global background like every other
+        // homepage section. Only the inner panel + tiles carry color.
+        // Light-theme tokens for the panel + tiles + gold accents.
         "[--tb-panel-bg:rgba(255,255,255,0.78)]",
         "[--tb-panel-bg-strong:rgba(255,255,255,0.92)]",
-        "[--tb-text:#17382f]",
-        "[--tb-muted:#61736b]",
         "[--tb-gold:#a3812d]",
         "[--tb-gold-soft:rgba(163,129,45,0.18)]",
-        "[--tb-green-glow:rgba(36,105,75,0.14)]",
         "[--tb-border:rgba(163,129,45,0.22)]",
         "[--tb-tile-border:rgba(24,51,43,0.10)]",
-        "[--tb-tile-shadow:0_8px_24px_-12px_rgba(24,51,43,0.18)]",
-        "[--tb-tile-inset:rgba(255,255,255,0.6)]",
-        "[--tb-tile-shine:rgba(176,138,46,0.18)]",
-        // Dark-theme tokens — the original black-green luxury wall.
-        "dark:[--tb-bg:#07110d]",
-        "dark:[--tb-glow-radial-a:rgba(16,140,92,0.18)]",
-        "dark:[--tb-glow-radial-b:rgba(207,166,70,0.12)]",
+        // Dark-theme tokens — original luxury wall colors for the
+        // panel + tiles. The page bg in dark mode is already deep
+        // green so we don't need a section bg of our own.
         "dark:[--tb-panel-bg:rgba(255,255,255,0.04)]",
         "dark:[--tb-panel-bg-strong:rgba(255,255,255,0.06)]",
-        "dark:[--tb-text:#f4efe6]",
-        "dark:[--tb-muted:#b9c5bf]",
         "dark:[--tb-gold:#cfa646]",
         "dark:[--tb-gold-soft:rgba(207,166,70,0.24)]",
-        "dark:[--tb-green-glow:rgba(16,140,92,0.18)]",
         "dark:[--tb-border:rgba(207,166,70,0.16)]",
-        "dark:[--tb-tile-border:rgba(255,255,255,0.08)]",
-        "dark:[--tb-tile-shadow:0_8px_24px_-12px_rgba(0,0,0,0.55)]",
-        "dark:[--tb-tile-inset:rgba(255,255,255,0.06)]",
-        "dark:[--tb-tile-shine:rgba(255,255,255,0.15)]"
+        "dark:[--tb-tile-border:rgba(255,255,255,0.08)]"
       )}
-      style={{
-        background:
-          "radial-gradient(120% 80% at 50% 0%, var(--tb-glow-radial-a), transparent 60%), radial-gradient(60% 50% at 50% 100%, var(--tb-glow-radial-b), transparent 70%), var(--tb-bg)",
-        color: "var(--tb-text)",
-      }}
     >
       <div ref={sectionRef} className="relative isolate">
-        {/* Ambient glow layer, drifts independently with scroll. */}
-        <div
-          ref={glowRef}
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10"
-        >
-          <div
-            className="absolute -left-24 -top-16 h-[28rem] w-[28rem] rounded-full blur-3xl"
-            style={{ background: "var(--tb-green-glow)" }}
-          />
-          <div
-            className="absolute -right-24 bottom-0 h-[26rem] w-[26rem] rounded-full blur-3xl"
-            style={{ background: "var(--tb-gold-soft)" }}
-          />
-        </div>
-
-        {/* Hairline gold top/bottom edges */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, var(--tb-gold-soft), transparent)",
-          }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, var(--tb-gold-soft), transparent)",
-          }}
-        />
-
         {/* Header */}
         <div
           ref={headerRef}
@@ -254,18 +182,12 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
             </span>
           )}
           {data.title && (
-            <h2
-              className="mt-4 text-balance text-3xl font-semibold tracking-tight sm:text-4xl"
-              style={{ color: "var(--tb-text)" }}
-            >
+            <h2 className="mt-4 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
               {data.title}
             </h2>
           )}
           {data.subtitle && (
-            <p
-              className="mt-4 text-pretty text-base"
-              style={{ color: "var(--tb-muted)" }}
-            >
+            <p className="mt-4 text-pretty text-base text-muted-foreground">
               {data.subtitle}
             </p>
           )}
