@@ -540,7 +540,7 @@ SITE_SETTINGS_DEFAULTS = dict(
     # Unified Leadership Messages section
     home_leadership_section_enabled=True,
     home_leadership_section_eyebrow="Leadership messages",
-    home_leadership_section_title="Guided by vision, driven by excellence",
+    home_leadership_section_title="Guided by vision, driven ((by excellence))",
     home_leadership_section_subtitle=(
         "A message from the leadership of Paris United Group Holding."
     ),

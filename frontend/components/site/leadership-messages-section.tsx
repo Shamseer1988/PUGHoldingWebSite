@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { ArrowUpRight, Quote, Sparkles } from "lucide-react";
 
+import { HeadingAccent } from "@/components/site/heading-accent";
 import { Section } from "@/components/site/section";
 import {
   resolveAssetUrl,
@@ -326,7 +327,7 @@ export function LeadershipMessagesSection({
               className="mt-4 text-balance text-3xl font-semibold tracking-tight sm:text-4xl lg:text-[2.65rem]"
               style={{ color: "var(--lms-text)" }}
             >
-              {data.title}
+              <HeadingAccent value={data.title} />
             </h2>
           )}
           {data.subtitle && (

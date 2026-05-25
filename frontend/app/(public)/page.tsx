@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Briefcase, MessageSquare, Phone } from "lucide-react";
 
 import { FeaturedCompaniesShowcase } from "@/components/site/featured-companies-showcase";
+import { HeadingAccent } from "@/components/site/heading-accent";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { HomeAboutSection } from "@/components/site/home-about-section";
 import { JobCard } from "@/components/site/job-card";
@@ -68,7 +69,7 @@ export default async function HomePage() {
 
       <Section
         eyebrow="Our business sectors"
-        title="Three pillars, one group"
+        title={<HeadingAccent value="Three pillars, ((one group))" />}
         description="Each sector is led by experienced operators and supported by group-level investment in technology, talent, and supply chain."
         centered
       >
@@ -87,7 +88,9 @@ export default async function HomePage() {
       {news.length > 0 && (
         <Section
           eyebrow="Latest news"
-          title="What's happening at Paris United Group"
+          title={
+            <HeadingAccent value="What's happening at ((Paris United Group))" />
+          }
         >
           <RevealGroup
             className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3"
@@ -163,7 +166,7 @@ export default async function HomePage() {
 
       <Section
         eyebrow="Stay in touch"
-        title="Reach out or sign up for updates"
+        title={<HeadingAccent value="Reach out or sign up for ((updates))" />}
       >
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
          <Reveal direction="left">

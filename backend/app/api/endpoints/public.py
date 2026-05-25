@@ -261,7 +261,7 @@ def get_homepage_leadership(
 
     enabled = True
     eyebrow: Optional[str] = "Leadership messages"
-    title: Optional[str] = "Guided by vision, driven by excellence"
+    title: Optional[str] = "Guided by vision, driven ((by excellence))"
     subtitle: Optional[str] = (
         "A message from the leadership of Paris United Group Holding."
     )
@@ -601,7 +601,7 @@ def get_featured_companies_section(
         eyebrow=(settings.featured_companies_eyebrow if settings else None)
         or "Group companies",
         title=(settings.featured_companies_title if settings else None)
-        or "A diversified portfolio, one trusted group.",
+        or "A diversified portfolio, ((one trusted group.))",
         subtitle=(settings.featured_companies_subtitle if settings else None)
         or "Scroll to explore the businesses powering Paris United Group across "
         "retail, distribution, and services.",

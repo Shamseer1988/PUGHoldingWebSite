@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Building2, Sparkles } from "lucide-react";
 
+import { HeadingAccent } from "@/components/site/heading-accent";
 import type { Company } from "@/lib/admin/types";
 import type { FeaturedSectionPayload } from "@/lib/public-api";
 import { resolveAssetUrl } from "@/lib/public-api";
@@ -189,7 +190,11 @@ export function FeaturedCompaniesShowcase({
             {section.eyebrow ?? "Group companies"}
           </span>
           <h2 className="mt-5 text-balance text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
-            {section.title ?? "A diversified portfolio, one trusted group."}
+            <HeadingAccent
+              value={
+                section.title ?? "A diversified portfolio, ((one trusted group.))"
+              }
+            />
           </h2>
           {section.subtitle && (
             <p className="mt-4 text-pretty text-base text-muted-foreground sm:text-lg">
