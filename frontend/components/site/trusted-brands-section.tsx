@@ -158,23 +158,45 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
     <Section
       className={cn(
         "trusted-brands-section relative overflow-hidden py-16 sm:py-24",
-        // Theme tokens — the section is intentionally dark-luxury in
-        // BOTH light and dark site themes; this is the brand wall, not
-        // a regular text panel, so the background stays consistent.
-        "[--tb-bg:#07110d]",
-        "[--tb-panel-bg:rgba(255,255,255,0.04)]",
-        "[--tb-panel-bg-strong:rgba(255,255,255,0.06)]",
-        "[--tb-text:#f4efe6]",
-        "[--tb-muted:#b9c5bf]",
-        "[--tb-gold:#cfa646]",
-        "[--tb-gold-soft:rgba(207,166,70,0.24)]",
-        "[--tb-green-glow:rgba(16,140,92,0.18)]",
-        "[--tb-border:rgba(207,166,70,0.16)]",
-        "[--tb-tile-border:rgba(255,255,255,0.08)]"
+        // Light-theme tokens — ivory/cream surface with muted gold +
+        // subtle green glow. Designed to read as a premium light
+        // panel sitting inside the warm cream of the rest of the
+        // light theme, NOT a dramatic dark island.
+        "[--tb-bg:#f8f5ef]",
+        "[--tb-glow-radial-a:rgba(36,105,75,0.14)]",
+        "[--tb-glow-radial-b:rgba(176,138,46,0.10)]",
+        "[--tb-panel-bg:rgba(255,255,255,0.78)]",
+        "[--tb-panel-bg-strong:rgba(255,255,255,0.92)]",
+        "[--tb-text:#17382f]",
+        "[--tb-muted:#61736b]",
+        "[--tb-gold:#a3812d]",
+        "[--tb-gold-soft:rgba(163,129,45,0.18)]",
+        "[--tb-green-glow:rgba(36,105,75,0.14)]",
+        "[--tb-border:rgba(163,129,45,0.22)]",
+        "[--tb-tile-border:rgba(24,51,43,0.10)]",
+        "[--tb-tile-shadow:0_8px_24px_-12px_rgba(24,51,43,0.18)]",
+        "[--tb-tile-inset:rgba(255,255,255,0.6)]",
+        "[--tb-tile-shine:rgba(176,138,46,0.18)]",
+        // Dark-theme tokens — the original black-green luxury wall.
+        "dark:[--tb-bg:#07110d]",
+        "dark:[--tb-glow-radial-a:rgba(16,140,92,0.18)]",
+        "dark:[--tb-glow-radial-b:rgba(207,166,70,0.12)]",
+        "dark:[--tb-panel-bg:rgba(255,255,255,0.04)]",
+        "dark:[--tb-panel-bg-strong:rgba(255,255,255,0.06)]",
+        "dark:[--tb-text:#f4efe6]",
+        "dark:[--tb-muted:#b9c5bf]",
+        "dark:[--tb-gold:#cfa646]",
+        "dark:[--tb-gold-soft:rgba(207,166,70,0.24)]",
+        "dark:[--tb-green-glow:rgba(16,140,92,0.18)]",
+        "dark:[--tb-border:rgba(207,166,70,0.16)]",
+        "dark:[--tb-tile-border:rgba(255,255,255,0.08)]",
+        "dark:[--tb-tile-shadow:0_8px_24px_-12px_rgba(0,0,0,0.55)]",
+        "dark:[--tb-tile-inset:rgba(255,255,255,0.06)]",
+        "dark:[--tb-tile-shine:rgba(255,255,255,0.15)]"
       )}
       style={{
         background:
-          "radial-gradient(120% 80% at 50% 0%, rgba(16,140,92,0.18), transparent 60%), radial-gradient(60% 50% at 50% 100%, rgba(207,166,70,0.12), transparent 70%), var(--tb-bg)",
+          "radial-gradient(120% 80% at 50% 0%, var(--tb-glow-radial-a), transparent 60%), radial-gradient(60% 50% at 50% 100%, var(--tb-glow-radial-b), transparent 70%), var(--tb-bg)",
         color: "var(--tb-text)",
       }}
     >
@@ -261,13 +283,16 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
         {/* Brand panel */}
         <div
           ref={panelRef}
-          className="relative mx-auto overflow-hidden rounded-[2rem] border p-5 backdrop-blur-2xl sm:p-8"
+          className={cn(
+            "relative mx-auto overflow-hidden rounded-[2rem] border p-5 backdrop-blur-2xl sm:p-8",
+            // Two shadow stops: outer drop shadow (theme-aware) + inner edge highlight.
+            "shadow-[0_18px_55px_-22px_rgba(24,51,43,0.18),inset_0_1px_0_0_rgba(255,255,255,0.6)]",
+            "dark:shadow-[0_30px_80px_-28px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.08)]"
+          )}
           style={{
             background: "var(--tb-panel-bg)",
             borderColor: "var(--tb-border)",
             willChange: "transform, opacity",
-            boxShadow:
-              "0 30px 80px -28px rgba(0,0,0,0.65), inset 0 1px 0 0 rgba(255,255,255,0.08)",
           }}
         >
           {/* Soft corner glints inside the panel */}
@@ -410,7 +435,7 @@ function BrandCarousel({ brands }: { brands: HomepageTrustedBrand[] }) {
         <div
           key={brand.id}
           className="snap-center shrink-0"
-          style={{ width: "min(180px, 40vw)" }}
+          style={{ width: "min(220px, 50vw)" }}
         >
           <BrandTile brand={brand} asAnimationTarget />
         </div>
@@ -437,8 +462,12 @@ function BrandTile({
     <div
       {...(asAnimationTarget ? { "data-brand-tile": "" } : {})}
       className={cn(
-        "group/tile relative flex h-24 w-40 shrink-0 items-center justify-center overflow-hidden rounded-2xl border backdrop-blur-md transition-all duration-300 sm:h-28 sm:w-44",
+        "group/tile relative flex h-28 w-44 shrink-0 items-center justify-center overflow-hidden rounded-2xl border backdrop-blur-md transition-all duration-300 sm:h-32 sm:w-52",
         "hover:-translate-y-0.5",
+        // Theme-aware tile shadow: lighter, gold-tinted drop in light mode;
+        // deeper near-black drop in dark mode.
+        "shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6),0_8px_24px_-12px_rgba(24,51,43,0.18)]",
+        "dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_8px_24px_-12px_rgba(0,0,0,0.55)]",
         brand.is_highlight && "ring-1"
       )}
       style={{
@@ -446,8 +475,6 @@ function BrandTile({
         borderColor: brand.is_highlight
           ? "var(--tb-gold)"
           : "var(--tb-tile-border)",
-        boxShadow:
-          "inset 0 1px 0 0 rgba(255,255,255,0.06), 0 8px 24px -12px rgba(0,0,0,0.55)",
       }}
     >
       {/* Subtle inner gold ring */}
@@ -472,7 +499,7 @@ function BrandTile({
       {/* Diagonal shine sweep on hover */}
       <span
         aria-hidden
-        className="pointer-events-none absolute -inset-1 -translate-x-full skew-x-[-20deg] bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-700 group-hover/tile:translate-x-full"
+        className="pointer-events-none absolute -inset-1 -translate-x-full skew-x-[-20deg] bg-gradient-to-r from-transparent via-amber-500/15 to-transparent transition-transform duration-700 group-hover/tile:translate-x-full dark:via-white/15"
       />
 
       {logo ? (
@@ -482,7 +509,7 @@ function BrandTile({
           alt={brand.brand_name}
           loading="lazy"
           aria-labelledby={labelId}
-          className="relative z-10 max-h-12 w-auto max-w-[78%] object-contain opacity-85 transition-all duration-300 group-hover/tile:opacity-100 sm:max-h-14"
+          className="relative z-10 max-h-16 w-auto max-w-[85%] object-contain opacity-90 transition-all duration-300 group-hover/tile:opacity-100 sm:max-h-20"
         />
       ) : (
         <span
