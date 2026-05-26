@@ -27,18 +27,22 @@ import { env } from "@/lib/env";
 
 interface FetchOptions {
   /**
-   * If true (default), the request bypasses every cache layer
-   * (`cache: "no-store"` + ``next: { revalidate: 0 }``). This is the
-   * right default for CMS content because:
+   * If true (default), the request bypasses every cache layer with
+   * ``cache: "no-store"``. This is the right default for CMS content
+   * because:
    *
-   *  - The backend now ships ``Cache-Control: no-store`` on
+   *  - The backend ships ``Cache-Control: no-store`` on
    *    /public/site-settings, /public/leadership, /public/companies,
    *    etc. so Cloudflare's edge cache can no longer hold a partial
-   *    response between revalidates.
-   *  - Next.js's fetch deduplication cache used to cache a
-   *    transient empty / 5xx response for 60s and replay it across
-   *    every visitor — producing the "footer / leadership fields
-   *    appear briefly and then disappear on refresh" bug.
+   *    response.
+   *  - Next.js's fetch deduplication cache used to cache a transient
+   *    empty / 5xx response and replay it across every visitor —
+   *    producing the "footer / leadership fields appear briefly and
+   *    then disappear on refresh" bug.
+   *
+   * Note: we deliberately do NOT pass ``next: { revalidate: 0 }``
+   * alongside ``cache: "no-store"`` — Next.js logs a warning when
+   * both are set because they're equivalent.
    *
    * Set ``noStore: false`` only for endpoints that don't move with
    * admin edits (currently none).
@@ -55,9 +59,7 @@ async function fetchPublic<T>(
   const noStore = options.noStore ?? true;
   try {
     const response = await fetch(url, {
-      ...(noStore
-        ? { cache: "no-store" as const, next: { revalidate: 0 } }
-        : {}),
+      ...(noStore ? { cache: "no-store" as const } : {}),
     });
     if (response.status === 404) {
       return null;

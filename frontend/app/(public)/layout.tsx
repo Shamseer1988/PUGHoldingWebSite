@@ -10,7 +10,7 @@ import {
   getSiteSettings,
 } from "@/lib/public-api";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 /**
  * Public site layout.

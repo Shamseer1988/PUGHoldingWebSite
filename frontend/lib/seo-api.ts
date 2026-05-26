@@ -84,14 +84,10 @@ const EMPTY_FEED: PublicSeoHeadFeed = {
   integrations: [],
 };
 
-/** Re-validate the SEO head feed at most once per minute. */
-const SEO_HEAD_REVALIDATE_SECONDS = 60;
-
 export async function getPublicSeoHead(): Promise<PublicSeoHeadFeed> {
   try {
     const res = await fetch(`${env.apiBaseUrl}/public/seo/head`, {
       cache: "no-store",
-      next: { revalidate: 0 },
     });
     if (!res.ok) return EMPTY_FEED;
     return (await res.json()) as PublicSeoHeadFeed;
@@ -106,7 +102,6 @@ export async function getPublicRobotsTxt(): Promise<string | null> {
   try {
     const res = await fetch(`${env.apiBaseUrl}/public/seo/robots`, {
       cache: "no-store",
-      next: { revalidate: 0 },
     });
     if (!res.ok) return null;
     return await res.text();
