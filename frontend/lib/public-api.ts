@@ -542,20 +542,25 @@ export function resolveAssetUrl(url: string | null | undefined): string | null {
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/api/")) {
     try {
-      const base = new URL(env.apiBaseUrl);
+      // Use the PUBLIC base URL here — never the server-side loopback.
+      // resolveAssetUrl produces URLs that get embedded in SSR HTML
+      // (<img src=...>) and re-used in the browser; both contexts
+      // need the public hostname so the browser can actually fetch.
+      const base = new URL(env.publicApiBaseUrl);
       if (
         typeof window !== "undefined" &&
         LOOPBACK_HOSTS.has(base.hostname) &&
         !LOOPBACK_HOSTS.has(window.location.hostname)
       ) {
         // Production rewrite path: API base was baked in as
-        // http://localhost:8000 but the browser is on a real
-        // hostname. Keep the backend port ONLY when the page itself
-        // is on a non-standard port (LAN dev across machines). In
-        // production the page is on 443 / 80, so dropping the port
-        // means the URL resolves to https://www.example.com/...
-        // (i.e. Nginx routes it to the backend) instead of the
-        // unreachable https://www.example.com:8000/...
+        // http://localhost:8000 (no NEXT_PUBLIC_API_BASE_URL set at
+        // build time) but the browser is on a real hostname. Keep
+        // the backend port ONLY when the page itself is on a non-
+        // standard port (LAN dev across machines). In production
+        // the page is on 443 / 80, so dropping the port resolves
+        // to https://www.example.com/... (Nginx routes to the
+        // backend) instead of the unreachable
+        // https://www.example.com:8000/...
         const onStandardPort =
           window.location.port === "" ||
           window.location.port === "80" ||
