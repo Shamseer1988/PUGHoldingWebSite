@@ -324,6 +324,10 @@ class CandidateListItem(BaseModel):
     top_score: Optional[int] = None
     latest_status: Optional[str] = None
     latest_status_label: Optional[str] = None
+    # ID of the candidate's most recent CandidateJobApplication (highest
+    # applied_at). Surfaced on the list view so the bulk-status UI can
+    # operate against application IDs without a second round-trip.
+    latest_application_id: Optional[int] = None
 
 
 class ApplicationSubmissionResponse(BaseModel):

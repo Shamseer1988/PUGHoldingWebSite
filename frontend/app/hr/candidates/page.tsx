@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 
+import { BulkStatusModal } from "@/components/hr/bulk-status-modal";
 import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
 import {
   CandidateFilterPanel,
@@ -60,6 +61,10 @@ export default function HrCandidatesPage() {
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [jobs, setJobs] = React.useState<JobOpening[]>([]);
   const [detailId, setDetailId] = React.useState<number | null>(null);
+  const [selectedAppIds, setSelectedAppIds] = React.useState<Set<number>>(
+    new Set(),
+  );
+  const [bulkStatusOpen, setBulkStatusOpen] = React.useState(false);
 
   React.useEffect(() => {
     refresh();
@@ -106,6 +111,19 @@ export default function HrCandidatesPage() {
       description="Every CV received from the public careers page or uploaded by HR."
       actions={
         <div className="flex items-center gap-2">
+          {selectedAppIds.size > 0 ? (
+            <Button
+              size="sm"
+              onClick={() => setBulkStatusOpen(true)}
+              aria-label="Bulk status change"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                Bulk status ({selectedAppIds.size})
+              </span>
+              <span className="sm:hidden">{selectedAppIds.size}</span>
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -212,6 +230,32 @@ export default function HrCandidatesPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    checked={
+                      items.length > 0 &&
+                      items.every(
+                        (c) =>
+                          c.latest_application_id !== null &&
+                          selectedAppIds.has(c.latest_application_id!),
+                      )
+                    }
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelectedAppIds(() => {
+                        if (!checked) return new Set();
+                        const next = new Set<number>();
+                        items.forEach((c) => {
+                          if (c.latest_application_id != null)
+                            next.add(c.latest_application_id);
+                        });
+                        return next;
+                      });
+                    }}
+                  />
+                </TableHead>
                 <TableHead>Candidate</TableHead>
                 <TableHead className="hidden md:table-cell">Contact</TableHead>
                 <TableHead className="hidden lg:table-cell w-24">Exp.</TableHead>
@@ -228,6 +272,19 @@ export default function HrCandidatesPage() {
                   key={c.id}
                   c={c}
                   onOpenDetail={() => setDetailId(c.id)}
+                  isSelected={
+                    c.latest_application_id != null &&
+                    selectedAppIds.has(c.latest_application_id)
+                  }
+                  onToggleSelect={(checked) => {
+                    if (c.latest_application_id == null) return;
+                    setSelectedAppIds((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(c.latest_application_id!);
+                      else next.delete(c.latest_application_id!);
+                      return next;
+                    });
+                  }}
                 />
               ))}
             </TableBody>
@@ -270,6 +327,19 @@ export default function HrCandidatesPage() {
           void refresh();
         }}
       />
+
+      <BulkStatusModal
+        open={bulkStatusOpen}
+        selectedApplicationIds={Array.from(selectedAppIds)}
+        onClose={() => setBulkStatusOpen(false)}
+        onCompleted={(result) => {
+          setToast(
+            `${result.success_count} updated · ${result.failed_count} failed`,
+          );
+          setSelectedAppIds(new Set());
+          void refresh();
+        }}
+      />
     </HrShell>
   );
 }
@@ -277,15 +347,33 @@ export default function HrCandidatesPage() {
 function CandidateRow({
   c,
   onOpenDetail,
+  isSelected,
+  onToggleSelect,
 }: {
   c: CandidateListItem;
   onOpenDetail: () => void;
+  isSelected: boolean;
+  onToggleSelect: (checked: boolean) => void;
 }) {
   return (
     <TableRow
       onClick={onOpenDetail}
       className="cursor-pointer transition-colors hover:bg-muted/40"
     >
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          aria-label={`Select ${c.full_name}`}
+          checked={isSelected}
+          disabled={c.latest_application_id == null}
+          title={
+            c.latest_application_id == null
+              ? "No application to act on yet"
+              : undefined
+          }
+          onChange={(e) => onToggleSelect(e.target.checked)}
+        />
+      </TableCell>
       <TableCell>
         <p className="font-medium leading-tight">{c.full_name}</p>
         {c.current_designation && (
