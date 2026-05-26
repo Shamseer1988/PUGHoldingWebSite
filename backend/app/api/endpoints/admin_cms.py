@@ -33,11 +33,15 @@ from app.models.auth import SCOPE_WEBSITE, AuditLog, User
 from app.models.cms import (
     MEDIA_KIND_IMAGE,
     MEDIA_KIND_VIDEO,
+    REPLY_STATUS_FAILED,
+    REPLY_STATUS_PENDING,
+    REPLY_STATUS_SENT,
     CMSPage,
     Company,
     CompanyBrandLogo,
     CompanyService,
     ContactMessage,
+    ContactReply as ContactReplyModel,
     HeroSlide,
     LeadershipMessage,
     MediaAsset,
@@ -56,8 +60,10 @@ from app.schemas.cms import (
     CompanyCreate,
     CompanyRead,
     CompanyUpdate,
+    ContactMessageDetail,
     ContactMessageRead,
     ContactReply,
+    ContactReplyRead,
     DashboardSummary,
     HeroSlideCreate,
     HeroSlideRead,
@@ -83,6 +89,7 @@ from app.schemas.cms import (
     UploadResponse,
 )
 from app.services.audit_log import record_audit
+from app.services.email import EmailService
 
 
 # Image upload constraints
@@ -631,20 +638,66 @@ def archive(
     return msg
 
 
-@router.post("/contact-messages/{message_id}/reply", response_model=ContactMessageRead)
+@router.get("/contact-messages/{message_id}", response_model=ContactMessageDetail)
+def get_contact_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+) -> ContactMessageDetail:
+    """Single contact message with its full reply thread."""
+    msg = _get_contact_or_404(db, message_id)
+    return _to_detail(msg)
+
+
+@router.post("/contact-messages/{message_id}/reply", response_model=ContactMessageDetail)
 def reply(
     message_id: int,
     payload: ContactReply,
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
-) -> ContactMessage:
+) -> ContactMessageDetail:
+    """Reply via email and record the outbound bubble in the thread.
+
+    The reply is saved before the SMTP send is attempted so a network
+    failure never loses the admin's typed text. ``email_status`` flips
+    from ``pending`` → ``sent`` / ``failed`` based on the send result.
+    """
     msg = _get_contact_or_404(db, message_id)
-    msg.reply_body = payload.reply_body
-    msg.is_replied = True
-    msg.is_read = True
-    msg.replied_by_id = user.id
-    msg.replied_at = datetime.now(timezone.utc)
+
+    reply_row = ContactReplyModel(
+        contact_message_id=msg.id,
+        direction="outbound",
+        admin_user_id=user.id,
+        sender_name=user.full_name,
+        sender_email=user.email,
+        recipient_email=msg.email,
+        subject=_reply_subject(msg.subject),
+        body=payload.reply_body,
+        email_status=REPLY_STATUS_PENDING,
+    )
+    db.add(reply_row)
+    db.flush()
+
+    result = EmailService.send_contact_reply(
+        db, contact_message=msg, reply_body=payload.reply_body
+    )
+
+    if result.success:
+        reply_row.email_status = REPLY_STATUS_SENT
+        reply_row.sent_at = result.sent_at
+        msg.reply_body = payload.reply_body
+        msg.is_replied = True
+        msg.is_read = True
+        msg.replied_by_id = user.id
+        msg.replied_at = result.sent_at or datetime.now(timezone.utc)
+    else:
+        reply_row.email_status = REPLY_STATUS_FAILED
+        reply_row.error_message = result.message
+        # The reply text is still saved (so the admin can retry), but
+        # the message-level "replied" flag stays False until a send
+        # succeeds.
+        msg.is_read = True
+
     _audit(
         db,
         user,
@@ -652,10 +705,110 @@ def reply(
         action="cms.contact.reply",
         target_type="contact_message",
         target_id=msg.id,
+        details={
+            "reply_id": reply_row.id,
+            "email_status": reply_row.email_status,
+            "success": result.success,
+        },
     )
     db.commit()
     db.refresh(msg)
-    return msg
+    return _to_detail(msg)
+
+
+@router.post(
+    "/contact-replies/{reply_id}/retry",
+    response_model=ContactMessageDetail,
+)
+def retry_reply(
+    reply_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Re-attempt sending a failed outbound reply with the stored body."""
+    reply_row = db.get(ContactReplyModel, reply_id)
+    if reply_row is None or reply_row.direction != "outbound":
+        raise HTTPException(status_code=404, detail="Reply not found")
+
+    msg = db.get(ContactMessage, reply_row.contact_message_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="Contact message not found")
+
+    result = EmailService.send_contact_reply(
+        db, contact_message=msg, reply_body=reply_row.body
+    )
+    if result.success:
+        reply_row.email_status = REPLY_STATUS_SENT
+        reply_row.error_message = None
+        reply_row.sent_at = result.sent_at
+        msg.is_replied = True
+        msg.replied_by_id = user.id
+        msg.replied_at = result.sent_at or datetime.now(timezone.utc)
+        msg.reply_body = reply_row.body
+    else:
+        reply_row.email_status = REPLY_STATUS_FAILED
+        reply_row.error_message = result.message
+
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.reply.retry",
+        target_type="contact_reply",
+        target_id=reply_row.id,
+        details={"email_status": reply_row.email_status},
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+def _reply_subject(original: Optional[str]) -> str:
+    base = (original or "your enquiry").strip()
+    return base if base.lower().startswith("re:") else f"Re: {base}"
+
+
+def _to_detail(msg: ContactMessage) -> ContactMessageDetail:
+    """Compose the chat thread payload (inbound + every outbound reply)."""
+    bubbles: List[ContactReplyRead] = [
+        ContactReplyRead(
+            id=0,
+            contact_message_id=msg.id,
+            direction="inbound",
+            admin_user_id=None,
+            sender_name=msg.name,
+            sender_email=msg.email,
+            recipient_email=None,
+            subject=msg.subject,
+            body=msg.message,
+            email_status="received",
+            error_message=None,
+            sent_at=None,
+            created_at=msg.created_at,
+            updated_at=msg.created_at,
+        )
+    ]
+    for reply in msg.replies:
+        bubbles.append(ContactReplyRead.model_validate(reply))
+
+    return ContactMessageDetail(
+        id=msg.id,
+        name=msg.name,
+        email=msg.email,
+        phone=msg.phone,
+        department=msg.department,
+        subject=msg.subject,
+        message=msg.message,
+        is_read=msg.is_read,
+        is_replied=msg.is_replied,
+        is_archived=msg.is_archived,
+        reply_body=msg.reply_body,
+        replied_by_id=msg.replied_by_id,
+        replied_at=msg.replied_at,
+        created_at=msg.created_at,
+        replies=bubbles,
+    )
 
 
 def _get_contact_or_404(db: Session, message_id: int) -> ContactMessage:

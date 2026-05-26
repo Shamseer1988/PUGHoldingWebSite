@@ -402,6 +402,27 @@ class ContactReply(BaseModel):
     reply_body: str = Field(min_length=1)
 
 
+class ContactReplyRead(BaseModel):
+    """One bubble in the contact-inbox chat thread."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    contact_message_id: int
+    direction: str
+    admin_user_id: Optional[int] = None
+    sender_name: Optional[str] = None
+    sender_email: Optional[str] = None
+    recipient_email: Optional[str] = None
+    subject: Optional[str] = None
+    body: str
+    email_status: str
+    error_message: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ContactMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -419,6 +440,12 @@ class ContactMessageRead(BaseModel):
     replied_by_id: Optional[int] = None
     replied_at: Optional[datetime] = None
     created_at: datetime
+
+
+class ContactMessageDetail(ContactMessageRead):
+    """Contact message + every reply in the thread, oldest first."""
+
+    replies: List[ContactReplyRead] = Field(default_factory=list)
 
 
 class NewsletterSubscribe(BaseModel):
