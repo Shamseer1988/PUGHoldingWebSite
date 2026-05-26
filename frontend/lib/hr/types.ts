@@ -256,6 +256,10 @@ export interface CandidateListItem {
   top_score: number | null;
   latest_status: string | null;
   latest_status_label: string | null;
+  // Most recent application id — bulk-status modal operates on
+  // applications, not candidates, so this lets the list view drive the
+  // bulk action without a second round-trip.
+  latest_application_id: number | null;
 }
 
 // Phase 16 — advanced search filters ------------------------------------

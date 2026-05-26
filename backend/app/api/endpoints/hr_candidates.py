@@ -257,6 +257,15 @@ def _serialize_list_item(
     top_score: Optional[int],
     latest_status: Optional[str] = None,
 ) -> CandidateListItem:
+    # Most recent application drives the bulk-status modal target.
+    latest_application_id: Optional[int] = None
+    if candidate.applications:
+        latest = max(
+            candidate.applications,
+            key=lambda a: (a.applied_at, a.id),
+        )
+        latest_application_id = latest.id
+
     return CandidateListItem(
         id=candidate.id,
         full_name=candidate.full_name,
@@ -271,6 +280,7 @@ def _serialize_list_item(
         top_score=top_score,
         latest_status=latest_status,
         latest_status_label=STATUS_LABELS.get(latest_status) if latest_status else None,
+        latest_application_id=latest_application_id,
     )
 
 

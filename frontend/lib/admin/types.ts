@@ -184,6 +184,13 @@ export interface EmailSettings {
   email_reply_to: string | null;
   test_email_to: string | null;
   notification_email: string | null;
+  // HR Advanced module — branded HR notifications (phase 3)
+  hr_notification_emails: string[] | null;
+  candidate_email_enabled: boolean;
+  interview_email_enabled: boolean;
+  job_approval_email_enabled: boolean;
+  brand_logo_url: string | null;
+  email_footer_text: string | null;
   last_test_status: EmailTestStatus;
   last_test_message: string | null;
   last_test_at: string | null;
@@ -206,6 +213,13 @@ export interface EmailSettingsUpdate {
   email_reply_to?: string | null;
   test_email_to?: string | null;
   notification_email?: string | null;
+  // HR Advanced module
+  hr_notification_emails?: string[] | null;
+  candidate_email_enabled?: boolean;
+  interview_email_enabled?: boolean;
+  job_approval_email_enabled?: boolean;
+  brand_logo_url?: string | null;
+  email_footer_text?: string | null;
 }
 
 export interface EmailTestResult {
