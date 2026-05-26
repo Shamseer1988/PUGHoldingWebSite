@@ -39,6 +39,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ------------------------------------------------------------------
+    # email_settings — HR notification + branding columns
+    # ------------------------------------------------------------------
+    with op.batch_alter_table("email_settings") as batch:
+        batch.add_column(sa.Column("hr_notification_emails", sa.JSON(), nullable=True))
+        batch.add_column(
+            sa.Column(
+                "candidate_email_enabled",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("true"),
+            )
+        )
+        batch.add_column(
+            sa.Column(
+                "interview_email_enabled",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("true"),
+            )
+        )
+        batch.add_column(
+            sa.Column(
+                "job_approval_email_enabled",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("true"),
+            )
+        )
+        batch.add_column(sa.Column("brand_logo_url", sa.String(length=500), nullable=True))
+        batch.add_column(sa.Column("email_footer_text", sa.Text(), nullable=True))
+
+    # ------------------------------------------------------------------
     # hr_job_openings — new approval columns
     # ------------------------------------------------------------------
     with op.batch_alter_table("hr_job_openings") as batch:
@@ -442,3 +474,11 @@ def downgrade() -> None:
         batch.drop_column("approved_by_id")
         batch.drop_column("publish_status")
         batch.drop_column("approval_status")
+
+    with op.batch_alter_table("email_settings") as batch:
+        batch.drop_column("email_footer_text")
+        batch.drop_column("brand_logo_url")
+        batch.drop_column("job_approval_email_enabled")
+        batch.drop_column("interview_email_enabled")
+        batch.drop_column("candidate_email_enabled")
+        batch.drop_column("hr_notification_emails")

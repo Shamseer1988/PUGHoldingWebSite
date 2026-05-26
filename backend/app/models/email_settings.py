@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -59,6 +59,22 @@ class EmailSetting(Base):
 
     # Best-effort admin notification on public contact-form submission.
     notification_email: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # --- HR notification destinations (advanced module) -------------
+    # Comma-separated list of HR Manager emails CC'd on job approval
+    # events. JSON to keep ordering and allow future per-event lists.
+    hr_notification_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    candidate_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    interview_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    job_approval_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    brand_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
+    email_footer_text: Mapped[Optional[str]] = mapped_column(Text)
 
     # --- Last test diagnostic ---
     last_test_status: Mapped[str] = mapped_column(

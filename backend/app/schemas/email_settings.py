@@ -8,7 +8,7 @@ value", non-blank means "encrypt and store this new value".
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -34,6 +34,13 @@ class EmailSettingsRead(BaseModel):
     email_reply_to: Optional[str] = None
     test_email_to: Optional[str] = None
     notification_email: Optional[str] = None
+    # HR notification destinations + feature flags (advanced module)
+    hr_notification_emails: Optional[List[str]] = None
+    candidate_email_enabled: bool = True
+    interview_email_enabled: bool = True
+    job_approval_email_enabled: bool = True
+    brand_logo_url: Optional[str] = None
+    email_footer_text: Optional[str] = None
     last_test_status: str
     last_test_message: Optional[str] = None
     last_test_at: Optional[datetime] = None
@@ -64,6 +71,14 @@ class EmailSettingsUpdate(BaseModel):
     email_reply_to: Optional[EmailStr] = None
     test_email_to: Optional[EmailStr] = None
     notification_email: Optional[EmailStr] = None
+
+    # HR notification fields
+    hr_notification_emails: Optional[List[EmailStr]] = None
+    candidate_email_enabled: Optional[bool] = None
+    interview_email_enabled: Optional[bool] = None
+    job_approval_email_enabled: Optional[bool] = None
+    brand_logo_url: Optional[str] = Field(default=None, max_length=500)
+    email_footer_text: Optional[str] = Field(default=None, max_length=2000)
 
     @field_validator("smtp_host", "smtp_username", "email_from_name", mode="before")
     @classmethod
