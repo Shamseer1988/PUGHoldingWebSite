@@ -9,6 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 JOB_STATUS_PATTERN = r"^(open|on_hold|closed)$"
 EMPLOYMENT_TYPE_PATTERN = r"^(full_time|part_time|contract)$"
+APPROVAL_STATUS_PATTERN = r"^(draft|pending_approval|approved|rejected|revision_required)$"
+PUBLISH_STATUS_PATTERN = r"^(draft|published|unpublished)$"
+AUTO_REVIEW_DECISION_PATTERN = (
+    r"^(auto_shortlisted|hr_review_pending|auto_rejected|duplicate|selected)$"
+)
 
 
 class JobOpeningBase(BaseModel):
@@ -82,6 +87,19 @@ class JobOpeningRead(JobOpeningBase):
     created_by_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+    # Approval workflow (advanced module — back-fill rows return defaults)
+    approval_status: str = "draft"
+    publish_status: str = "draft"
+    approved_by_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    submitted_for_approval_by_id: Optional[int] = None
+    submitted_for_approval_at: Optional[datetime] = None
+    rejected_by_id: Optional[int] = None
+    rejected_at: Optional[datetime] = None
+    approval_remarks: Optional[str] = None
+    active_revision_id: Optional[int] = None
+    has_pending_revision: bool = False
 
 
 class JobOpeningList(BaseModel):
@@ -597,3 +615,225 @@ class InterviewListItem(BaseModel):
     status_label: str
     has_feedback: bool = False
     latest_recommendation: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Job approval workflow schemas
+# ---------------------------------------------------------------------------
+
+
+class JobApprovalActionRequest(BaseModel):
+    """Payload for approve / reject / request-revision / publish endpoints."""
+
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+
+
+class JobApprovalRejectRequest(BaseModel):
+    """Reject requires a non-empty reason."""
+
+    remarks: str = Field(min_length=4, max_length=2000)
+
+
+class JobApprovalHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_opening_id: int
+    action: str
+    old_approval_status: Optional[str] = None
+    new_approval_status: Optional[str] = None
+    actor_id: Optional[int] = None
+    actor_email: Optional[str] = None
+    remarks: Optional[str] = None
+    changed_fields: Optional[Dict[str, Any]] = None
+    revision_id: Optional[int] = None
+    created_at: datetime
+
+
+class JobRevisionRead(BaseModel):
+    """A pending/approved/rejected job edit."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_opening_id: int
+    payload: Dict[str, Any]
+    status: str
+    created_by_id: Optional[int] = None
+    reviewed_by_id: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Email log schemas
+# ---------------------------------------------------------------------------
+
+
+class EmailLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    scope: Optional[str] = None
+    template_key: Optional[str] = None
+    subject: Optional[str] = None
+    to_emails: Optional[List[str]] = None
+    cc_emails: Optional[List[str]] = None
+    bcc_emails: Optional[List[str]] = None
+    status: str
+    provider_response: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    related_type: Optional[str] = None
+    related_id: Optional[str] = None
+    created_by_id: Optional[int] = None
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Auto-review rule + outcome schemas
+# ---------------------------------------------------------------------------
+
+
+class JobAutoReviewRuleBase(BaseModel):
+    is_active: bool = True
+    auto_reject_enabled: bool = False
+    min_score: Optional[int] = Field(default=None, ge=0, le=100)
+    required_skills: Optional[List[str]] = None
+    preferred_skills: Optional[List[str]] = None
+    min_experience: Optional[float] = Field(default=None, ge=0, le=70)
+    max_expected_salary: Optional[int] = Field(default=None, ge=0)
+    visa_keywords: Optional[List[str]] = None
+    location_keywords: Optional[List[str]] = None
+    nationality_keywords: Optional[List[str]] = None
+    notice_period_keywords: Optional[List[str]] = None
+    auto_shortlist_threshold: Optional[int] = Field(default=None, ge=0, le=100)
+    auto_reject_threshold: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class JobAutoReviewRuleUpdate(JobAutoReviewRuleBase):
+    """Same fields, all optional — used for PUT (upsert)."""
+
+    is_active: Optional[bool] = None
+    auto_reject_enabled: Optional[bool] = None
+
+
+class JobAutoReviewRuleRead(JobAutoReviewRuleBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_opening_id: int
+    created_by_id: Optional[int] = None
+    updated_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CandidateAutoReviewRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    rule_id: Optional[int] = None
+    score: Optional[int] = None
+    decision: str
+    matched_skills: Optional[List[str]] = None
+    missing_skills: Optional[List[str]] = None
+    risk_flags: Optional[List[str]] = None
+    reason_summary: Optional[str] = None
+    recommendation_source: Optional[str] = None
+    reviewed_at: datetime
+    reviewed_by_system: bool
+
+
+class JobAutoReviewSummary(BaseModel):
+    job_opening_id: int
+    total_applications: int
+    auto_shortlisted: int = 0
+    hr_review_pending: int = 0
+    auto_rejected: int = 0
+    duplicates: int = 0
+    not_reviewed: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Bulk candidate status change schemas
+# ---------------------------------------------------------------------------
+
+
+class BulkCandidateStatusChangeRequest(BaseModel):
+    application_ids: List[int] = Field(min_length=1, max_length=500)
+    new_status: str = Field(min_length=1, max_length=40)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+    rejection_reason: Optional[str] = Field(default=None, max_length=2000)
+    blacklist_approval: Optional[str] = Field(default=None, max_length=2000)
+    send_email: bool = False
+    all_or_nothing: bool = False
+
+
+class BulkCandidateStatusChangeRow(BaseModel):
+    application_id: int
+    candidate_id: Optional[int] = None
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+    success: bool
+    error: Optional[str] = None
+
+
+class BulkCandidateStatusChangeResult(BaseModel):
+    total: int
+    success_count: int
+    failed_count: int
+    rows: List[BulkCandidateStatusChangeRow]
+
+
+# ---------------------------------------------------------------------------
+# Public CV preview schemas
+# ---------------------------------------------------------------------------
+
+
+class PublicCvParsePreview(BaseModel):
+    """Parsed CV fields returned by the public Apply form pre-fill endpoint."""
+
+    parsed: bool
+    parser_version: Optional[str] = None
+    warnings: List[str] = Field(default_factory=list)
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    nationality: Optional[str] = None
+    current_location: Optional[str] = None
+    current_designation: Optional[str] = None
+    current_company: Optional[str] = None
+    total_experience_years: Optional[float] = None
+    gcc_experience_years: Optional[float] = None
+    qatar_experience_years: Optional[float] = None
+    expected_salary: Optional[int] = None
+    notice_period: Optional[str] = None
+    visa_status: Optional[str] = None
+    skills: Optional[str] = None
+    education: Optional[List[Dict[str, Any]]] = None
+    languages: Optional[List[str]] = None
+    certifications: Optional[List[str]] = None
+
+
+# ---------------------------------------------------------------------------
+# Interview email/Google Meet extras (advanced module)
+# ---------------------------------------------------------------------------
+
+
+class InterviewEmailFields(BaseModel):
+    """Optional email/meet fields added to InterviewCreate by the advanced
+    module. Composed into a single payload that extends InterviewCreate
+    without breaking older callers — every field has a safe default."""
+
+    candidate_email_override: Optional[str] = Field(default=None, max_length=255)
+    additional_attendee_emails: List[str] = Field(default_factory=list)
+    cc_emails: List[str] = Field(default_factory=list)
+    bcc_emails: List[str] = Field(default_factory=list)
+    email_subject: Optional[str] = Field(default=None, max_length=500)
+    email_note: Optional[str] = Field(default=None, max_length=4000)
+    send_email_now: bool = False
+    create_google_meet: bool = False
