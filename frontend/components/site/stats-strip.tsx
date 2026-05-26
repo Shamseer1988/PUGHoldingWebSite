@@ -67,6 +67,11 @@ export function StatsStrip() {
       const accents = accentRefs.current.filter(Boolean) as HTMLElement[];
       if (!section || cards.length === 0) return;
 
+      // Safety net for the timeline below — see footer.tsx for
+      // rationale. If ScrollTrigger never fires, the stats cards
+      // would stay invisible.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
         // Hide everything until the timeline runs, so first paint
         // matches the animation starting position.
@@ -101,9 +106,18 @@ export function StatsStrip() {
             "-=0.35"
           );
         }
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 2500);
       }, section);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {

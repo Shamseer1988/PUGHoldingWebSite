@@ -25,12 +25,24 @@ import type {
 } from "@/lib/admin/types";
 import { env } from "@/lib/env";
 
-const REVALIDATE_SECONDS = 60;
-
 interface FetchOptions {
-  /** Override the default revalidate window. */
-  revalidate?: number;
-  /** Skip cache entirely (e.g. for previewing). */
+  /**
+   * If true (default), the request bypasses every cache layer
+   * (`cache: "no-store"` + ``next: { revalidate: 0 }``). This is the
+   * right default for CMS content because:
+   *
+   *  - The backend now ships ``Cache-Control: no-store`` on
+   *    /public/site-settings, /public/leadership, /public/companies,
+   *    etc. so Cloudflare's edge cache can no longer hold a partial
+   *    response between revalidates.
+   *  - Next.js's fetch deduplication cache used to cache a
+   *    transient empty / 5xx response for 60s and replay it across
+   *    every visitor — producing the "footer / leadership fields
+   *    appear briefly and then disappear on refresh" bug.
+   *
+   * Set ``noStore: false`` only for endpoints that don't move with
+   * admin edits (currently none).
+   */
   noStore?: boolean;
 }
 
@@ -39,25 +51,34 @@ async function fetchPublic<T>(
   options: FetchOptions = {}
 ): Promise<T | null> {
   const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  // CMS content defaults to no-store (see FetchOptions docstring).
+  const noStore = options.noStore ?? true;
   try {
     const response = await fetch(url, {
-      next: options.noStore
-        ? undefined
-        : { revalidate: options.revalidate ?? REVALIDATE_SECONDS },
-      cache: options.noStore ? "no-store" : undefined,
+      ...(noStore
+        ? { cache: "no-store" as const, next: { revalidate: 0 } }
+        : {}),
     });
     if (response.status === 404) {
       return null;
     }
     if (!response.ok) {
-      console.error(
-        `Public API ${url} returned ${response.status}: ${await response.text()}`
-      );
+      // In dev, surface non-2xx with the body. In production we
+      // still want the error visible in the server logs but without
+      // the noisy body dump.
+      if (process.env.NODE_ENV !== "production") {
+        const body = await response.text();
+        console.error(
+          `[public-api] ${url} returned ${response.status}: ${body}`
+        );
+      } else {
+        console.error(`[public-api] ${url} returned ${response.status}`);
+      }
       return null;
     }
     return (await response.json()) as T;
   } catch (error) {
-    console.error(`Public API ${url} failed:`, error);
+    console.error(`[public-api] ${url} fetch failed:`, error);
     return null;
   }
 }

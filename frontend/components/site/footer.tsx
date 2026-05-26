@@ -124,6 +124,14 @@ export function Footer({ settings }: FooterProps) {
       const bottom = bottomRef.current;
       if (!root) return;
 
+      // Safety net for the timeline below. ScrollTrigger position
+      // calculations sometimes race late layout (font swap, async
+      // image dims, sticky ancestors) on refresh, leaving the
+      // footer permanently at gsap.set's opacity:0. If the timeline
+      // hasn't started after 2.5s, jump it to the end so the
+      // footer always becomes visible.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
         if (brand) gsap.set(brand, { y: 28, opacity: 0 });
         const columns = nav?.querySelectorAll<HTMLElement>(
@@ -150,9 +158,18 @@ export function Footer({ settings }: FooterProps) {
           );
         }
         if (bottom) tl.to(bottom, { y: 0, opacity: 1, duration: 0.5 }, 0.45);
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 2500);
       }, root);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {

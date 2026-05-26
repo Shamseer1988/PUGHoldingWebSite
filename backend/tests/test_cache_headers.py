@@ -2,16 +2,53 @@
 from __future__ import annotations
 
 
-def test_public_get_carries_cache_control(client):
-    """A read endpoint under /public/* must come back with a
-    Cache-Control suitable for edge caching."""
+def test_cms_endpoint_is_no_store(client):
+    """CMS endpoints (site-settings, leadership, companies, …) must
+    ship a no-cache / no-store header so admin edits propagate
+    immediately and partial responses can't be cached and replayed
+    by Cloudflare or Next.js for 60 s. This is the fix for the
+    'footer / leadership fields disappear on refresh' bug."""
     resp = client.get("/api/v1/public/site-settings")
     assert resp.status_code == 200
     cc = resp.headers.get("cache-control", "")
-    assert "s-maxage=60" in cc
-    assert "stale-while-revalidate=3600" in cc
+    assert "no-store" in cc
+    assert "no-cache" in cc
+    assert "must-revalidate" in cc
+    assert "max-age=0" in cc
+    # Belt-and-braces for the few ancient proxies that still respect
+    # Pragma / Expires.
+    assert resp.headers.get("pragma", "").lower() == "no-cache"
+    assert resp.headers.get("expires") == "0"
     # Vary should include Origin so CORS doesn't collide across domains.
     assert "Origin" in resp.headers.get("vary", "")
+
+
+def test_all_cms_paths_carry_no_store(client, seed_auth, db_session):
+    """Every prefix the middleware flags as CMS must serve no-store —
+    not just /site-settings."""
+    # Seed something so the read endpoints have rows to return.
+    from app.models.cms import HeroSlide
+
+    db_session.add(HeroSlide(title="x", display_order=1, is_active=True))
+    db_session.commit()
+
+    for path in (
+        "/api/v1/public/site-settings",
+        "/api/v1/public/leadership",
+        "/api/v1/public/companies",
+        "/api/v1/public/hero-slides",
+        "/api/v1/public/navigation",
+        "/api/v1/public/news",
+        "/api/v1/public/pages",
+        "/api/v1/public/media",
+        "/api/v1/public/site-pages/about",
+    ):
+        resp = client.get(path)
+        # Not every endpoint returns 200 on a fresh test DB (some 404),
+        # but the middleware only adds headers on 2xx responses anyway.
+        if 200 <= resp.status_code < 300:
+            cc = resp.headers.get("cache-control", "")
+            assert "no-store" in cc, f"{path} missing no-store: {cc!r}"
 
 
 def test_admin_endpoint_is_not_cached(client, seed_auth):
