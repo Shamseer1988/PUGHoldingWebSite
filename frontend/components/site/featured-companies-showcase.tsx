@@ -38,11 +38,20 @@ export function FeaturedCompaniesShowcase({
   companies,
 }: FeaturedCompaniesShowcaseProps) {
   const panelRefs = React.useRef<(HTMLElement | null)[]>([]);
+  const panelsContainerRef = React.useRef<HTMLDivElement | null>(null);
   const [activeIndex, setActiveIndex] = React.useState(0);
 
   // ---------------------------------------------------------------------
-  // GSAP ScrollTrigger — per-panel active-state detection.
+  // GSAP ScrollTrigger — active-state detection + per-panel reveal.
   // ---------------------------------------------------------------------
+  //
+  // Active state is driven by ONE section-level scrub trigger that picks
+  // the panel whose vertical midpoint is closest to the viewport center.
+  // This eliminates the "both/neither active at the boundary" race the
+  // previous per-panel top-center/bottom-center triggers were prone to.
+  //
+  // Per-panel highlight-reveal timelines are unchanged — they're scoped
+  // to each panel's entry and don't fight with the active-state logic.
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     if (!section.animation_enabled) return;
@@ -54,6 +63,9 @@ export function FeaturedCompaniesShowcase({
     const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
     if (reducedMotion || !isDesktop) return;
 
+    const container = panelsContainerRef.current;
+    if (!container) return;
+
     let cleanup: (() => void) | undefined;
     let cancelled = false;
 
@@ -64,24 +76,48 @@ export function FeaturedCompaniesShowcase({
       gsap.registerPlugin(ScrollTrigger);
 
       const triggers: InstanceType<typeof ScrollTrigger>[] = [];
-      panelRefs.current.forEach((panel, i) => {
-        if (!panel) return;
-        triggers.push(
-          ScrollTrigger.create({
-            trigger: panel,
-            start: "top center",
-            end: "bottom center",
-            // No markers / no scrub — just a callback flipping React state.
-            onToggle: ({ isActive }) => {
-              if (isActive) setActiveIndex(i);
-            },
-          })
-        );
 
-        // Highlight reveal: separate per-panel timeline that targets
-        // the new "Company Highlight" card. Runs once when the panel
-        // enters the viewport (start: "top 70%"). Stays independent
-        // from the active-state trigger above so the two never fight.
+      // ---- Active-state: ONE section-level scrub trigger.
+      // Closest-midpoint-to-viewport-center picks the active panel.
+      // Handles "above panel 0" and "between panels" naturally — there
+      // is always exactly one closest panel.
+      const computeActiveIndex = (): number => {
+        const viewportMidY = window.innerHeight / 2;
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        panelRefs.current.forEach((panel, i) => {
+          if (!panel) return;
+          const rect = panel.getBoundingClientRect();
+          const midY = rect.top + rect.height / 2;
+          const dist = Math.abs(midY - viewportMidY);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = i;
+          }
+        });
+        return bestIdx;
+      };
+
+      const syncActive = () => {
+        setActiveIndex(computeActiveIndex());
+      };
+
+      triggers.push(
+        ScrollTrigger.create({
+          trigger: container,
+          start: "top bottom",
+          end: "bottom top",
+          // scrub keeps onUpdate firing on every scroll progress tick,
+          // so the active layer always matches the visible panel.
+          scrub: true,
+          onUpdate: syncActive,
+        })
+      );
+
+      // ---- Per-panel highlight-reveal timelines (one-shot entry).
+      panelRefs.current.forEach((panel) => {
+        if (!panel) return;
+
         const eyebrow = panel.querySelector<HTMLElement>("[data-highlight-eyebrow]");
         const text = panel.querySelector<HTMLElement>("[data-highlight-text]");
         const chips = panel.querySelectorAll<HTMLElement>("[data-highlight-chip]");
@@ -120,47 +156,68 @@ export function FeaturedCompaniesShowcase({
           );
         }
         // Hook the timeline's ScrollTrigger into the same cleanup
-        // pool so unmount kills it alongside the active-panel
-        // triggers above. Killing the trigger also stops the tween.
+        // pool so unmount kills it alongside the active-state trigger.
         if (tl.scrollTrigger) triggers.push(tl.scrollTrigger);
       });
 
-      // Force initial evaluation so the active panel is correct
-      // when the user lands mid-page (link to anchor, reload, etc.).
-      const syncInitial = () => {
-        for (let i = 0; i < triggers.length; i++) {
-          if (triggers[i].isActive) {
-            setActiveIndex(i);
-            return;
-          }
-        }
-      };
-      syncInitial();
+      // ---- Initial sync (anchor links, reload mid-section, etc.)
+      syncActive();
 
-      // Recompute trigger positions after the layout settles. We do this
-      // twice: once on the next frame (fonts + base CSS), and again on
-      // window 'load' (images + late assets). A ResizeObserver also
-      // refreshes whenever the section size changes (responsive flips).
-      const refresh = () => {
-        ScrollTrigger.refresh();
-        syncInitial();
+      // ---- Refresh + re-sync after layout settles, debounced through
+      // a single requestAnimationFrame so back-to-back triggers
+      // (load + ResizeObserver + img load) collapse into one refresh.
+      let pendingRefresh = false;
+      const scheduleRefresh = () => {
+        if (pendingRefresh) return;
+        pendingRefresh = true;
+        requestAnimationFrame(() => {
+          pendingRefresh = false;
+          ScrollTrigger.refresh();
+          syncActive();
+        });
       };
 
       const raf1 = requestAnimationFrame(() => {
-        const raf2 = requestAnimationFrame(refresh);
-        (refresh as { _raf2?: number })._raf2 = raf2;
+        const raf2 = requestAnimationFrame(scheduleRefresh);
+        (scheduleRefresh as { _raf2?: number })._raf2 = raf2;
       });
-      window.addEventListener("load", refresh);
+      window.addEventListener("load", scheduleRefresh);
 
-      const ro = new ResizeObserver(refresh);
+      const ro = new ResizeObserver(scheduleRefresh);
       panelRefs.current.forEach((panel) => panel && ro.observe(panel));
+
+      // ---- Image load listeners: marquee logos arrive async and can
+      // change panel height after the initial layout. ResizeObserver
+      // catches most cases but not all browsers fire it for inline
+      // <img> dimension changes — wire a direct load listener too.
+      const imgCleanups: Array<() => void> = [];
+      panelRefs.current.forEach((panel) => {
+        if (!panel) return;
+        panel.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+          if (img.complete) return;
+          const handler = () => scheduleRefresh();
+          img.addEventListener("load", handler);
+          img.addEventListener("error", handler);
+          imgCleanups.push(() => {
+            img.removeEventListener("load", handler);
+            img.removeEventListener("error", handler);
+          });
+        });
+      });
+
+      // ---- Self-heal after fast scroll. scroll-end fires once the
+      // user stops scrolling; recompute active from current geometry
+      // in case an intermediate onUpdate raced a layout shift.
+      ScrollTrigger.addEventListener("scrollEnd", syncActive);
 
       cleanup = () => {
         cancelAnimationFrame(raf1);
-        const raf2 = (refresh as { _raf2?: number })._raf2;
+        const raf2 = (scheduleRefresh as { _raf2?: number })._raf2;
         if (raf2) cancelAnimationFrame(raf2);
-        window.removeEventListener("load", refresh);
+        window.removeEventListener("load", scheduleRefresh);
         ro.disconnect();
+        imgCleanups.forEach((fn) => fn());
+        ScrollTrigger.removeEventListener("scrollEnd", syncActive);
         triggers.forEach((t) => t.kill());
       };
     })();
@@ -205,8 +262,9 @@ export function FeaturedCompaniesShowcase({
 
         {/* Desktop split — left panels scroll, right preview sticks */}
         <div className="mt-12 hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-14 xl:gap-20">
-          {/* Left: scrolling panels */}
-          <div>
+          {/* Left: scrolling panels — wrapper ref drives the single
+              section-level active-state ScrollTrigger above. */}
+          <div ref={panelsContainerRef}>
             {companies.map((company, i) => (
               <CompanyPanel
                 key={company.id}
@@ -903,19 +961,19 @@ function PreviewMediaItem({
     resolveAssetUrl(company.homepage_group_video_poster_url) ?? featured;
   const hasVideo = Boolean(videoUrl) && allowVideo;
 
-  // Initial paint: pin inactive layers as fully hidden so the GSAP
-  // entry animation has a known starting point. The active layer on
-  // first mount stays visible (no entry tween needed).
+  // Initial paint: opacity + pointerEvents come from the React
+  // inline style above (SSR-correct from the first paint). This
+  // useEffect only pins the transform / filter / clipPath so GSAP's
+  // entry animation has a known starting point for the visual
+  // choreography.
   React.useEffect(() => {
     const layer = layerRef.current;
     if (!layer) return;
     if (isActive) {
-      layer.style.opacity = "1";
       layer.style.transform = "none";
       layer.style.filter = "none";
       layer.style.clipPath = "inset(0 0 0 0)";
     } else {
-      layer.style.opacity = "0";
       layer.style.transform = "scale(0.97)";
       layer.style.filter = "blur(0px)";
       layer.style.clipPath = "inset(0 0 0 0)";
@@ -1048,13 +1106,26 @@ function PreviewMediaItem({
         const tl = gsap.timeline({
           defaults: { ease: "power3.inOut" },
           onComplete: () => {
+            // Re-activation race guard: if this layer became active
+            // AGAIN before the outgoing animation finished (fast scroll
+            // ping-pongs activeIndex), the IN timeline already revealed
+            // it. Pinning opacity 0 here would immediately hide what
+            // the user is now looking at.
+            if (wasActiveRef.current) return;
+
             // Pin the resting state so the layer doesn't pop on the
-            // next transition.
+            // next transition…
             gsap.set(layer, {
               opacity: 0,
               clipPath: "inset(0 0% 0 0)",
               pointerEvents: "none",
             });
+            // …then clear the inline opacity + pointerEvents we just
+            // set. After this, React's wrapper style (opacity 0,
+            // pointerEvents none for inactive) owns these properties
+            // again, so the next IN timeline starts from a clean
+            // baseline.
+            gsap.set(layer, { clearProps: "opacity,pointerEvents" });
           },
         });
         tl.to(
@@ -1078,7 +1149,20 @@ function PreviewMediaItem({
       ref={layerRef}
       className="absolute inset-0 will-change-transform"
       aria-hidden={!isActive}
-      style={{ pointerEvents: isActive ? "auto" : "none" }}
+      // SSR backstop: paint inactive layers fully transparent BEFORE
+      // GSAP loads (was the source of the FOUC where every layer
+      // stacked at opacity 1 between SSR and hydration). z-index
+      // pins the active layer on top regardless of DOM order, so a
+      // sibling stuck mid-OUT can never cover what's now active.
+      // Once GSAP takes over the opacity inline style, its writes
+      // win over React's because they happen later in the same
+      // tick; on the next state flip the React style snaps back to
+      // the correct resting value.
+      style={{
+        opacity: isActive ? 1 : 0,
+        pointerEvents: isActive ? "auto" : "none",
+        zIndex: isActive ? 2 : 1,
+      }}
     >
       {/* Media surface — image or video. Sits inside its own wrapper
           so GSAP can transform it (scale + blur + y) independently of
