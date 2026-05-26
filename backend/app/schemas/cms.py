@@ -2,9 +2,40 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+
+def _normalise_url_value(value: Any) -> Any:
+    """Replace Windows-style backslashes in URL strings.
+
+    Admins occasionally paste a local Windows file path
+    (e.g. ``\\images\\foo\\bar.webp``) into a URL field. That value
+    survives the form unchanged and the public site renders a 404.
+    Treating any backslash as a forward slash on write keeps the data
+    clean without making the field's type any more restrictive — the
+    admin can still type whatever they want, but a stray backslash
+    won't silently break the live image.
+    """
+    if isinstance(value, str) and "\\" in value:
+        return value.replace("\\", "/").strip()
+    return value
+
+
+def _normalise_url_fields(values: Any) -> Any:
+    """``model_validator(mode='before')`` helper.
+
+    Walks the input dict and applies :func:`_normalise_url_value` to any
+    key whose name ends with ``_url`` — covers every URL-shaped field
+    on every schema in this module (hero slide, company, leadership,
+    news, site settings, …) without enumerating them.
+    """
+    if isinstance(values, dict):
+        for key, value in list(values.items()):
+            if key.endswith("_url"):
+                values[key] = _normalise_url_value(value)
+    return values
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +172,13 @@ class CompanyBrandLogoInput(BaseModel):
 
 
 class CompanyBase(BaseModel):
+    # Normalise any *_url field on write so a stray backslash from an
+    # admin paste never reaches the database. See _normalise_url_fields
+    # at the top of this module for the rationale.
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(pattern=r"^(distribution|retail|services)$")
@@ -180,6 +218,10 @@ class CompanyCreate(CompanyBase):
 
 
 class CompanyUpdate(BaseModel):
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9-]+$")
     name: Optional[str] = None
     category: Optional[str] = Field(
@@ -227,6 +269,10 @@ class CompanyRead(CompanyBase):
 
 
 class LeadershipBase(BaseModel):
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")
     name: str
     role: str
@@ -256,6 +302,10 @@ class LeadershipCreate(LeadershipBase):
 
 
 class LeadershipUpdate(BaseModel):
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: Optional[str] = None
     name: Optional[str] = None
     role: Optional[str] = None
