@@ -19,6 +19,7 @@ import {
   Menu as MenuIcon,
   MessageSquareQuote,
   Search,
+  Send,
   Settings,
   Sparkles,
   Users,
@@ -77,6 +78,12 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Site settings", href: "/admin/settings", icon: Settings },
       { label: "SEO configuration", href: "/admin/seo", icon: Search },
+      {
+        label: "Email configuration",
+        href: "/admin/email-settings",
+        icon: Send,
+        requiresScope: "system",
+      },
       {
         label: "AI settings",
         href: "/admin/ai-settings",

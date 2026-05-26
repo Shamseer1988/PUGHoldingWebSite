@@ -139,6 +139,81 @@ export interface ContactMessage {
   created_at: string;
 }
 
+export type ContactReplyDirection = "inbound" | "outbound";
+
+export type ContactReplyEmailStatus =
+  | "pending"
+  | "sent"
+  | "failed"
+  | "received";
+
+export interface ContactReplyBubble {
+  id: number;
+  contact_message_id: number;
+  direction: ContactReplyDirection;
+  admin_user_id: number | null;
+  sender_name: string | null;
+  sender_email: string | null;
+  recipient_email: string | null;
+  subject: string | null;
+  body: string;
+  email_status: ContactReplyEmailStatus;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactMessageDetail extends ContactMessage {
+  replies: ContactReplyBubble[];
+}
+
+export type EmailTestStatus = "never" | "success" | "failed";
+
+export interface EmailSettings {
+  id: number;
+  email_enabled: boolean;
+  smtp_host: string | null;
+  smtp_port: number | null;
+  smtp_username: string | null;
+  has_smtp_password: boolean;
+  smtp_use_tls: boolean;
+  smtp_use_ssl: boolean;
+  email_from: string | null;
+  email_from_name: string | null;
+  email_reply_to: string | null;
+  test_email_to: string | null;
+  notification_email: string | null;
+  last_test_status: EmailTestStatus;
+  last_test_message: string | null;
+  last_test_at: string | null;
+  updated_by_id: number | null;
+  updated_at: string | null;
+  env_fallback_active: boolean;
+}
+
+export interface EmailSettingsUpdate {
+  email_enabled?: boolean;
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_username?: string | null;
+  /** Blank/undefined preserves the existing encrypted value. */
+  smtp_password?: string;
+  smtp_use_tls?: boolean;
+  smtp_use_ssl?: boolean;
+  email_from?: string | null;
+  email_from_name?: string | null;
+  email_reply_to?: string | null;
+  test_email_to?: string | null;
+  notification_email?: string | null;
+}
+
+export interface EmailTestResult {
+  success: boolean;
+  message: string;
+  sent_at: string | null;
+}
+
 export interface NewsletterSubscriber {
   id: number;
   email: string;
