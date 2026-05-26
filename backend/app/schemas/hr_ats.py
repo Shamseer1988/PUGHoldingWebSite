@@ -560,6 +560,17 @@ class InterviewBase(BaseModel):
 class InterviewCreate(InterviewBase):
     application_id: int
 
+    # Advanced module — interview email + Google Meet extras. All
+    # optional with safe defaults so existing callers don't break.
+    candidate_email_override: Optional[str] = Field(default=None, max_length=255)
+    additional_attendee_emails: List[str] = Field(default_factory=list)
+    cc_emails: List[str] = Field(default_factory=list)
+    bcc_emails: List[str] = Field(default_factory=list)
+    email_subject: Optional[str] = Field(default=None, max_length=500)
+    email_note: Optional[str] = Field(default=None, max_length=4000)
+    send_email_now: bool = False
+    create_google_meet: bool = False
+
 
 class InterviewUpdate(BaseModel):
     round_name: Optional[str] = Field(default=None, max_length=120)
@@ -589,6 +600,19 @@ class InterviewRead(InterviewBase):
     created_at: datetime
     updated_at: datetime
     feedback: List[InterviewFeedbackRead] = Field(default_factory=list)
+
+    # Calendar / email fields (advanced module)
+    meeting_link: Optional[str] = None
+    calendar_event_id: Optional[str] = None
+    calendar_provider: Optional[str] = None
+    email_sent_at: Optional[datetime] = None
+    email_delivery_status: Optional[str] = None
+    additional_attendee_emails: Optional[List[str]] = None
+    cc_emails: Optional[List[str]] = None
+    bcc_emails: Optional[List[str]] = None
+    candidate_email_override: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_note: Optional[str] = None
 
 
 class InterviewListItem(BaseModel):
