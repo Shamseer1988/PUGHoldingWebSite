@@ -26,6 +26,7 @@ from app.models.cms import (
 from app.models.hr_ats import (
     Candidate,
     CandidateAIReview,
+    CandidateAutoReview,
     CandidateDocument,
     CandidateExtractedData,
     CandidateJobApplication,
@@ -34,9 +35,13 @@ from app.models.hr_ats import (
     CandidateScoreBreakdown,
     CandidateStatusHistory,
     CandidateTag,
+    EmailLog,
     Interview,
     InterviewFeedback,
+    JobApprovalHistory,
+    JobAutoReviewRule,
     JobOpening,
+    JobRevision,
     OfferTracking,
 )
 from app.models.seo import (
@@ -67,6 +72,7 @@ __all__ = [
     # HR ATS
     "Candidate",
     "CandidateAIReview",
+    "CandidateAutoReview",
     "CandidateDocument",
     "CandidateExtractedData",
     "CandidateJobApplication",
@@ -75,9 +81,13 @@ __all__ = [
     "CandidateScoreBreakdown",
     "CandidateStatusHistory",
     "CandidateTag",
+    "EmailLog",
     "Interview",
     "InterviewFeedback",
+    "JobApprovalHistory",
+    "JobAutoReviewRule",
     "JobOpening",
+    "JobRevision",
     "OfferTracking",
     # SEO
     "SeoSetting",

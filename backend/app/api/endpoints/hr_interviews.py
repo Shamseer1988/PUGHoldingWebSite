@@ -117,6 +117,17 @@ def _serialize_interview(
         feedback=[
             _serialize_feedback(fb, users=users) for fb in interview.feedback
         ],
+        meeting_link=interview.meeting_link,
+        calendar_event_id=interview.calendar_event_id,
+        calendar_provider=interview.calendar_provider,
+        email_sent_at=interview.email_sent_at,
+        email_delivery_status=interview.email_delivery_status,
+        additional_attendee_emails=interview.additional_attendee_emails,
+        cc_emails=interview.cc_emails,
+        bcc_emails=interview.bcc_emails,
+        candidate_email_override=interview.candidate_email_override,
+        email_subject=interview.email_subject,
+        email_note=interview.email_note,
     )
 
 
@@ -278,6 +289,18 @@ def create_interview_endpoint(
     user: User = Depends(require_hr_admin),
 ) -> InterviewRead:
     app = _get_application_or_404(db, payload.application_id)
+
+    # --- Create Google Meet first so the link can satisfy
+    #     create_interview's location_or_link requirement when the
+    #     caller hasn't supplied one --------------------------------
+    meet_result = None
+    if payload.create_google_meet and payload.mode == "online":
+        meet_result = _try_create_meet_from_payload(app, payload)
+
+    effective_location = payload.location_or_link or (
+        meet_result.meet_link if meet_result else None
+    )
+
     try:
         interview = create_interview(
             db,
@@ -287,12 +310,29 @@ def create_interview_endpoint(
             scheduled_at=payload.scheduled_at,
             duration_minutes=payload.duration_minutes,
             mode=payload.mode,
-            location_or_link=payload.location_or_link,
+            location_or_link=effective_location,
             interviewer_id=payload.interviewer_id,
             actor=user,
         )
     except InvalidInterviewError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Persist the email / calendar extras directly — these are stored
+    # on the row so we can later resend the invitation without HR
+    # re-entering CC/BCC lists.
+    interview.additional_attendee_emails = payload.additional_attendee_emails or None
+    interview.cc_emails = payload.cc_emails or None
+    interview.bcc_emails = payload.bcc_emails or None
+    interview.candidate_email_override = payload.candidate_email_override
+    interview.email_subject = payload.email_subject
+    interview.email_note = payload.email_note
+
+    if meet_result is not None:
+        interview.calendar_event_id = meet_result.event_id
+        interview.meeting_link = meet_result.meet_link
+        interview.calendar_provider = "google"
+
+    db.flush()
 
     ctx = get_request_context(request)
     record_audit(
@@ -312,13 +352,91 @@ def create_interview_endpoint(
             "scheduled_at": interview.scheduled_at.isoformat(),
             "mode": interview.mode,
             "interviewer_id": interview.interviewer_id,
+            "create_google_meet": payload.create_google_meet,
+            "send_email_now": payload.send_email_now,
+            "has_meet_link": bool(interview.meeting_link),
         },
         commit=False,
     )
     db.commit()
     db.refresh(interview)
+
+    # --- Branded email (optional, fire-and-forget) -------------------
+    if payload.send_email_now:
+        _safe_notify_interview_scheduled(
+            interview.id,
+            actor_id=user.id,
+            cc_emails=payload.cc_emails,
+            bcc_emails=payload.bcc_emails,
+            candidate_email_override=payload.candidate_email_override,
+            additional_attendee_emails=payload.additional_attendee_emails,
+        )
+
     users = _email_lookup(db, [interview.interviewer_id])
     return _serialize_interview(interview, users=users)
+
+
+def _try_create_meet_from_payload(app, payload: InterviewCreate):
+    """Best-effort Google Meet creation. Returns None on failure."""
+    from app.services.google_calendar_service import create_interview_event
+
+    candidate = app.candidate if app else None
+    candidate_email = (
+        payload.candidate_email_override
+        or (candidate.email if candidate else None)
+    )
+
+    attendees: list[str] = []
+    if candidate_email:
+        attendees.append(candidate_email)
+    attendees.extend(payload.additional_attendee_emails or [])
+
+    job_title = app.job_opening.title if app.job_opening is not None else "PUG Interview"
+    summary = f"{payload.round_name} — {job_title}"
+    description_parts = [
+        f"Interview with {candidate.full_name if candidate else 'candidate'}",
+        f"Round: {payload.round_name}",
+    ]
+    if payload.email_note:
+        description_parts.append(payload.email_note)
+
+    return create_interview_event(
+        summary=summary,
+        description="\n\n".join(description_parts),
+        start=payload.scheduled_at,
+        duration_minutes=payload.duration_minutes,
+        attendees=attendees,
+        create_meet=True,
+    )
+
+
+def _safe_notify_interview_scheduled(
+    interview_id: int,
+    *,
+    actor_id,
+    cc_emails,
+    bcc_emails,
+    candidate_email_override,
+    additional_attendee_emails,
+) -> None:
+    """Notification helper — never raises."""
+    try:
+        from app.services import hr_notifications
+
+        hr_notifications.notify_interview_scheduled(
+            interview_id=interview_id,
+            actor_id=actor_id,
+            cc_emails=cc_emails or None,
+            bcc_emails=bcc_emails or None,
+            candidate_email_override=candidate_email_override,
+            additional_attendee_emails=additional_attendee_emails or None,
+        )
+    except Exception:  # pragma: no cover - never raise from endpoint
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "interview-scheduled notification failed"
+        )
 
 
 @router.patch("/{interview_id}", response_model=InterviewRead)
@@ -508,3 +626,128 @@ def submit_feedback_endpoint(
     db.refresh(fb)
     users = _email_lookup(db, [fb.submitted_by_id])
     return _serialize_feedback(fb, users=users)
+
+
+# ---------------------------------------------------------------------------
+# Advanced module: send-email, create-meet, resend-invitation
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{interview_id}/send-email", response_model=InterviewRead)
+def send_interview_email(
+    interview_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> InterviewRead:
+    """Send (or re-send) the branded interview-scheduled email."""
+    interview = _get_interview_or_404(db, interview_id)
+
+    _safe_notify_interview_scheduled(
+        interview.id,
+        actor_id=user.id,
+        cc_emails=interview.cc_emails,
+        bcc_emails=interview.bcc_emails,
+        candidate_email_override=interview.candidate_email_override,
+        additional_attendee_emails=interview.additional_attendee_emails,
+    )
+
+    interview.email_sent_at = datetime.now(timezone.utc)
+    interview.email_delivery_status = "sent"
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.interview.email.send",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="interview",
+        target_id=str(interview.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"manual_send": True},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(interview)
+    users = _email_lookup(db, [interview.interviewer_id])
+    return _serialize_interview(interview, users=users)
+
+
+@router.post("/{interview_id}/create-meet", response_model=InterviewRead)
+def create_interview_meet(
+    interview_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> InterviewRead:
+    """Create (or recreate) a Google Meet link for an existing interview."""
+    from app.services.google_calendar_service import create_interview_event
+
+    interview = _get_interview_or_404(db, interview_id)
+    if interview.mode != "online":
+        raise HTTPException(
+            status_code=409,
+            detail="Google Meet links are only created for online interviews.",
+        )
+
+    app = interview.application
+    candidate = app.candidate if app else None
+    attendees: list[str] = []
+    if candidate and candidate.email:
+        attendees.append(candidate.email)
+    attendees.extend(interview.additional_attendee_emails or [])
+
+    job_title = (
+        app.job_opening.title if app and app.job_opening is not None else "PUG Interview"
+    )
+    result = create_interview_event(
+        summary=f"{interview.round_name} — {job_title}",
+        description=interview.email_note or interview.round_name,
+        start=interview.scheduled_at,
+        duration_minutes=interview.duration_minutes,
+        attendees=attendees,
+        create_meet=True,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Google Calendar integration is not configured.",
+        )
+
+    interview.calendar_event_id = result.event_id
+    interview.meeting_link = result.meet_link
+    interview.calendar_provider = "google"
+    if not interview.location_or_link:
+        interview.location_or_link = result.meet_link
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.interview.meet.create",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="interview",
+        target_id=str(interview.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"event_id": result.event_id, "has_link": bool(result.meet_link)},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(interview)
+    users = _email_lookup(db, [interview.interviewer_id])
+    return _serialize_interview(interview, users=users)
+
+
+@router.post("/{interview_id}/resend-invitation", response_model=InterviewRead)
+def resend_invitation(
+    interview_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> InterviewRead:
+    """Alias of send-email — kept separate for audit clarity."""
+    return send_interview_email(interview_id, request, db, user)

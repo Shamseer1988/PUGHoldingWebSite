@@ -4,13 +4,26 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models.hr_ats import (
+    APPROVAL_STATUS_APPROVED,
     JOB_STATUS_CLOSED,
     JOB_STATUS_OPEN,
     JobOpening,
+    PUBLISH_STATUS_PUBLISHED,
 )
 
 
 JOBS = "/api/v1/public/jobs"
+
+
+# Public listings now require approval_status='approved' AND
+# publish_status='published'. The legacy fixture seeded only ``status``;
+# the advanced HR module adds the approval workflow so we stamp both
+# fields on the "open" jobs to mirror what the migration back-fills for
+# pre-existing rows in production.
+PUBLISHED = {
+    "approval_status": APPROVAL_STATUS_APPROVED,
+    "publish_status": PUBLISH_STATUS_PUBLISHED,
+}
 
 
 def _seed_jobs(db_session: Session) -> None:
@@ -25,6 +38,7 @@ def _seed_jobs(db_session: Session) -> None:
                 status=JOB_STATUS_OPEN,
                 employment_type="full_time",
                 required_skills="Python, FastAPI",
+                **PUBLISHED,
             ),
             JobOpening(
                 slug="open-b",
@@ -35,6 +49,7 @@ def _seed_jobs(db_session: Session) -> None:
                 status=JOB_STATUS_OPEN,
                 employment_type="part_time",
                 required_skills="FMCG, Sales",
+                **PUBLISHED,
             ),
             JobOpening(
                 slug="closed-c",
@@ -44,6 +59,7 @@ def _seed_jobs(db_session: Session) -> None:
                 location="Doha",
                 status=JOB_STATUS_CLOSED,
                 employment_type="full_time",
+                **PUBLISHED,
             ),
         ]
     )

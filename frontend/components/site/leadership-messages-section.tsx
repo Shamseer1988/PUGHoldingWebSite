@@ -98,7 +98,23 @@ export function LeadershipMessagesSection({
       const cards = cardRefs.current.filter(Boolean) as HTMLElement[];
       if (!section || cards.length === 0) return;
 
+      // Safety net for the timeline below — see footer.tsx for
+      // rationale. Large leader photos can shift the section's
+      // position after ScrollTrigger has already measured it,
+      // leaving the cards permanently at gsap.set's opacity:0.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
+        // If the section is already visible at JS-execution time
+        // (e.g. hard refresh where the browser preserved scroll
+        // position), skip the hide-then-reveal. The SSR HTML is
+        // already rendered correctly; hiding it would cause the
+        // 3-4s blank flash the user reported on Leadership / Footer.
+        const rect = section.getBoundingClientRect();
+        const alreadyInView =
+          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+        if (alreadyInView) return;
+
         // Always start hidden so first paint matches the animation.
         if (header) {
           gsap.set(header, { y: 36, opacity: 0 });
@@ -228,9 +244,16 @@ export function LeadershipMessagesSection({
             },
           });
         }
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 800);
       }, section);
 
       cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
         ctx.revert();
       };
     })();

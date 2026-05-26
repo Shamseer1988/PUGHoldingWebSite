@@ -68,6 +68,15 @@ export interface DashboardSummary {
 export type JobStatus = "open" | "on_hold" | "closed";
 export type EmploymentType = "full_time" | "part_time" | "contract";
 
+export type ApprovalStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "revision_required";
+
+export type PublishStatus = "draft" | "published" | "unpublished";
+
 export interface JobOpening {
   id: number;
   slug: string;
@@ -97,6 +106,138 @@ export interface JobOpening {
   created_by_id: number | null;
   created_at: string;
   updated_at: string;
+  // Approval workflow (advanced module)
+  approval_status?: ApprovalStatus;
+  publish_status?: PublishStatus;
+  approved_by_id?: number | null;
+  approved_at?: string | null;
+  submitted_for_approval_by_id?: number | null;
+  submitted_for_approval_at?: string | null;
+  rejected_by_id?: number | null;
+  rejected_at?: string | null;
+  approval_remarks?: string | null;
+  active_revision_id?: number | null;
+  has_pending_revision?: boolean;
+}
+
+export interface JobApprovalHistoryItem {
+  id: number;
+  job_opening_id: number;
+  action: string;
+  old_approval_status: string | null;
+  new_approval_status: string | null;
+  actor_id: number | null;
+  actor_email: string | null;
+  remarks: string | null;
+  changed_fields: Record<string, unknown> | null;
+  revision_id: number | null;
+  created_at: string;
+}
+
+export interface JobRevision {
+  id: number;
+  job_opening_id: number;
+  payload: Record<string, unknown>;
+  status: "pending" | "approved" | "rejected";
+  created_by_id: number | null;
+  reviewed_by_id: number | null;
+  reviewed_at: string | null;
+  remarks: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AutoReviewDecision =
+  | "auto_shortlisted"
+  | "hr_review_pending"
+  | "auto_rejected"
+  | "duplicate"
+  | "selected";
+
+export interface JobAutoReviewRule {
+  id: number;
+  job_opening_id: number;
+  is_active: boolean;
+  auto_reject_enabled: boolean;
+  min_score: number | null;
+  required_skills: string[] | null;
+  preferred_skills: string[] | null;
+  min_experience: number | null;
+  max_expected_salary: number | null;
+  visa_keywords: string[] | null;
+  location_keywords: string[] | null;
+  nationality_keywords: string[] | null;
+  notice_period_keywords: string[] | null;
+  auto_shortlist_threshold: number | null;
+  auto_reject_threshold: number | null;
+  created_by_id: number | null;
+  updated_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateAutoReview {
+  id: number;
+  application_id: number;
+  rule_id: number | null;
+  score: number | null;
+  decision: AutoReviewDecision;
+  matched_skills: string[] | null;
+  missing_skills: string[] | null;
+  risk_flags: string[] | null;
+  reason_summary: string | null;
+  recommendation_source: string | null;
+  reviewed_at: string;
+  reviewed_by_system: boolean;
+}
+
+export interface BulkCandidateStatusChangeRequest {
+  application_ids: number[];
+  new_status: string;
+  remarks?: string;
+  rejection_reason?: string;
+  blacklist_approval?: string;
+  send_email?: boolean;
+  all_or_nothing?: boolean;
+}
+
+export interface BulkCandidateStatusChangeRow {
+  application_id: number;
+  candidate_id: number | null;
+  old_status: string | null;
+  new_status: string | null;
+  success: boolean;
+  error: string | null;
+}
+
+export interface BulkCandidateStatusChangeResult {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  rows: BulkCandidateStatusChangeRow[];
+}
+
+export interface PublicCvParsePreview {
+  parsed: boolean;
+  parser_version: string | null;
+  warnings: string[];
+  full_name: string | null;
+  email: string | null;
+  mobile: string | null;
+  nationality: string | null;
+  current_location: string | null;
+  current_designation: string | null;
+  current_company: string | null;
+  total_experience_years: number | null;
+  gcc_experience_years: number | null;
+  qatar_experience_years: number | null;
+  expected_salary: number | null;
+  notice_period: string | null;
+  visa_status: string | null;
+  skills: string | null;
+  education: Array<Record<string, unknown>> | null;
+  languages: string[] | null;
+  certifications: string[] | null;
 }
 
 // Candidates (Phase 10) ---------------------------------------------------

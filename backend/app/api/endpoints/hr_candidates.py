@@ -43,11 +43,15 @@ from app.models.hr_ats import (
 from app.schemas.hr_ats import (
     AIReviewGenerateResult,
     ApplicationSubmissionResponse,
+    BulkCandidateStatusChangeRequest,
+    BulkCandidateStatusChangeResult,
+    BulkCandidateStatusChangeRow,
     BulkUploadResult,
     BulkUploadSkip,
     CandidateAIReviewPreview,
     CandidateAIReviewRead,
     CandidateApplicationSummary,
+    CandidateAutoReviewRead,
     CandidateDocumentRead,
     CandidateExtractedDataRead,
     CandidateExtractedDataUpdate,
@@ -1235,3 +1239,282 @@ def change_application_status(
     db.commit()
     db.refresh(app.candidate)
     return _serialize_candidate(app.candidate, actor=user)
+
+
+# ---------------------------------------------------------------------------
+# Bulk status change (advanced module — phase 5)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/applications/bulk-status",
+    response_model=BulkCandidateStatusChangeResult,
+)
+def bulk_change_application_status(
+    payload: BulkCandidateStatusChangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> BulkCandidateStatusChangeResult:
+    """Apply one status transition to many applications at once.
+
+    Each row uses the existing :func:`change_status` workflow so every
+    rule (mandatory rejection reason, blacklist superuser-only, illegal
+    transitions, etc.) still applies. Failed rows are returned with a
+    per-row ``error`` field so the UI can show exactly which applications
+    couldn't move.
+
+    If ``all_or_nothing`` is True and *any* row fails, the whole
+    transaction is rolled back — useful for "approve these 25 candidates
+    or no one" workflows.
+    """
+    ids = list(dict.fromkeys(payload.application_ids))  # dedupe, keep order
+    rows: list[BulkCandidateStatusChangeRow] = []
+
+    # Load every application up front in one query. Missing IDs become
+    # row-level errors.
+    apps_by_id = {
+        app.id: app
+        for app in db.execute(
+            select(CandidateJobApplication).where(
+                CandidateJobApplication.id.in_(ids)
+            )
+        ).scalars()
+    }
+
+    success_count = 0
+    failed_count = 0
+    any_failed = False
+    ctx = get_request_context(request)
+
+    notify_keys: list[tuple[str, int]] = []
+
+    for app_id in ids:
+        app = apps_by_id.get(app_id)
+        if app is None:
+            failed_count += 1
+            any_failed = True
+            rows.append(
+                BulkCandidateStatusChangeRow(
+                    application_id=app_id,
+                    success=False,
+                    error="Application not found.",
+                )
+            )
+            continue
+
+        old_status = app.status
+        try:
+            result = change_status(
+                db,
+                application=app,
+                new_status=payload.new_status,
+                actor=user,
+                remarks=payload.remarks,
+                rejection_reason=payload.rejection_reason,
+                blacklist_approval=payload.blacklist_approval,
+            )
+        except PermissionDeniedError as exc:
+            failed_count += 1
+            any_failed = True
+            rows.append(
+                BulkCandidateStatusChangeRow(
+                    application_id=app_id,
+                    candidate_id=app.candidate_id,
+                    old_status=old_status,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            continue
+        except MissingReasonError as exc:
+            failed_count += 1
+            any_failed = True
+            rows.append(
+                BulkCandidateStatusChangeRow(
+                    application_id=app_id,
+                    candidate_id=app.candidate_id,
+                    old_status=old_status,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            continue
+        except InvalidTransitionError as exc:
+            failed_count += 1
+            any_failed = True
+            rows.append(
+                BulkCandidateStatusChangeRow(
+                    application_id=app_id,
+                    candidate_id=app.candidate_id,
+                    old_status=old_status,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            continue
+
+        success_count += 1
+        rows.append(
+            BulkCandidateStatusChangeRow(
+                application_id=app_id,
+                candidate_id=app.candidate_id,
+                old_status=old_status,
+                new_status=result.new_status,
+                success=True,
+            )
+        )
+
+        record_audit(
+            db,
+            action="hr.candidate.status.bulk_change",
+            actor_id=user.id,
+            actor_email=user.email,
+            scope="hr",
+            target_type="candidate_application",
+            target_id=str(app.id),
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={
+                "candidate_id": app.candidate_id,
+                "previous_status": old_status,
+                "new_status": result.new_status,
+                "remarks": payload.remarks,
+                "rejection_reason": payload.rejection_reason,
+                "blacklist_approval": payload.blacklist_approval,
+                "send_email": payload.send_email,
+            },
+            commit=False,
+        )
+
+        if payload.send_email:
+            notify_keys.append((result.new_status, app.id))
+
+    if payload.all_or_nothing and any_failed:
+        db.rollback()
+        # On rollback every "success" row is invalid — flip them.
+        flipped: list[BulkCandidateStatusChangeRow] = []
+        for row in rows:
+            if row.success:
+                flipped.append(
+                    BulkCandidateStatusChangeRow(
+                        application_id=row.application_id,
+                        candidate_id=row.candidate_id,
+                        old_status=row.old_status,
+                        success=False,
+                        error="Rolled back: another row failed (all_or_nothing).",
+                    )
+                )
+            else:
+                flipped.append(row)
+        return BulkCandidateStatusChangeResult(
+            total=len(ids),
+            success_count=0,
+            failed_count=len(ids),
+            rows=flipped,
+        )
+
+    db.commit()
+
+    # Fire-and-forget email notifications for successful rows.
+    if notify_keys:
+        try:
+            from app.services import hr_notifications  # local import
+
+            from app.models.hr_ats import (
+                STATUS_REJECTED,
+                STATUS_SELECTED,
+                STATUS_SHORTLISTED,
+            )
+
+            for new_status, app_id in notify_keys:
+                if new_status == STATUS_SHORTLISTED:
+                    hr_notifications.notify_candidate_shortlisted(
+                        application_id=app_id, actor_id=user.id
+                    )
+                elif new_status == STATUS_REJECTED:
+                    hr_notifications.notify_candidate_rejected(
+                        application_id=app_id, actor_id=user.id
+                    )
+                elif new_status == STATUS_SELECTED:
+                    hr_notifications.notify_candidate_selected(
+                        application_id=app_id, actor_id=user.id
+                    )
+        except Exception:  # pragma: no cover - never break the response
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Bulk-status email dispatch failed"
+            )
+
+    return BulkCandidateStatusChangeResult(
+        total=len(ids),
+        success_count=success_count,
+        failed_count=failed_count,
+        rows=rows,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Auto-review (advanced module — phase 4)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{candidate_id}/applications/{application_id}/auto-review",
+    response_model=CandidateAutoReviewRead,
+)
+def run_application_auto_review(
+    candidate_id: int,
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateAutoReviewRead:
+    """Run (or re-run) the auto-review engine on a single application."""
+    from app.services import candidate_auto_review
+
+    app = _get_application_or_404(db, candidate_id, application_id)
+    review = candidate_auto_review.run_auto_review(db, application=app)
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.auto_review.run",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_application",
+        target_id=str(application_id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "decision": review.decision,
+            "score": review.score,
+            "rule_id": review.rule_id,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(review)
+    return CandidateAutoReviewRead.model_validate(review)
+
+
+@router.get(
+    "/{candidate_id}/applications/{application_id}/auto-review",
+    response_model=Optional[CandidateAutoReviewRead],
+)
+def get_application_auto_review(
+    candidate_id: int,
+    application_id: int,
+    db: Session = Depends(get_db),
+) -> Optional[CandidateAutoReviewRead]:
+    from app.models.hr_ats import CandidateAutoReview
+
+    app = _get_application_or_404(db, candidate_id, application_id)
+    review = db.execute(
+        select(CandidateAutoReview).where(
+            CandidateAutoReview.application_id == app.id
+        )
+    ).scalar_one_or_none()
+    return CandidateAutoReviewRead.model_validate(review) if review else None

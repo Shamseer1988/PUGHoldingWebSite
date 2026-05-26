@@ -67,7 +67,20 @@ export function StatsStrip() {
       const accents = accentRefs.current.filter(Boolean) as HTMLElement[];
       if (!section || cards.length === 0) return;
 
+      // Safety net for the timeline below — see footer.tsx for
+      // rationale. If ScrollTrigger never fires, the stats cards
+      // would stay invisible.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
+        // If the stats strip is already in view (hard refresh
+        // preserved scroll), skip hide-then-reveal so SSR-rendered
+        // numbers stay visible — no 3-4s blank flash.
+        const rect = section.getBoundingClientRect();
+        const alreadyInView =
+          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+        if (alreadyInView) return;
+
         // Hide everything until the timeline runs, so first paint
         // matches the animation starting position.
         gsap.set(cards, { y: 32, opacity: 0, scale: 0.97 });
@@ -101,9 +114,18 @@ export function StatsStrip() {
             "-=0.35"
           );
         }
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 800);
       }, section);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {

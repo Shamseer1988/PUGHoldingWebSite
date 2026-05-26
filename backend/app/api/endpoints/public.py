@@ -19,6 +19,7 @@ from app.core.rate_limit import (
     rate_limit_ai_assistant,
     rate_limit_apply,
     rate_limit_contact,
+    rate_limit_cv_preview,
     rate_limit_newsletter,
 )
 from app.models.cms import (
@@ -35,7 +36,12 @@ from app.models.cms import (
     SiteSetting,
     TrustedBrand,
 )
-from app.models.hr_ats import JOB_STATUS_OPEN, JobOpening
+from app.models.hr_ats import (
+    APPROVAL_STATUS_APPROVED,
+    JOB_STATUS_OPEN,
+    JobOpening,
+    PUBLISH_STATUS_PUBLISHED,
+)
 from app.schemas.cms import (
     CMSPageRead,
     CompanyRead,
@@ -62,6 +68,7 @@ from app.schemas.hr_ats import (
     JobOpeningRead,
     PublicAIAskRequest,
     PublicAIAskResponse,
+    PublicCvParsePreview,
 )
 from app.ai.public_assistant import answer_question, log_query
 from app.services.candidate_intake import (
@@ -440,9 +447,20 @@ def list_open_jobs(
     ),
     q: Optional[str] = Query(default=None, max_length=200),
 ) -> List[JobOpening]:
+    """Public job listing.
+
+    Filters to the three-way intersection ``status='open'`` AND
+    ``approval_status='approved'`` AND ``publish_status='published'`` so
+    a draft / pending / rejected / unpublished job never leaks to the
+    public site even if its lifecycle status is still 'open'.
+    """
     stmt = (
         select(JobOpening)
-        .where(JobOpening.status == JOB_STATUS_OPEN)
+        .where(
+            JobOpening.status == JOB_STATUS_OPEN,
+            JobOpening.approval_status == APPROVAL_STATUS_APPROVED,
+            JobOpening.publish_status == PUBLISH_STATUS_PUBLISHED,
+        )
         .order_by(desc(JobOpening.posted_at), JobOpening.id)
     )
     if department:
@@ -470,7 +488,10 @@ def get_open_job(slug: str, db: Session = Depends(get_db)) -> JobOpening:
     job = (
         db.execute(
             select(JobOpening).where(
-                JobOpening.slug == slug, JobOpening.status == JOB_STATUS_OPEN
+                JobOpening.slug == slug,
+                JobOpening.status == JOB_STATUS_OPEN,
+                JobOpening.approval_status == APPROVAL_STATUS_APPROVED,
+                JobOpening.publish_status == PUBLISH_STATUS_PUBLISHED,
             )
         )
         .scalars()
@@ -734,7 +755,59 @@ def create_contact_message(
     )
     db.commit()
     db.refresh(msg)
+
+    # Best-effort admin notification — failure never blocks the 201
+    # back to the visitor. Runs in-process (the inbox is small) but
+    # any exception is swallowed and logged.
+    try:
+        _notify_admin_of_contact(db, msg)
+    except Exception:  # pragma: no cover - defensive belt-and-braces
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Admin contact-notify failed for message id=%s", msg.id
+        )
     return msg
+
+
+def _notify_admin_of_contact(db, msg) -> None:
+    """Send a short notification email to the configured admin address.
+
+    Silently returns if email is disabled or no notification address is
+    configured. The visitor's submission is already committed by the
+    time this runs, so no exception can roll it back.
+    """
+    from app.services.email import EmailService
+
+    config = EmailService.get_config(db)
+    target = config.notification_email
+    if not (config.is_send_ready and target):
+        return
+
+    subject_part = (msg.subject or "(no subject)").strip()
+    body_text = (
+        f"New contact submission from {msg.name} <{msg.email}>.\n"
+        f"Department: {msg.department or '—'}\n"
+        f"Subject: {subject_part}\n\n"
+        f"Message:\n{msg.message}\n"
+    )
+    body_html = (
+        "<div style=\"font-family:Inter,Arial,sans-serif;color:#17382f;\">"
+        f"<p><strong>New contact submission from</strong> "
+        f"{msg.name} &lt;{msg.email}&gt;.</p>"
+        f"<p><strong>Department:</strong> {msg.department or '—'}<br>"
+        f"<strong>Subject:</strong> {subject_part}</p>"
+        f"<pre style=\"white-space:pre-wrap;background:#f6f3eb;padding:12px;"
+        f"border-radius:8px;\">{msg.message}</pre></div>"
+    )
+    EmailService.send_simple(
+        db,
+        to_email=target,
+        subject=f"[PUG Inbox] {subject_part}",
+        body_text=body_text,
+        body_html=body_html,
+        reply_to=msg.email,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -826,6 +899,131 @@ def subscribe_to_newsletter(
 # ---------------------------------------------------------------------------
 # Write: candidate application from the public Apply form
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/candidate-applications/parse-preview",
+    response_model=PublicCvParsePreview,
+    dependencies=[Depends(rate_limit_cv_preview)],
+)
+async def parse_cv_preview(
+    request: Request,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(..., description="CV file (PDF / DOCX / PNG / JPG)"),
+) -> PublicCvParsePreview:
+    """Parse a candidate-uploaded CV and return the extracted fields.
+
+    Auto-fill endpoint used by the public Apply form. This endpoint must
+    never create Candidate / CandidateDocument / CandidateJobApplication
+    rows — that happens in :func:`submit_candidate_application` once the
+    candidate clicks the final submit button. The temp file is deleted
+    after parsing so we never accumulate unowned CVs on disk.
+    """
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from app.services.cv_parser import CvParseError, parse_cv
+    from app.services.cv_storage import (
+        ALLOWED_CV_EXT,
+        ALLOWED_CV_MIME,
+        MAX_CV_BYTES,
+    )
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty CV upload.")
+    if len(payload) > MAX_CV_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CV is too large. Maximum size is {MAX_CV_BYTES // (1024 * 1024)} MB.",
+        )
+
+    # Resolve extension from MIME first, then filename.
+    filename = file.filename or "cv"
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    mime_ext = ALLOWED_CV_MIME.get((file.content_type or "").lower())
+    ext = mime_ext or (suffix if suffix in ALLOWED_CV_EXT else "")
+    if not ext:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported CV file type. Please upload a PDF, DOCX, PNG or JPG."
+            ),
+        )
+    if ext == "doc":
+        # Legacy .doc unsupported by python-docx — surface a clean error
+        # rather than the CvParseError fallback.
+        raise HTTPException(
+            status_code=400,
+            detail="Legacy .doc files aren't supported. Please upload PDF or DOCX.",
+        )
+
+    warnings: List[str] = []
+    parsed = None
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=f".{ext}", prefix="cv_preview_"
+        ) as tmp:
+            tmp.write(payload)
+            tmp_path = tmp.name
+        try:
+            parsed = parse_cv(tmp_path, extension=ext)
+        except CvParseError as exc:
+            return PublicCvParsePreview(parsed=False, warnings=[str(exc)])
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if parsed is None:
+        return PublicCvParsePreview(parsed=False, warnings=["Could not parse CV."])
+
+    # Light audit so HR can see scrape attempts; we deliberately do NOT
+    # store the full extracted text on this public endpoint.
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="public.candidate.parse_preview",
+        scope="hr",
+        target_type="cv_preview",
+        target_id=None,
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "filename": filename,
+            "size": len(payload),
+            "parsed_email_present": bool(parsed.email),
+            "parsed_name_present": bool(parsed.name),
+        },
+        commit=True,
+    )
+
+    return PublicCvParsePreview(
+        parsed=True,
+        parser_version=parsed.parser_version,
+        warnings=warnings,
+        full_name=parsed.name,
+        email=parsed.email,
+        mobile=parsed.mobile,
+        nationality=parsed.nationality,
+        current_location=parsed.current_location,
+        current_designation=parsed.current_designation,
+        current_company=parsed.current_company,
+        total_experience_years=parsed.total_experience_years,
+        gcc_experience_years=parsed.gcc_experience_years,
+        qatar_experience_years=parsed.qatar_experience_years,
+        expected_salary=parsed.expected_salary,
+        notice_period=parsed.notice_period,
+        visa_status=parsed.visa_status,
+        skills=", ".join(parsed.skills) if parsed.skills else None,
+        education=parsed.education_as_json() if parsed.education else None,
+        languages=parsed.languages or None,
+        certifications=parsed.certifications or None,
+    )
 
 
 @router.post(

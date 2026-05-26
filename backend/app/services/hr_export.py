@@ -41,51 +41,114 @@ def export_csv(report: Report) -> Tuple[bytes, str, str]:
 
 
 def export_xlsx(report: Report) -> Tuple[bytes, str, str]:
+    """Render the report as a branded Excel workbook with a real Table.
+
+    The data range is wrapped in an openpyxl ``Table`` object so the
+    spreadsheet has built-in auto-filter, banded rows, and an Excel
+    sheet style ('TableStyleMedium2') — much nicer for HR than a raw
+    grid. Title + generated date + filters live above the header in
+    a small chrome block; if the Report carries a non-empty
+    ``summary`` dict we add a Summary sheet so the workbook is
+    self-contained.
+    """
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
 
     wb = Workbook()
     ws = wb.active
-    ws.title = (report.title or "Report")[:31]
+    ws.title = _safe_sheet_name(report.title or "Report")
 
-    # Title row
+    # --- Branded chrome ------------------------------------------------
     ws.cell(row=1, column=1, value=report.title).font = Font(
-        size=14, bold=True
+        size=16, bold=True, color="0F2A1C"
     )
     ws.cell(
         row=2,
         column=1,
         value=f"Generated: {report.generated_at.isoformat(timespec='seconds')}",
-    ).font = Font(italic=True, color="666666")
+    ).font = Font(italic=True, color="666666", size=10)
+    if report.description:
+        ws.cell(row=3, column=1, value=report.description).font = Font(
+            color="3A4842", size=10
+        )
 
-    # Header row at row 4
-    header_fill = PatternFill(
-        start_color="0F2A1C", end_color="0F2A1C", fill_type="solid"
-    )
-    header_font = Font(bold=True, color="FFFFFF")
-    for i, col in enumerate(report.columns, start=1):
-        cell = ws.cell(row=4, column=i, value=col)
-        cell.fill = header_fill
-        cell.font = header_font
+    # Optional filter line ---------------------------------------------
+    header_row = 5
+    if report.summary:
+        filter_str = " · ".join(
+            f"{k.replace('_', ' ').title()}: {v}"
+            for k, v in report.summary.items()
+            if v not in (None, "")
+        )
+        if filter_str:
+            ws.cell(row=4, column=1, value=filter_str).font = Font(
+                color="61736B", size=10, italic=True
+            )
+
+    # --- Header row + data --------------------------------------------
+    columns = list(report.columns) or ["(no columns)"]
+    for i, col in enumerate(columns, start=1):
+        cell = ws.cell(row=header_row, column=i, value=col)
+        cell.fill = PatternFill(
+            start_color="0F2A1C", end_color="0F2A1C", fill_type="solid"
+        )
+        cell.font = Font(bold=True, color="FFFFFF")
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    # Data rows from row 5
-    for r, row in enumerate(report.rows, start=5):
-        for c, value in enumerate(row, start=1):
-            ws.cell(row=r, column=c, value=_cell_as_python(value))
+    data_start = header_row + 1
+    rows = report.rows or []
+    if not rows:
+        # Excel Table objects require at least one data row — emit a
+        # blank placeholder so the table is still valid.
+        ws.cell(row=data_start, column=1, value="").number_format = "@"
+        data_end = data_start
+    else:
+        for r, row in enumerate(rows, start=data_start):
+            for c, value in enumerate(row, start=1):
+                cell = ws.cell(row=r, column=c, value=_cell_as_python(value))
+                if isinstance(value, datetime):
+                    cell.number_format = "yyyy-mm-dd hh:mm"
+        data_end = data_start + len(rows) - 1
 
-    # Column widths
-    for i, col in enumerate(report.columns, start=1):
+    # --- Column widths -------------------------------------------------
+    for i, col in enumerate(columns, start=1):
         max_len = max(
             [len(str(col))]
-            + [len(str(row[i - 1])) for row in report.rows if i - 1 < len(row)]
+            + [len(str(row[i - 1])) for row in rows if i - 1 < len(row)]
         )
         ws.column_dimensions[get_column_letter(i)].width = min(
             max(12, max_len + 2), 48
         )
 
-    ws.freeze_panes = "A5"
+    # --- Excel Table (auto-filter + banded rows) ----------------------
+    end_col_letter = get_column_letter(len(columns))
+    table_ref = f"A{header_row}:{end_col_letter}{data_end}"
+    table_name = _safe_table_name(report.type or report.title or "Report")
+    table = Table(displayName=table_name, ref=table_ref)
+    table.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium2",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    ws.add_table(table)
+
+    # Freeze pane below header so a long table scrolls cleanly.
+    ws.freeze_panes = f"A{data_start}"
+
+    # --- Summary sheet (when present) ---------------------------------
+    if report.summary:
+        summary_ws = wb.create_sheet("Summary")
+        summary_ws.cell(row=1, column=1, value="Metric").font = Font(bold=True)
+        summary_ws.cell(row=1, column=2, value="Value").font = Font(bold=True)
+        for i, (k, v) in enumerate(report.summary.items(), start=2):
+            summary_ws.cell(row=i, column=1, value=k.replace("_", " ").title())
+            summary_ws.cell(row=i, column=2, value=_cell_as_python(v))
+        summary_ws.column_dimensions["A"].width = 32
+        summary_ws.column_dimensions["B"].width = 32
 
     out = io.BytesIO()
     wb.save(out)
@@ -227,3 +290,24 @@ def _escape(value: str) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+_SHEET_INVALID = set('\\/?*:[]')
+
+
+def _safe_sheet_name(name: str) -> str:
+    """Excel sheet names are <=31 chars and can't contain ``\\/?*:[]``."""
+    sanitised = "".join("_" if c in _SHEET_INVALID else c for c in name).strip()
+    return (sanitised or "Report")[:31]
+
+
+def _safe_table_name(name: str) -> str:
+    """Excel table names must start with a letter and contain only
+    letters/digits/underscore. Workbook-wide uniqueness is the caller's
+    concern; we just produce a syntactically valid identifier."""
+    import re
+
+    cleaned = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    if not cleaned or not cleaned[0].isalpha():
+        cleaned = "Table_" + cleaned
+    return cleaned[:255]

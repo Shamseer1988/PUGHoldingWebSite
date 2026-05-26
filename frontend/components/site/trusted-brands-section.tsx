@@ -93,7 +93,21 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
       const root = tilesRootRef.current;
       if (!section) return;
 
+      // Safety net for the timeline below — see footer.tsx for
+      // rationale. Each brand tile is an inline <img>; their async
+      // dimensions can shift the panel after ScrollTrigger has
+      // measured it, leaving the tiles permanently at opacity:0.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
+        // If the section is already visible at JS-execution time
+        // (hard refresh preserved scroll), skip the hide-then-reveal
+        // so SSR-rendered tiles stay on-screen — no 3-4s blank flash.
+        const rect = section.getBoundingClientRect();
+        const alreadyInView =
+          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+        if (alreadyInView) return;
+
         if (header) gsap.set(header, { y: 30, opacity: 0 });
         if (accent) gsap.set(accent, { scaleX: 0, transformOrigin: "left center" });
         if (panel) gsap.set(panel, { y: 40, opacity: 0, scale: 0.98 });
@@ -124,9 +138,17 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
             0.35
           );
 
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 800);
       }, section);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {

@@ -124,7 +124,24 @@ export function Footer({ settings }: FooterProps) {
       const bottom = bottomRef.current;
       if (!root) return;
 
+      // Safety net for the timeline below. ScrollTrigger position
+      // calculations sometimes race late layout (font swap, async
+      // image dims, sticky ancestors) on refresh, leaving the
+      // footer permanently at gsap.set's opacity:0. If the timeline
+      // hasn't started after 800ms, jump it to the end so the
+      // footer always becomes visible.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
+        // If the footer is already visible at JS-execution time
+        // (hard refresh while scrolled near the bottom), skip the
+        // hide-then-reveal. SSR HTML stays visible — avoids the
+        // 3-4s blank flash before the timeline finishes.
+        const rect = root.getBoundingClientRect();
+        const alreadyInView =
+          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+        if (alreadyInView) return;
+
         if (brand) gsap.set(brand, { y: 28, opacity: 0 });
         const columns = nav?.querySelectorAll<HTMLElement>(
           "[data-footer-column]"
@@ -150,9 +167,18 @@ export function Footer({ settings }: FooterProps) {
           );
         }
         if (bottom) tl.to(bottom, { y: 0, opacity: 1, duration: 0.5 }, 0.45);
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 800);
       }, root);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {

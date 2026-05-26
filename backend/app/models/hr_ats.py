@@ -168,6 +168,88 @@ SOURCE_BULK_UPLOAD = "bulk_upload"
 
 
 # ---------------------------------------------------------------------------
+# Job approval workflow constants (Advanced HR module)
+# ---------------------------------------------------------------------------
+
+APPROVAL_STATUS_DRAFT = "draft"
+APPROVAL_STATUS_PENDING = "pending_approval"
+APPROVAL_STATUS_APPROVED = "approved"
+APPROVAL_STATUS_REJECTED = "rejected"
+APPROVAL_STATUS_REVISION_REQUIRED = "revision_required"
+APPROVAL_STATUSES = (
+    APPROVAL_STATUS_DRAFT,
+    APPROVAL_STATUS_PENDING,
+    APPROVAL_STATUS_APPROVED,
+    APPROVAL_STATUS_REJECTED,
+    APPROVAL_STATUS_REVISION_REQUIRED,
+)
+
+PUBLISH_STATUS_DRAFT = "draft"
+PUBLISH_STATUS_PUBLISHED = "published"
+PUBLISH_STATUS_UNPUBLISHED = "unpublished"
+PUBLISH_STATUSES = (
+    PUBLISH_STATUS_DRAFT,
+    PUBLISH_STATUS_PUBLISHED,
+    PUBLISH_STATUS_UNPUBLISHED,
+)
+
+# Job approval history actions
+APPROVAL_ACTION_CREATED = "created"
+APPROVAL_ACTION_SUBMITTED = "submitted"
+APPROVAL_ACTION_APPROVED = "approved"
+APPROVAL_ACTION_REJECTED = "rejected"
+APPROVAL_ACTION_REVISION_REQUESTED = "revision_requested"
+APPROVAL_ACTION_REVISION_SUBMITTED = "revision_submitted"
+APPROVAL_ACTION_PUBLISHED = "published"
+APPROVAL_ACTION_UNPUBLISHED = "unpublished"
+APPROVAL_ACTIONS = (
+    APPROVAL_ACTION_CREATED,
+    APPROVAL_ACTION_SUBMITTED,
+    APPROVAL_ACTION_APPROVED,
+    APPROVAL_ACTION_REJECTED,
+    APPROVAL_ACTION_REVISION_REQUESTED,
+    APPROVAL_ACTION_REVISION_SUBMITTED,
+    APPROVAL_ACTION_PUBLISHED,
+    APPROVAL_ACTION_UNPUBLISHED,
+)
+
+# Revision status
+REVISION_STATUS_PENDING = "pending"
+REVISION_STATUS_APPROVED = "approved"
+REVISION_STATUS_REJECTED = "rejected"
+REVISION_STATUSES = (
+    REVISION_STATUS_PENDING,
+    REVISION_STATUS_APPROVED,
+    REVISION_STATUS_REJECTED,
+)
+
+# Auto-review decision
+AUTO_REVIEW_SHORTLISTED = "auto_shortlisted"
+AUTO_REVIEW_HR_PENDING = "hr_review_pending"
+AUTO_REVIEW_REJECTED = "auto_rejected"
+AUTO_REVIEW_DUPLICATE = "duplicate"
+AUTO_REVIEW_SELECTED = "selected"
+AUTO_REVIEW_DECISIONS = (
+    AUTO_REVIEW_SHORTLISTED,
+    AUTO_REVIEW_HR_PENDING,
+    AUTO_REVIEW_REJECTED,
+    AUTO_REVIEW_DUPLICATE,
+    AUTO_REVIEW_SELECTED,
+)
+
+# Email log status
+EMAIL_LOG_PENDING = "pending"
+EMAIL_LOG_SENT = "sent"
+EMAIL_LOG_FAILED = "failed"
+EMAIL_LOG_STATUSES = (EMAIL_LOG_PENDING, EMAIL_LOG_SENT, EMAIL_LOG_FAILED)
+
+# Calendar providers
+CALENDAR_PROVIDER_NONE = "none"
+CALENDAR_PROVIDER_GOOGLE = "google"
+CALENDAR_PROVIDERS = (CALENDAR_PROVIDER_NONE, CALENDAR_PROVIDER_GOOGLE)
+
+
+# ---------------------------------------------------------------------------
 # Job opening
 # ---------------------------------------------------------------------------
 
@@ -219,8 +301,58 @@ class JobOpening(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL")
     )
 
+    # --- Approval workflow (advanced HR module) ---------------------------
+    approval_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=APPROVAL_STATUS_DRAFT,
+        server_default=APPROVAL_STATUS_DRAFT,
+        index=True,
+    )
+    publish_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=PUBLISH_STATUS_DRAFT,
+        server_default=PUBLISH_STATUS_DRAFT,
+        index=True,
+    )
+    approved_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    submitted_for_approval_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    submitted_for_approval_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    rejected_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approval_remarks: Mapped[Optional[str]] = mapped_column(Text)
+    active_revision_id: Mapped[Optional[int]] = mapped_column(Integer)
+
     applications: Mapped[List["CandidateJobApplication"]] = relationship(
         back_populates="job_opening", lazy="selectin"
+    )
+    approval_history: Mapped[List["JobApprovalHistory"]] = relationship(
+        back_populates="job_opening",
+        cascade="all, delete-orphan",
+        order_by="JobApprovalHistory.created_at.desc()",
+        lazy="selectin",
+    )
+    revisions: Mapped[List["JobRevision"]] = relationship(
+        back_populates="job_opening",
+        cascade="all, delete-orphan",
+        order_by="JobRevision.created_at.desc()",
+        lazy="selectin",
+    )
+    auto_review_rule: Mapped[Optional["JobAutoReviewRule"]] = relationship(
+        back_populates="job_opening",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="selectin",
     )
 
 
@@ -623,6 +755,19 @@ class Interview(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL")
     )
 
+    # --- Calendar + invitation extras (advanced HR module) ---------------
+    calendar_event_id: Mapped[Optional[str]] = mapped_column(String(255))
+    meeting_link: Mapped[Optional[str]] = mapped_column(String(500))
+    calendar_provider: Mapped[Optional[str]] = mapped_column(String(32))
+    email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    email_delivery_status: Mapped[Optional[str]] = mapped_column(String(32))
+    additional_attendee_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    cc_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    bcc_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    candidate_email_override: Mapped[Optional[str]] = mapped_column(String(255))
+    email_subject: Mapped[Optional[str]] = mapped_column(String(500))
+    email_note: Mapped[Optional[str]] = mapped_column(Text)
+
     application: Mapped[CandidateJobApplication] = relationship(back_populates="interviews")
     feedback: Mapped[List["InterviewFeedback"]] = relationship(
         back_populates="interview",
@@ -779,4 +924,199 @@ class PublicAIQuery(Base):
         nullable=False,
         server_default=func.now(),
         index=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Job approval history
+# ---------------------------------------------------------------------------
+
+
+class JobApprovalHistory(Base):
+    """One row per approval/publish/revision action on a JobOpening."""
+
+    __tablename__ = "hr_job_approval_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_opening_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_job_openings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    old_approval_status: Mapped[Optional[str]] = mapped_column(String(32))
+    new_approval_status: Mapped[Optional[str]] = mapped_column(String(32))
+    actor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    actor_email: Mapped[Optional[str]] = mapped_column(String(255))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    changed_fields: Mapped[Optional[dict]] = mapped_column(JSON)
+    revision_id: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+
+    job_opening: Mapped[JobOpening] = relationship(back_populates="approval_history")
+
+
+# ---------------------------------------------------------------------------
+# Job revision (pending edit of an approved job)
+# ---------------------------------------------------------------------------
+
+
+class JobRevision(Base, TimestampMixin):
+    """A pending edit on an approved job — stored separately so the public
+    job content is not changed until HR Manager approves the revision."""
+
+    __tablename__ = "hr_job_revisions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_opening_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_job_openings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=REVISION_STATUS_PENDING,
+        server_default=REVISION_STATUS_PENDING,
+        index=True,
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+
+    job_opening: Mapped[JobOpening] = relationship(back_populates="revisions")
+
+
+# ---------------------------------------------------------------------------
+# Email delivery log
+# ---------------------------------------------------------------------------
+
+
+class EmailLog(Base):
+    """Outbound email log — one row per branded send attempt."""
+
+    __tablename__ = "hr_email_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    template_key: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    subject: Mapped[Optional[str]] = mapped_column(String(500))
+    to_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    cc_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    bcc_emails: Mapped[Optional[list]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=EMAIL_LOG_PENDING,
+        server_default=EMAIL_LOG_PENDING,
+        index=True,
+    )
+    provider_response: Mapped[Optional[dict]] = mapped_column(JSON)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    related_type: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    related_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Auto-review rule (one per job)
+# ---------------------------------------------------------------------------
+
+
+class JobAutoReviewRule(Base, TimestampMixin):
+    """Per-job auto-shortlist / auto-review configuration."""
+
+    __tablename__ = "hr_auto_review_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_opening_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_job_openings.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    # Optional auto-reject when score below threshold. Default False so we
+    # only flag for HR review (HR confirms rejection) unless explicitly
+    # enabled per job.
+    auto_reject_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    min_score: Mapped[Optional[int]] = mapped_column(Integer)
+    required_skills: Mapped[Optional[list]] = mapped_column(JSON)
+    preferred_skills: Mapped[Optional[list]] = mapped_column(JSON)
+    min_experience: Mapped[Optional[float]] = mapped_column(Float)
+    max_expected_salary: Mapped[Optional[int]] = mapped_column(Integer)
+    visa_keywords: Mapped[Optional[list]] = mapped_column(JSON)
+    location_keywords: Mapped[Optional[list]] = mapped_column(JSON)
+    nationality_keywords: Mapped[Optional[list]] = mapped_column(JSON)
+    notice_period_keywords: Mapped[Optional[list]] = mapped_column(JSON)
+    auto_shortlist_threshold: Mapped[Optional[int]] = mapped_column(Integer)
+    auto_reject_threshold: Mapped[Optional[int]] = mapped_column(Integer)
+
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    updated_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    job_opening: Mapped[JobOpening] = relationship(back_populates="auto_review_rule")
+
+
+# ---------------------------------------------------------------------------
+# Candidate auto-review result
+# ---------------------------------------------------------------------------
+
+
+class CandidateAutoReview(Base, TimestampMixin):
+    """Auto-review outcome for one application (1:1 with application)."""
+
+    __tablename__ = "hr_candidate_auto_reviews"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_candidate_job_applications.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    rule_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("hr_auto_review_rules.id", ondelete="SET NULL")
+    )
+    score: Mapped[Optional[int]] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    matched_skills: Mapped[Optional[list]] = mapped_column(JSON)
+    missing_skills: Mapped[Optional[list]] = mapped_column(JSON)
+    risk_flags: Mapped[Optional[list]] = mapped_column(JSON)
+    reason_summary: Mapped[Optional[str]] = mapped_column(Text)
+    recommendation_source: Mapped[Optional[str]] = mapped_column(String(64))
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reviewed_by_system: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )

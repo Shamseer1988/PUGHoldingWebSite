@@ -135,6 +135,55 @@ export async function submitCandidateApplication(
 }
 
 // ---------------------------------------------------------------------------
+// Public CV parse-preview (advanced module — phase 7)
+// ---------------------------------------------------------------------------
+
+export interface PublicCvParsePreview {
+  parsed: boolean;
+  parser_version: string | null;
+  warnings: string[];
+  full_name: string | null;
+  email: string | null;
+  mobile: string | null;
+  nationality: string | null;
+  current_location: string | null;
+  current_designation: string | null;
+  current_company: string | null;
+  total_experience_years: number | null;
+  gcc_experience_years: number | null;
+  qatar_experience_years: number | null;
+  expected_salary: number | null;
+  notice_period: string | null;
+  visa_status: string | null;
+  skills: string | null;
+  education: Array<Record<string, unknown>> | null;
+  languages: string[] | null;
+  certifications: string[] | null;
+}
+
+export async function parseCvPreview(file: File): Promise<PublicCvParsePreview> {
+  const url = `${env.apiBaseUrl}/public/candidate-applications/parse-preview`;
+  const fd = new FormData();
+  fd.append("file", file);
+  const response = await fetch(url, {
+    method: "POST",
+    body: fd,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `CV preview failed (${response.status})`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* swallow */
+    }
+    throw new PublicApiError(detail, response.status);
+  }
+  return (await response.json()) as PublicCvParsePreview;
+}
+
+// ---------------------------------------------------------------------------
 // Public Ask-PUG-AI assistant (Phase 17)
 // ---------------------------------------------------------------------------
 

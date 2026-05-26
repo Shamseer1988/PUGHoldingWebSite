@@ -54,6 +54,12 @@ NEWSLETTER_LIMIT_HOURLY: Tuple[int, int] = (20, 3600)
 APPLY_LIMIT: Tuple[int, int] = (3, 60)
 APPLY_LIMIT_HOURLY: Tuple[int, int] = (15, 3600)
 
+# CV preview parse — the candidate may upload, tweak, re-upload, but
+# we want to stop scrape-loops of the parser. Slightly more generous
+# than the apply limit because a real user can iterate.
+CV_PREVIEW_LIMIT: Tuple[int, int] = (5, 60)
+CV_PREVIEW_LIMIT_HOURLY: Tuple[int, int] = (30, 3600)
+
 # AI chat is the most expensive (Azure OpenAI tokens cost money). Give
 # a real visitor enough headroom for a conversation, but stop loops.
 AI_ASSISTANT_LIMIT: Tuple[int, int] = (10, 60)
@@ -151,6 +157,10 @@ def rate_limit_newsletter(request: Request) -> None:
 
 def rate_limit_apply(request: Request) -> None:
     _enforce(request, "apply", APPLY_LIMIT, APPLY_LIMIT_HOURLY)
+
+
+def rate_limit_cv_preview(request: Request) -> None:
+    _enforce(request, "cv_preview", CV_PREVIEW_LIMIT, CV_PREVIEW_LIMIT_HOURLY)
 
 
 def rate_limit_ai_assistant(request: Request) -> None:

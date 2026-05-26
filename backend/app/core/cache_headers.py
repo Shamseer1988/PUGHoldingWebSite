@@ -1,10 +1,26 @@
 """HTTP cache headers for public GET endpoints.
 
 Adds ``Cache-Control`` to successful GET responses under
-``/api/v1/public/*`` so Cloudflare (and any other downstream cache)
-can serve repeat visits from the edge. Massive win for the public
-site, where the same site-settings / navigation / company-list / job
-list / hero-slide payloads are fetched on every page render.
+``/api/v1/public/*``.
+
+Two distinct headers depending on the endpoint:
+
+  * **CMS reads** (site-settings, leadership, companies, hero-slides,
+    navigation, news, pages, site-pages, media, trusted-brands,
+    featured-companies, homepage sections, …) ship
+    ``Cache-Control: no-store, no-cache, must-revalidate, max-age=0``
+    so neither Cloudflare nor Next.js's fetch layer ever caches a
+    response. The cost is a few extra origin hits; the win is that
+    an intermittent / partial backend response can no longer be
+    cached and replayed for 60 s, which is what produced the
+    "first refresh ok, second refresh fields disappear" flicker on
+    the homepage / footer / leadership section.
+
+  * **Static-ish surfaces** that don't move with admin edits
+    (currently only the SEO ``robots.txt`` / ``sitemap.xml``
+    endpoints if/when they're surfaced under /public/) still get a
+    cache-friendly default. None are currently in this group; the
+    code is ready for it.
 
 Design choices that keep this conservative:
 
@@ -15,15 +31,10 @@ Design choices that keep this conservative:
 - Only attaches when the upstream did not already set
   ``Cache-Control`` (so a future endpoint can opt out by setting its
   own header).
-- Skips ``ai-assistant/ask`` even on GET (defensive — it's a POST today
-  but if a search variant lands later we don't want personal queries
-  cached).
+- Skips ``ai-assistant/ask`` even on GET (defensive — it's a POST
+  today but if a search variant lands later we don't want personal
+  queries cached).
 - Skips any non-2xx response (4xx / 5xx should never be edge-cached).
-
-TTL: ``s-maxage=60`` (shared cache 1 min) + ``stale-while-revalidate=3600``
-(visitors get the stale copy while the edge refetches in the
-background — best UX). Browsers get ``max-age=0`` so the user always
-sees the latest data after a hard refresh.
 
 Toggle off via ``PUBLIC_CACHE_HEADERS_ENABLED=false`` in the env.
 """
@@ -49,8 +60,33 @@ CACHE_BLOCKLIST: frozenset = frozenset(
 )
 
 
-# Default TTL — tuned so an admin edit propagates within ~60s while
-# repeat visitors hit the edge cache.
+# Path prefixes whose responses move with admin edits — these MUST
+# render fresh on every request so the user never sees a 60s-stale
+# snapshot of CMS content (the homepage/footer/leadership flicker
+# bug). The match is by prefix so ``/public/companies/{slug}``,
+# ``/public/site-pages/{key}``, etc. are all covered.
+NO_CACHE_PATH_PREFIXES: tuple[str, ...] = (
+    "/api/v1/public/site-settings",
+    "/api/v1/public/site-pages",
+    "/api/v1/public/leadership",
+    "/api/v1/public/homepage",
+    "/api/v1/public/companies",
+    "/api/v1/public/featured-companies",
+    "/api/v1/public/hero-slides",
+    "/api/v1/public/trusted-brands",
+    "/api/v1/public/navigation",
+    "/api/v1/public/news",
+    "/api/v1/public/pages",
+    "/api/v1/public/media",
+    "/api/v1/public/jobs",
+)
+
+
+# Headers for CMS / homepage reads — bypass every cache layer.
+NO_CACHE_HEADER = "no-store, no-cache, must-revalidate, max-age=0"
+
+# Headers for endpoints that DO benefit from edge caching.
+# (Not currently used — kept for future static endpoints.)
 DEFAULT_CACHE_CONTROL = (
     "public, max-age=0, s-maxage=60, stale-while-revalidate=3600"
 )
@@ -62,6 +98,11 @@ def _enabled() -> bool:
         "false",
         "no",
     }
+
+
+def _is_no_cache_path(path: str) -> bool:
+    """True when this CMS-ish endpoint must skip every cache."""
+    return any(path.startswith(p) for p in NO_CACHE_PATH_PREFIXES)
 
 
 class PublicCacheHeadersMiddleware(BaseHTTPMiddleware):
@@ -84,7 +125,17 @@ class PublicCacheHeadersMiddleware(BaseHTTPMiddleware):
         existing = response.headers.get("cache-control")
         if existing:
             return response
-        response.headers["Cache-Control"] = DEFAULT_CACHE_CONTROL
+
+        if _is_no_cache_path(path):
+            # CMS reads — never cache. Add Pragma + Expires for the
+            # old HTTP/1.0 clients and the few proxies that still
+            # respect them (defense in depth).
+            response.headers["Cache-Control"] = NO_CACHE_HEADER
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        else:
+            response.headers["Cache-Control"] = DEFAULT_CACHE_CONTROL
+
         # Hint to downstream caches that the response varies by Origin
         # (CORS) but not by the Authorization header (public).
         response.headers.setdefault("Vary", "Origin, Accept-Encoding")
