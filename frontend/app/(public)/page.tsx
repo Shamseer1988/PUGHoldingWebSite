@@ -26,7 +26,7 @@ import {
   getSiteSettings,
 } from "@/lib/public-api";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const [hero, featured, leadershipSection, trustedBrands, news, settings, openJobs] =

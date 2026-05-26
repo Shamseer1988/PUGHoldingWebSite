@@ -2,9 +2,17 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ImageIcon, Play, X } from "lucide-react";
+import {
+  Images,
+  ImageIcon,
+  Maximize2,
+  Play,
+  Sparkles,
+  X,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { ResponsiveImage } from "@/components/site/responsive-image";
 import {
   resolveAssetUrl,
   type PublicMediaAsset,
@@ -15,13 +23,13 @@ import { cn } from "@/lib/utils";
 /**
  * Public-side gallery powered by the admin Media Gallery.
  *
- * Categories ("stores", "events", "team", "campaigns") are derived
- * from the asset's `tags` field. Tags can be added when editing the
- * asset under /admin/media. Assets without one of those tags are
- * still shown under "All".
+ * Renders as a glass-album: a soft, brand-aligned panel with category
+ * pills, masonry-style tiles, and a lightbox. Categories are derived
+ * from the asset's `tags` field — tag an asset `stores`, `events`,
+ * `team`, or `campaigns` to file it under the matching tab.
  *
- * Renders real images / videos — no more placeholder gradients — and
- * opens each tile in a lightbox on click.
+ * Per-asset visibility is controlled server-side (`is_public` flag on
+ * MediaAsset) — hidden assets never reach this component.
  */
 
 export type MediaCategory = "stores" | "events" | "team" | "campaigns";
@@ -33,13 +41,20 @@ const CATEGORY_LABELS: Record<MediaCategory, string> = {
   campaigns: "Campaigns",
 };
 
+// Per-category accent tints used on the tile hover + lightbox badge.
+const CATEGORY_ACCENT: Record<MediaCategory, string> = {
+  stores: "from-pug-gold-400/70 to-pug-gold-600/70",
+  events: "from-rose-400/70 to-pug-gold-500/70",
+  team: "from-pug-green-400/70 to-pug-green-700/70",
+  campaigns: "from-sky-400/70 to-violet-500/70",
+};
+
 interface MediaGalleryProps {
   items: PublicMediaAsset[];
 }
 
 interface DerivedItem {
   asset: PublicMediaAsset;
-  /** Resolved URL (handles relative API paths). */
   url: string;
   category: MediaCategory | null;
   title: string;
@@ -61,6 +76,20 @@ function deriveCategory(tokens: string[]): MediaCategory | null {
   return null;
 }
 
+/**
+ * Decide whether a tile spans 2 columns (or 2 rows) so the grid feels
+ * editorial rather than a flat 4×N. Stable per-id so layout doesn't
+ * shuffle on re-render.
+ */
+function tileSpan(id: number, index: number): string {
+  // Every 5th tile gets a wide span; every 9th gets a tall span. Both
+  // sparingly so the masonry feels intentional, not chaotic.
+  if (index % 9 === 4) return "sm:col-span-2 sm:row-span-2";
+  if (id % 7 === 0) return "lg:col-span-2";
+  return "";
+}
+
+
 export function MediaGallery({ items }: MediaGalleryProps) {
   const derived = React.useMemo<DerivedItem[]>(
     () =>
@@ -77,15 +106,17 @@ export function MediaGallery({ items }: MediaGalleryProps) {
     [items]
   );
 
-  const availableCategories = React.useMemo<
-    ("all" | MediaCategory)[]
-  >(() => {
-    const set = new Set<MediaCategory>();
-    for (const item of derived) {
-      if (item.category) set.add(item.category);
+  const counts = React.useMemo<Record<"all" | MediaCategory, number>>(() => {
+    const base = { all: derived.length, stores: 0, events: 0, team: 0, campaigns: 0 };
+    for (const d of derived) {
+      if (d.category) base[d.category]++;
     }
-    return ["all", ...CATEGORIES.filter((c) => set.has(c))];
+    return base;
   }, [derived]);
+
+  const availableCategories = React.useMemo<("all" | MediaCategory)[]>(() => {
+    return ["all", ...CATEGORIES.filter((c) => counts[c] > 0)];
+  }, [counts]);
 
   const [active, setActive] = React.useState<"all" | MediaCategory>("all");
   const [lightbox, setLightbox] = React.useState<DerivedItem | null>(null);
@@ -114,97 +145,184 @@ export function MediaGallery({ items }: MediaGalleryProps) {
 
   if (items.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-border/60 bg-background/50 p-10 text-center text-sm text-muted-foreground">
-        <ImageIcon className="mx-auto mb-3 h-8 w-8 opacity-50" />
-        <p>No media uploaded yet.</p>
-        <p className="mt-1 text-xs">
-          Upload images or videos in <em>Admin → Media gallery</em> and tag
-          them <code className="rounded bg-muted px-1">stores</code>,{" "}
-          <code className="rounded bg-muted px-1">events</code>,{" "}
-          <code className="rounded bg-muted px-1">team</code>, or{" "}
-          <code className="rounded bg-muted px-1">campaigns</code> so they
-          appear here under the matching tab.
-        </p>
-      </div>
+      <GlassAlbumShell>
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-pug-gold-500/15 text-pug-gold-700 ring-1 ring-pug-gold-500/30 dark:text-pug-gold-300">
+            <Images className="h-6 w-6" />
+          </span>
+          <p className="text-sm font-medium text-foreground">
+            No media uploaded yet.
+          </p>
+          <p className="max-w-md text-xs text-muted-foreground">
+            Upload images or videos in <em>Admin → Media gallery</em> and tag
+            them <code className="rounded bg-muted px-1">stores</code>,{" "}
+            <code className="rounded bg-muted px-1">events</code>,{" "}
+            <code className="rounded bg-muted px-1">team</code>, or{" "}
+            <code className="rounded bg-muted px-1">campaigns</code> so they
+            appear here under the matching tab.
+          </p>
+        </div>
+      </GlassAlbumShell>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {availableCategories.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2">
-          {availableCategories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setActive(cat)}
-              className={cn(
-                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                active === cat
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border/60 bg-background/60 text-muted-foreground hover:text-foreground"
-              )}
-              aria-pressed={active === cat}
+    <>
+      <GlassAlbumShell>
+        {/* Header with category pills + counter. */}
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-pug-gold-500/15 text-pug-gold-700 ring-1 ring-pug-gold-500/30 dark:text-pug-gold-300">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-pug-gold-700/80 dark:text-pug-gold-300/80">
+                Photo album
+              </p>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  {counts[active === "all" ? "all" : active]}
+                </span>{" "}
+                {active === "all"
+                  ? "stories"
+                  : `${CATEGORY_LABELS[active as MediaCategory].toLowerCase()} stories`}
+              </p>
+            </div>
+          </div>
+
+          {availableCategories.length > 1 && (
+            <div
+              role="tablist"
+              aria-label="Filter media by category"
+              className="flex flex-wrap items-center gap-1.5 rounded-full border border-border/50 bg-background/60 p-1 backdrop-blur"
             >
-              {cat === "all" ? "All" : CATEGORY_LABELS[cat]}
-            </button>
-          ))}
-        </div>
-      )}
+              {availableCategories.map((cat) => {
+                const label =
+                  cat === "all" ? "All" : CATEGORY_LABELS[cat];
+                const count = counts[cat];
+                const isActive = active === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setActive(cat)}
+                    className={cn(
+                      "relative inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition",
+                      isActive
+                        ? "bg-pug-green-700 text-white shadow-sm dark:bg-pug-gold-500 dark:text-pug-green-900"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {label}
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 py-px text-[10px] font-semibold",
+                        isActive
+                          ? "bg-white/20 text-white dark:bg-pug-green-900/20 dark:text-pug-green-900"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </header>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {filtered.map((item) => (
-          <button
-            key={item.asset.id}
-            type="button"
-            onClick={() => setLightbox(item)}
-            className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-border/60 bg-muted shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            aria-label={`Open ${item.title}`}
-          >
-            {item.asset.kind === "video" ? (
-              <video
-                src={item.url}
-                muted
-                playsInline
-                preload="metadata"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={item.url}
-                alt={item.description ?? item.title}
-                loading="lazy"
-                decoding="async"
-                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-              />
-            )}
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/0 to-black/0"
-            />
-            <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white backdrop-blur">
-              {item.asset.kind === "video" ? (
-                <Play className="h-3 w-3" />
-              ) : (
-                <ImageIcon className="h-3 w-3" />
-              )}
-              {item.asset.kind}
-            </span>
-            <span className="absolute inset-x-0 bottom-0 p-3 text-left text-white">
-              {item.category && (
-                <span className="block text-[10px] font-medium uppercase tracking-wider opacity-80">
-                  {CATEGORY_LABELS[item.category]}
+        {/* Editorial album grid. */}
+        <div className="grid auto-rows-[10rem] grid-cols-2 gap-3 sm:auto-rows-[12rem] sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+          <AnimatePresence mode="popLayout">
+            {filtered.map((item, index) => (
+              <motion.button
+                key={item.asset.id}
+                layout
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.28, delay: index * 0.015 }}
+                type="button"
+                onClick={() => setLightbox(item)}
+                aria-label={`Open ${item.title}`}
+                className={cn(
+                  "group relative overflow-hidden rounded-2xl border border-white/20 bg-pug-green-900/5 shadow-[0_8px_30px_-12px_rgba(15,53,32,0.25)] ring-1 ring-black/[0.04] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_45px_-15px_rgba(15,53,32,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pug-gold-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.03] dark:ring-white/10",
+                  tileSpan(item.asset.id, index)
+                )}
+              >
+                {/* Media */}
+                {item.asset.kind === "video" ? (
+                  <video
+                    src={item.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.08]"
+                  />
+                ) : (
+                  <ResponsiveImage
+                    src={item.url}
+                    variants={item.asset.variants}
+                    alt={item.description ?? item.title}
+                    // Tile width: 2-col on phone, 3-col on sm, 4-col
+                    // on lg. 50vw / 33vw / 25vw covers the lot.
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.08]"
+                  />
+                )}
+
+                {/* Per-category coloured glow on hover */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "pointer-events-none absolute inset-0 bg-gradient-to-tr opacity-0 mix-blend-overlay transition-opacity duration-500 group-hover:opacity-100",
+                    item.category
+                      ? CATEGORY_ACCENT[item.category]
+                      : "from-pug-gold-400/60 to-pug-green-700/60"
+                  )}
+                />
+
+                {/* Bottom shade for legibility */}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-pug-green-900/85 via-pug-green-900/30 to-transparent"
+                />
+
+                {/* Top-right kind chip + expand glyph */}
+                <span className="absolute right-2.5 top-2.5 flex items-center gap-1.5">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-pug-green-900/45 text-white opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100">
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-pug-green-900/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
+                    {item.asset.kind === "video" ? (
+                      <Play className="h-3 w-3" />
+                    ) : (
+                      <ImageIcon className="h-3 w-3" />
+                    )}
+                    {item.asset.kind}
+                  </span>
                 </span>
-              )}
-              <span className="block text-sm font-semibold leading-snug">
-                {item.title}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
 
+                {/* Caption */}
+                <span className="absolute inset-x-0 bottom-0 p-3 text-left text-white sm:p-4">
+                  {item.category && (
+                    <span className="mb-1 inline-flex items-center rounded-full border border-pug-gold-300/50 bg-pug-gold-500/30 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-pug-gold-50 backdrop-blur">
+                      {CATEGORY_LABELS[item.category]}
+                    </span>
+                  )}
+                  <span className="block text-sm font-semibold leading-snug drop-shadow-sm sm:text-base">
+                    {item.title}
+                  </span>
+                </span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
+        </div>
+      </GlassAlbumShell>
+
+      {/* Lightbox */}
       <AnimatePresence>
         {lightbox && (
           <>
@@ -215,7 +333,7 @@ export function MediaGallery({ items }: MediaGalleryProps) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={() => setLightbox(null)}
-              className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md"
+              className="fixed inset-0 z-50 bg-pug-green-900/85 backdrop-blur-md"
               aria-hidden
             />
             <motion.div
@@ -223,14 +341,14 @@ export function MediaGallery({ items }: MediaGalleryProps) {
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.96 }}
-              transition={{ duration: 0.25 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
               role="dialog"
               aria-modal="true"
               aria-label={lightbox.title}
               className="fixed inset-4 z-50 flex items-center justify-center sm:inset-12"
             >
-              <div className="relative w-full max-w-4xl">
-                <div className="aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-2xl">
+              <div className="relative w-full max-w-5xl">
+                <div className="aspect-video w-full overflow-hidden rounded-2xl bg-pug-green-900 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
                   {lightbox.asset.kind === "video" ? (
                     <video
                       src={lightbox.url}
@@ -240,26 +358,36 @@ export function MediaGallery({ items }: MediaGalleryProps) {
                       className="h-full w-full object-contain"
                     />
                   ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <ResponsiveImage
+                      // Lightbox always wants the largest variant —
+                      // 100vw on every breakpoint lets the browser
+                      // pick `large` from the srcset.
                       src={lightbox.url}
+                      variants={lightbox.asset.variants}
                       alt={lightbox.description ?? lightbox.title}
+                      sizes="100vw"
+                      // Eager-load — the lightbox just opened, so the
+                      // image IS the user's intent.
+                      priority
                       className="h-full w-full object-contain"
                     />
                   )}
                 </div>
-                <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-border/60 bg-background/85 p-4 backdrop-blur">
-                  <div>
+                <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl border border-white/15 bg-white/[0.06] p-4 backdrop-blur-md">
+                  <div className="text-white">
                     {lightbox.category && (
-                      <Badge variant="soft">
+                      <Badge
+                        variant="soft"
+                        className="border-pug-gold-300/40 bg-pug-gold-500/20 text-pug-gold-100"
+                      >
                         {CATEGORY_LABELS[lightbox.category]}
                       </Badge>
                     )}
-                    <h3 className="mt-1 text-base font-semibold">
+                    <h3 className="mt-1 text-base font-semibold sm:text-lg">
                       {lightbox.title}
                     </h3>
                     {lightbox.description && (
-                      <p className="mt-1 text-sm text-muted-foreground">
+                      <p className="mt-1 text-sm text-white/80">
                         {lightbox.description}
                       </p>
                     )}
@@ -267,7 +395,7 @@ export function MediaGallery({ items }: MediaGalleryProps) {
                   <button
                     type="button"
                     onClick={() => setLightbox(null)}
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background hover:bg-muted"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white hover:bg-white/20"
                     aria-label="Close"
                   >
                     <X className="h-4 w-4" />
@@ -278,6 +406,33 @@ export function MediaGallery({ items }: MediaGalleryProps) {
           </>
         )}
       </AnimatePresence>
+    </>
+  );
+}
+
+
+/**
+ * Glass-album shell — a soft frosted panel with a subtle inner glow.
+ * Encapsulates the brand background so individual tiles can stay
+ * focused on their content.
+ */
+function GlassAlbumShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative isolate overflow-hidden rounded-3xl border border-white/40 bg-white/40 p-5 shadow-[0_30px_60px_-30px_rgba(15,53,32,0.25)] backdrop-blur-xl sm:p-7 dark:border-white/10 dark:bg-pug-green-900/30">
+      {/* Ambient gradient blobs to give the panel depth. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-32 -left-24 -z-10 h-64 w-64 rounded-full bg-pug-gold-300/30 blur-3xl dark:bg-pug-gold-500/15"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-40 -right-16 -z-10 h-72 w-72 rounded-full bg-pug-green-400/20 blur-3xl dark:bg-pug-green-700/30"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-white/0 via-white/0 to-pug-gold-100/30 dark:to-pug-green-900/40"
+      />
+      {children}
     </div>
   );
 }

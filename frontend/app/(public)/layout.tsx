@@ -1,5 +1,6 @@
 import { AskPugAiButton } from "@/components/site/ask-pug-ai-button";
 import { Footer } from "@/components/site/footer";
+import { MaintenancePage } from "@/components/site/maintenance-page";
 import { Navbar } from "@/components/site/navbar";
 import { ScrollProgressBar } from "@/components/site/scroll-progress";
 import { SkipToContent } from "@/components/site/skip-to-content";
@@ -9,7 +10,7 @@ import {
   getSiteSettings,
 } from "@/lib/public-api";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 /**
  * Public site layout.
@@ -18,14 +19,24 @@ export const revalidate = 60;
  * Site settings populate the footer; the companies list feeds the
  * mega menu shown under "Group Companies"; the navigation tree drives
  * the navbar + mobile drawer.
+ *
+ * When ``site_settings.maintenance_mode_enabled`` is on, every public
+ * route renders the maintenance page instead — admin (`/admin/*`) and
+ * HR (`/hr/*`) portals are unaffected because they live in their own
+ * route groups outside this layout.
  */
 export default async function PublicLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [settings, companies, navItems] = await Promise.all([
-    getSiteSettings(),
+  const settings = await getSiteSettings();
+
+  if (settings.maintenance_mode_enabled) {
+    return <MaintenancePage settings={settings} />;
+  }
+
+  const [companies, navItems] = await Promise.all([
     getCompanies(),
     getPublicNavigation(),
   ]);

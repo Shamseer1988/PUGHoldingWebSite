@@ -448,7 +448,7 @@ function GeneralTab({
   return (
     <SaveCard<SeoSettings>
       title="General SEO settings"
-      description="Site-wide defaults consumed by every public page. Page-level overrides arrive in Phase 2."
+      description="Site-wide defaults consumed by every public page. Individual pages can override these under Pages → Site pages → SEO."
       initial={settings}
       onSubmit={(form) => adminApi.patch<SeoSettings>("/admin/seo/settings", form)}
       onSaved={onSaved}
@@ -1348,7 +1348,7 @@ function SitemapTab({
   return (
     <SaveCard<SeoSettings>
       title="Sitemap settings"
-      description="The dynamic /sitemap.xml route honours these toggles. Per-page overrides arrive in Phase 2."
+      description="The dynamic /sitemap.xml route honours these toggles. Use the per-page SEO panel under Pages to override an individual page."
       initial={settings}
       onSubmit={(form) => adminApi.patch<SeoSettings>("/admin/seo/settings", form)}
       onSaved={onSaved}

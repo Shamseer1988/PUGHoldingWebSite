@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CATEGORY_LABELS, CompanyCard } from "@/components/site/company-card";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
-import { getCompanies } from "@/lib/public-api";
+import { getCompanies, getSitePage } from "@/lib/public-api";
 import type { Company } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
 
@@ -29,16 +29,22 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
     ? (requested as "all" | Company["category"])
     : "all";
 
-  const all = await getCompanies();
+  const [all, page] = await Promise.all([getCompanies(), getSitePage("companies")]);
   const companies = active === "all" ? all : all.filter((c) => c.category === active);
 
   return (
     <>
       <PageHero
-        eyebrow="Our companies"
-        title="Explore the Paris United Group"
-        description="A diversified portfolio of distribution, retail, and services businesses operating in Qatar and the wider GCC."
+        eyebrow={page?.hero_eyebrow ?? "Our companies"}
+        title={page?.hero_title ?? "Explore the Paris United Group"}
+        description={
+          page?.hero_description ??
+          "A diversified portfolio of distribution, retail, and services businesses operating in Qatar and the wider GCC."
+        }
         accent="from-pug-gold-500 via-pug-gold-600 to-pug-green-600"
+        imageUrl={page?.banner_image_url}
+        mobileImageUrl={page?.banner_mobile_url}
+        videoUrl={page?.banner_video_url}
       />
 
       <Section className="pt-10">

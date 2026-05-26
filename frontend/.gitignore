@@ -30,3 +30,16 @@ pnpm-debug.log*
 # Misc
 *.tsbuildinfo
 next-env.d.ts.bak
+
+# Environment files - server/local only
+.env
+.env.*
+*.env
+
+# Keep sample env files in Git
+!.env.example
+!.env.production.example
+!backend/.env.example
+!backend/.env.production.example
+!frontend/.env.example
+!frontend/.env.production.example

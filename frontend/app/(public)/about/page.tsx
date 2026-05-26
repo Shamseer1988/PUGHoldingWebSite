@@ -9,26 +9,40 @@ import {
   MISSION,
   VISION,
 } from "@/lib/dummy-data/site-content";
-import { getLeadership, getSiteSettings } from "@/lib/public-api";
+import { getLeadership, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "About Us" };
 export const revalidate = 60;
 
 export default async function AboutPage() {
-  const [leadership, settings] = await Promise.all([
+  const [leadership, page] = await Promise.all([
     getLeadership(),
-    getSiteSettings(),
+    getSitePage("about"),
   ]);
+
+  // Hero — CMS row first, dummy data as the safety net.
+  const heroEyebrow = page?.hero_eyebrow ?? ABOUT_INTRO.eyebrow;
+  const heroTitle = page?.hero_title ?? ABOUT_INTRO.title;
+  const heroDescription = page?.hero_description ?? ABOUT_INTRO.description;
+
+  // Named sections — same fallback strategy. ``page.sections`` is an
+  // empty object on a fresh install, so ``?.title`` is null → we use
+  // the hardcoded copy that ships with the bundle.
+  const vision = page?.sections?.vision;
+  const mission = page?.sections?.mission;
+  const historyIntro = page?.sections?.history_intro;
+  const leadershipHeader = page?.sections?.leadership_header;
 
   return (
     <>
       <PageHero
-        eyebrow={ABOUT_INTRO.eyebrow}
-        title={ABOUT_INTRO.title}
-        description={ABOUT_INTRO.description}
+        eyebrow={heroEyebrow ?? undefined}
+        title={heroTitle ?? ABOUT_INTRO.title}
+        description={heroDescription ?? undefined}
         accent="from-pug-green-700 via-pug-green-500 to-pug-gold-500"
-        imageUrl={settings.about_banner_image_url}
-        videoUrl={settings.about_banner_video_url}
+        imageUrl={page?.banner_image_url}
+        mobileImageUrl={page?.banner_mobile_url}
+        videoUrl={page?.banner_video_url}
       />
 
       <Section
@@ -38,12 +52,20 @@ export default async function AboutPage() {
       >
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <GlassCard className="p-6 sm:p-8">
-            <h3 className="text-lg font-semibold sm:text-xl">{VISION.title}</h3>
-            <p className="mt-3 text-muted-foreground sm:text-lg">{VISION.body}</p>
+            <h3 className="text-lg font-semibold sm:text-xl">
+              {vision?.title ?? VISION.title}
+            </h3>
+            <p className="mt-3 text-muted-foreground sm:text-lg">
+              {vision?.body ?? VISION.body}
+            </p>
           </GlassCard>
           <GlassCard className="p-6 sm:p-8">
-            <h3 className="text-lg font-semibold sm:text-xl">{MISSION.title}</h3>
-            <p className="mt-3 text-muted-foreground sm:text-lg">{MISSION.body}</p>
+            <h3 className="text-lg font-semibold sm:text-xl">
+              {mission?.title ?? MISSION.title}
+            </h3>
+            <p className="mt-3 text-muted-foreground sm:text-lg">
+              {mission?.body ?? MISSION.body}
+            </p>
           </GlassCard>
         </div>
       </Section>
@@ -80,9 +102,8 @@ export default async function AboutPage() {
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_2fr]">
           <div>
             <p className="text-sm text-muted-foreground">
-              We started with one focused FMCG distribution business and grew
-              into a diversified group operating across retail, distribution,
-              and services — guided by the same values throughout.
+              {historyIntro?.body ??
+                "We started with one focused FMCG distribution business and grew into a diversified group operating across retail, distribution, and services — guided by the same values throughout."}
             </p>
           </div>
           <Timeline />
@@ -92,9 +113,12 @@ export default async function AboutPage() {
       {leadership.length > 0 && (
         <Section
           id="leadership"
-          eyebrow="Leadership"
-          title="Messages from our leadership"
-          description="The Chairman, Managing Director, and Executive Directors."
+          eyebrow={leadershipHeader?.eyebrow ?? "Leadership"}
+          title={leadershipHeader?.title ?? "Messages from our leadership"}
+          description={
+            leadershipHeader?.body ??
+            "The Chairman, Managing Director, and Executive Directors."
+          }
         >
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {leadership.map((leader) => (

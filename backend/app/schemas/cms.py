@@ -2,9 +2,40 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+
+def _normalise_url_value(value: Any) -> Any:
+    """Replace Windows-style backslashes in URL strings.
+
+    Admins occasionally paste a local Windows file path
+    (e.g. ``\\images\\foo\\bar.webp``) into a URL field. That value
+    survives the form unchanged and the public site renders a 404.
+    Treating any backslash as a forward slash on write keeps the data
+    clean without making the field's type any more restrictive — the
+    admin can still type whatever they want, but a stray backslash
+    won't silently break the live image.
+    """
+    if isinstance(value, str) and "\\" in value:
+        return value.replace("\\", "/").strip()
+    return value
+
+
+def _normalise_url_fields(values: Any) -> Any:
+    """``model_validator(mode='before')`` helper.
+
+    Walks the input dict and applies :func:`_normalise_url_value` to any
+    key whose name ends with ``_url`` — covers every URL-shaped field
+    on every schema in this module (hero slide, company, leadership,
+    news, site settings, …) without enumerating them.
+    """
+    if isinstance(values, dict):
+        for key, value in list(values.items()):
+            if key.endswith("_url"):
+                values[key] = _normalise_url_value(value)
+    return values
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +172,13 @@ class CompanyBrandLogoInput(BaseModel):
 
 
 class CompanyBase(BaseModel):
+    # Normalise any *_url field on write so a stray backslash from an
+    # admin paste never reaches the database. See _normalise_url_fields
+    # at the top of this module for the rationale.
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(pattern=r"^(distribution|retail|services)$")
@@ -180,6 +218,10 @@ class CompanyCreate(CompanyBase):
 
 
 class CompanyUpdate(BaseModel):
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9-]+$")
     name: Optional[str] = None
     category: Optional[str] = Field(
@@ -227,6 +269,10 @@ class CompanyRead(CompanyBase):
 
 
 class LeadershipBase(BaseModel):
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")
     name: str
     role: str
@@ -256,6 +302,10 @@ class LeadershipCreate(LeadershipBase):
 
 
 class LeadershipUpdate(BaseModel):
+    _normalise_urls = model_validator(mode="before")(
+        classmethod(lambda cls, v: _normalise_url_fields(v))
+    )
+
     slug: Optional[str] = None
     name: Optional[str] = None
     role: Optional[str] = None
@@ -425,6 +475,8 @@ class SiteSettingRead(BaseModel):
     contact_banner_mobile_url: Optional[str] = None
     news_banner_image_url: Optional[str] = None
     news_banner_mobile_url: Optional[str] = None
+    media_banner_image_url: Optional[str] = None
+    media_banner_mobile_url: Optional[str] = None
 
     # Homepage extras
     home_about_image_url: Optional[str] = None
@@ -459,6 +511,11 @@ class SiteSettingRead(BaseModel):
     theme_heading_font: Optional[str] = Field(default=None, max_length=120)
     theme_body_font: Optional[str] = Field(default=None, max_length=120)
 
+    # Maintenance / Under-construction mode
+    maintenance_mode_enabled: bool = False
+    maintenance_message: Optional[str] = None
+    maintenance_eta: Optional[str] = Field(default=None, max_length=120)
+
 
 class SiteSettingUpdate(BaseModel):
     site_name: Optional[str] = None
@@ -492,6 +549,8 @@ class SiteSettingUpdate(BaseModel):
     contact_banner_mobile_url: Optional[str] = None
     news_banner_image_url: Optional[str] = None
     news_banner_mobile_url: Optional[str] = None
+    media_banner_image_url: Optional[str] = None
+    media_banner_mobile_url: Optional[str] = None
 
     home_about_image_url: Optional[str] = None
     home_about_title: Optional[str] = None
@@ -520,6 +579,11 @@ class SiteSettingUpdate(BaseModel):
     theme_accent_hex: Optional[str] = None
     theme_heading_font: Optional[str] = None
     theme_body_font: Optional[str] = None
+
+    # Maintenance / Under-construction mode
+    maintenance_mode_enabled: Optional[bool] = None
+    maintenance_message: Optional[str] = None
+    maintenance_eta: Optional[str] = Field(default=None, max_length=120)
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +706,12 @@ class MediaAssetRead(BaseModel):
     title: Optional[str] = None
     alt_text: Optional[str] = None
     tags: Optional[str] = None
+    is_public: bool = True
+    # Resized WebP + JPEG URLs keyed by variant name. Shape:
+    # {"webp": {"thumb": ..., "medium": ..., "large": ...},
+    #  "jpg":  {"thumb": ..., "medium": ..., "large": ...}}
+    # NULL when optimization was skipped (videos, SVG, broken files).
+    variants: Optional[dict] = None
     uploaded_by_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
@@ -653,6 +723,7 @@ class MediaAssetUpdate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     alt_text: Optional[str] = Field(default=None, max_length=500)
     tags: Optional[str] = Field(default=None, max_length=500)
+    is_public: Optional[bool] = None
 
 
 class MediaUploadResult(BaseModel):
@@ -803,3 +874,44 @@ class HomepageTrustedBrandsResponse(BaseModel):
         if key not in _ALLOWED_BRAND_LAYOUTS:
             return "marquee"
         return key
+
+
+# ---------------------------------------------------------------------------
+# Predefined site pages (About, Companies, Careers, Contact, News, Media)
+# ---------------------------------------------------------------------------
+
+
+class SitePageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    page_key: str
+    hero_eyebrow: Optional[str] = None
+    hero_title: Optional[str] = None
+    hero_description: Optional[str] = None
+    banner_image_url: Optional[str] = None
+    banner_mobile_url: Optional[str] = None
+    banner_video_url: Optional[str] = None
+    sections: dict = Field(default_factory=dict)
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
+    seo_keywords: Optional[str] = None
+    updated_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SitePageUpdate(BaseModel):
+    """Upsert payload — every field optional so a partial save just
+    patches what the admin actually touched."""
+
+    hero_eyebrow: Optional[str] = Field(default=None, max_length=120)
+    hero_title: Optional[str] = Field(default=None, max_length=255)
+    hero_description: Optional[str] = None
+    banner_image_url: Optional[str] = Field(default=None, max_length=500)
+    banner_mobile_url: Optional[str] = Field(default=None, max_length=500)
+    banner_video_url: Optional[str] = Field(default=None, max_length=500)
+    sections: Optional[dict] = None
+    seo_title: Optional[str] = Field(default=None, max_length=255)
+    seo_description: Optional[str] = Field(default=None, max_length=500)
+    seo_keywords: Optional[str] = Field(default=None, max_length=500)

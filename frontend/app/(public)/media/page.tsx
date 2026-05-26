@@ -1,7 +1,7 @@
 import { MediaGallery } from "@/components/site/media-gallery";
 import { PageHero } from "@/components/site/page-hero";
 import { Section } from "@/components/site/section";
-import { getMediaGallery } from "@/lib/public-api";
+import { getMediaGallery, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "Media Gallery" };
 export const revalidate = 60;
@@ -10,15 +10,24 @@ export default async function MediaPage() {
   // Everything on this page comes from /admin/media uploads. Tag an
   // asset with `stores`, `events`, `team`, or `campaigns` to make it
   // appear under the matching tab below.
-  const items = await getMediaGallery({ limit: 60 });
+  const [items, page] = await Promise.all([
+    getMediaGallery({ limit: 60 }),
+    getSitePage("media"),
+  ]);
 
   return (
     <>
       <PageHero
-        eyebrow="Media"
-        title="Stores, events, team, and campaigns"
-        description="A glimpse of life at Paris United Group — pick a category or click a tile to view it larger."
-        accent="from-rose-500 via-fuchsia-500 to-violet-500"
+        eyebrow={page?.hero_eyebrow ?? "Media"}
+        title={page?.hero_title ?? "Stores, events, team, and campaigns"}
+        description={
+          page?.hero_description ??
+          "A glimpse of life at Paris United Group — pick a category or click a tile to view it larger."
+        }
+        accent="from-pug-green-800 via-pug-green-600 to-pug-gold-500"
+        imageUrl={page?.banner_image_url}
+        mobileImageUrl={page?.banner_mobile_url}
+        videoUrl={page?.banner_video_url}
       />
 
       <Section

@@ -98,6 +98,12 @@ export function LeadershipMessagesSection({
       const cards = cardRefs.current.filter(Boolean) as HTMLElement[];
       if (!section || cards.length === 0) return;
 
+      // Safety net for the timeline below — see footer.tsx for
+      // rationale. Large leader photos can shift the section's
+      // position after ScrollTrigger has already measured it,
+      // leaving the cards permanently at gsap.set's opacity:0.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
         // Always start hidden so first paint matches the animation.
         if (header) {
@@ -228,9 +234,16 @@ export function LeadershipMessagesSection({
             },
           });
         }
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 2500);
       }, section);
 
       cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
         ctx.revert();
       };
     })();

@@ -4,6 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import {
   ArrowUp,
+  ArrowUpRight,
+  Compass,
   Facebook,
   Instagram,
   Linkedin,
@@ -17,6 +19,7 @@ import {
 
 import { Logo } from "@/components/site/logo";
 import type { SiteSettings } from "@/lib/admin/types";
+import { parseContactMapEmbed } from "@/lib/contact-map";
 import { FOOTER_COLUMNS, FOOTER_LEGAL_LINKS } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +124,14 @@ export function Footer({ settings }: FooterProps) {
       const bottom = bottomRef.current;
       if (!root) return;
 
+      // Safety net for the timeline below. ScrollTrigger position
+      // calculations sometimes race late layout (font swap, async
+      // image dims, sticky ancestors) on refresh, leaving the
+      // footer permanently at gsap.set's opacity:0. If the timeline
+      // hasn't started after 2.5s, jump it to the end so the
+      // footer always becomes visible.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
         if (brand) gsap.set(brand, { y: 28, opacity: 0 });
         const columns = nav?.querySelectorAll<HTMLElement>(
@@ -147,9 +158,18 @@ export function Footer({ settings }: FooterProps) {
           );
         }
         if (bottom) tl.to(bottom, { y: 0, opacity: 1, duration: 0.5 }, 0.45);
+
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 2500);
       }, root);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {
@@ -278,12 +298,13 @@ export function Footer({ settings }: FooterProps) {
             )}
           </div>
 
-          {/* Nav columns */}
-          <div
-            ref={navRef}
-            className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-7 lg:grid-cols-3"
-          >
-            {FOOTER_COLUMNS.map((column) => (
+          {/* Right side — nav columns stacked above the Find-us card so
+              the card slots into the otherwise-empty band beneath
+              Group / Sectors / Connect, on the same visual row as the
+              brand column. */}
+          <div ref={navRef} className="space-y-8 lg:col-span-7 lg:space-y-10">
+            <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-3">
+              {FOOTER_COLUMNS.map((column) => (
               <div key={column.title} data-footer-column>
                 <h3 className="relative inline-flex items-center text-xs font-bold uppercase tracking-[0.22em] text-foreground">
                   {column.title}
@@ -316,6 +337,11 @@ export function Footer({ settings }: FooterProps) {
                 </ul>
               </div>
             ))}
+            </div>
+
+            {/* Find-us card — fills the empty space under the nav columns
+                on lg+ and stacks below everything else on smaller widths. */}
+            <FindUsCard settings={settings} />
           </div>
         </div>
 
@@ -386,5 +412,131 @@ export function Footer({ settings }: FooterProps) {
         </div>
       </div>
     </footer>
+  );
+}
+
+
+/**
+ * Footer "Find us" card — fills the empty space below the nav columns.
+ *
+ * - If `settings.contact_map_embed` is set, embeds the trusted iframe
+ *   (same parser used on the Contact page) so the actual map preview
+ *   appears here. The address card sits beside it on lg+.
+ * - If no embed is configured, falls back to a compact address card
+ *   only — still cute, still useful, still links to Maps.
+ * - The whole card returns null if there's no address AND no embed,
+ *   so empty CMS state doesn't leave a stray block.
+ */
+function FindUsCard({ settings }: { settings: SiteSettings }) {
+  const address = settings.contact_address?.trim() || null;
+  const mapEmbed = parseContactMapEmbed(settings.contact_map_embed);
+
+  if (!address && !mapEmbed.safeSrc) {
+    return null;
+  }
+
+  // Google Maps deep-link from the plain-text address — works even
+  // without an iframe embed configured.
+  const mapsHref = address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+    : null;
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-pug-gold-500/20 bg-background/40 p-5 shadow-[0_18px_45px_-25px_rgba(15,53,32,0.35)] backdrop-blur-md dark:bg-pug-green-950/40">
+        {/* Ambient brand glow */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-pug-gold-500/15 blur-3xl"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-pug-green-500/15 blur-3xl"
+        />
+
+        <div className="relative grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center lg:grid-cols-[1.05fr_1fr]">
+          {/* Left — address + CTA */}
+          <div className="space-y-3">
+            <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-pug-gold-700 dark:text-pug-gold-300">
+              <Compass className="h-3.5 w-3.5" />
+              Find us
+            </p>
+            <p className="text-sm font-medium leading-relaxed text-foreground">
+              {address ?? "Doha, Qatar"}
+            </p>
+            {mapsHref && (
+              <Link
+                href={mapsHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group/maps inline-flex items-center gap-1.5 rounded-full border border-pug-gold-500/30 bg-pug-gold-500/5 px-3 py-1.5 text-xs font-semibold text-pug-gold-700 transition-all hover:-translate-y-0.5 hover:border-pug-gold-500/60 hover:bg-pug-gold-500/10 hover:shadow-[0_8px_22px_-14px_rgba(207,166,70,0.5)] dark:text-pug-gold-200"
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Open in Maps
+                <ArrowUpRight className="h-3 w-3 transition-transform group-hover/maps:translate-x-0.5 group-hover/maps:-translate-y-0.5" />
+              </Link>
+            )}
+          </div>
+
+          {/* Right — embedded map (if configured) or decorative tile */}
+          <div className="relative h-40 overflow-hidden rounded-xl border border-pug-gold-500/15 bg-pug-green-950/5 ring-1 ring-inset ring-white/5 sm:h-32 lg:h-40">
+            {mapEmbed.safeSrc ? (
+              <iframe
+                src={mapEmbed.safeSrc}
+                title={`Map showing ${settings.site_name}`}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen={false}
+                className="h-full w-full border-0 grayscale-[15%] transition-[filter] duration-300 hover:grayscale-0"
+              />
+            ) : (
+              <DecorativeMapTile />
+            )}
+          </div>
+        </div>
+    </div>
+  );
+}
+
+
+/**
+ * Stand-in for the right-hand map preview when no embed is configured.
+ * Pure CSS so it stays lightweight and on-brand: a radial grid
+ * suggesting a map, a centered pulsing pin, and a soft brand wash.
+ */
+function DecorativeMapTile() {
+  return (
+    <div className="relative h-full w-full bg-gradient-to-br from-pug-green-800/15 via-pug-green-700/10 to-pug-gold-500/15">
+      {/* Faux map grid */}
+      <div
+        aria-hidden
+        className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(15,53,32,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(15,53,32,0.5)_1px,transparent_1px)] [background-size:24px_24px] dark:[background-image:linear-gradient(rgba(207,166,70,0.4)_1px,transparent_1px),linear-gradient(90deg,rgba(207,166,70,0.4)_1px,transparent_1px)]"
+      />
+      {/* Faux "roads" — two intersecting bands */}
+      <span
+        aria-hidden
+        className="absolute left-1/4 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-pug-gold-500/40 to-transparent"
+      />
+      <span
+        aria-hidden
+        className="absolute right-1/3 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-pug-green-500/40 to-transparent"
+      />
+      <span
+        aria-hidden
+        className="absolute left-0 right-0 top-1/2 h-px bg-gradient-to-r from-transparent via-pug-gold-500/40 to-transparent"
+      />
+      {/* Centered pin with ping */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="relative flex h-12 w-12 items-center justify-center">
+          <span
+            aria-hidden
+            className="absolute inline-flex h-full w-full animate-ping rounded-full bg-pug-gold-500/40"
+            style={{ animationDuration: "2.4s" }}
+          />
+          <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pug-gold-400 to-pug-gold-600 text-pug-green-900 shadow-[0_6px_18px_-6px_rgba(207,166,70,0.7)]">
+            <MapPin className="h-5 w-5" />
+          </span>
+        </span>
+      </div>
+    </div>
   );
 }

@@ -16,18 +16,37 @@ import type {
   ContactMessage,
   HeroSlide,
   LeadershipMessage,
+  MediaVariants,
   NewsItem,
   NewsletterSubscriber,
+  SitePage,
+  SitePageKey,
   SiteSettings,
 } from "@/lib/admin/types";
 import { env } from "@/lib/env";
 
-const REVALIDATE_SECONDS = 60;
-
 interface FetchOptions {
-  /** Override the default revalidate window. */
-  revalidate?: number;
-  /** Skip cache entirely (e.g. for previewing). */
+  /**
+   * If true (default), the request bypasses every cache layer with
+   * ``cache: "no-store"``. This is the right default for CMS content
+   * because:
+   *
+   *  - The backend ships ``Cache-Control: no-store`` on
+   *    /public/site-settings, /public/leadership, /public/companies,
+   *    etc. so Cloudflare's edge cache can no longer hold a partial
+   *    response.
+   *  - Next.js's fetch deduplication cache used to cache a transient
+   *    empty / 5xx response and replay it across every visitor —
+   *    producing the "footer / leadership fields appear briefly and
+   *    then disappear on refresh" bug.
+   *
+   * Note: we deliberately do NOT pass ``next: { revalidate: 0 }``
+   * alongside ``cache: "no-store"`` — Next.js logs a warning when
+   * both are set because they're equivalent.
+   *
+   * Set ``noStore: false`` only for endpoints that don't move with
+   * admin edits (currently none).
+   */
   noStore?: boolean;
 }
 
@@ -36,25 +55,32 @@ async function fetchPublic<T>(
   options: FetchOptions = {}
 ): Promise<T | null> {
   const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  // CMS content defaults to no-store (see FetchOptions docstring).
+  const noStore = options.noStore ?? true;
   try {
     const response = await fetch(url, {
-      next: options.noStore
-        ? undefined
-        : { revalidate: options.revalidate ?? REVALIDATE_SECONDS },
-      cache: options.noStore ? "no-store" : undefined,
+      ...(noStore ? { cache: "no-store" as const } : {}),
     });
     if (response.status === 404) {
       return null;
     }
     if (!response.ok) {
-      console.error(
-        `Public API ${url} returned ${response.status}: ${await response.text()}`
-      );
+      // In dev, surface non-2xx with the body. In production we
+      // still want the error visible in the server logs but without
+      // the noisy body dump.
+      if (process.env.NODE_ENV !== "production") {
+        const body = await response.text();
+        console.error(
+          `[public-api] ${url} returned ${response.status}: ${body}`
+        );
+      } else {
+        console.error(`[public-api] ${url} returned ${response.status}`);
+      }
       return null;
     }
     return (await response.json()) as T;
   } catch (error) {
-    console.error(`Public API ${url} failed:`, error);
+    console.error(`[public-api] ${url} fetch failed:`, error);
     return null;
   }
 }
@@ -137,6 +163,7 @@ export interface PublicMediaAsset {
   title: string | null;
   alt_text: string | null;
   tags: string | null;
+  variants: MediaVariants | null;
   created_at: string;
   updated_at: string;
 }
@@ -294,6 +321,8 @@ const FALLBACK_SETTINGS: SiteSettings = {
   contact_banner_mobile_url: null,
   news_banner_image_url: null,
   news_banner_mobile_url: null,
+  media_banner_image_url: null,
+  media_banner_mobile_url: null,
   home_about_image_url: null,
   home_about_title: null,
   home_about_body: null,
@@ -312,6 +341,9 @@ const FALLBACK_SETTINGS: SiteSettings = {
   theme_accent_hex: null,
   theme_heading_font: null,
   theme_body_font: null,
+  maintenance_mode_enabled: false,
+  maintenance_message: null,
+  maintenance_eta: null,
 };
 
 export async function getSiteSettings(): Promise<SiteSettings> {
@@ -319,6 +351,18 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     (await fetchPublic<SiteSettings>("/public/site-settings")) ??
     FALLBACK_SETTINGS
   );
+}
+
+
+/**
+ * Predefined page content (hero + banner + named sections).
+ *
+ * Returns `null` if the API is unreachable; callers should fall back
+ * to whatever defaults the page was rendering before the CMS row
+ * existed.
+ */
+export async function getSitePage(key: SitePageKey): Promise<SitePage | null> {
+  return (await fetchPublic<SitePage>(`/public/site-pages/${key}`)) ?? null;
 }
 
 // Navigation menu (Phase 5 follow-up) -----------------------------------
@@ -510,16 +554,45 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 export function resolveAssetUrl(url: string | null | undefined): string | null {
   if (!url) return null;
+  // Normalise Windows-style backslashes to forward slashes.
+  // Admins occasionally paste a local file path (e.g.
+  // "\images\foo\bar.webp") into an image URL field — most browsers
+  // resolve that to a relative URL with backslashes, which 404s.
+  // Treat any backslash as a forward slash so a typo never breaks
+  // the live site.
+  url = url.replace(/\\/g, "/").trim();
+  if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/api/")) {
     try {
-      const base = new URL(env.apiBaseUrl);
+      // Use the PUBLIC base URL here — never the server-side loopback.
+      // resolveAssetUrl produces URLs that get embedded in SSR HTML
+      // (<img src=...>) and re-used in the browser; both contexts
+      // need the public hostname so the browser can actually fetch.
+      const base = new URL(env.publicApiBaseUrl);
       if (
         typeof window !== "undefined" &&
         LOOPBACK_HOSTS.has(base.hostname) &&
         !LOOPBACK_HOSTS.has(window.location.hostname)
       ) {
-        const port = base.port ? `:${base.port}` : "";
+        // Production rewrite path: API base was baked in as
+        // http://localhost:8000 (no NEXT_PUBLIC_API_BASE_URL set at
+        // build time) but the browser is on a real hostname. Keep
+        // the backend port ONLY when the page itself is on a non-
+        // standard port (LAN dev across machines). In production
+        // the page is on 443 / 80, so dropping the port resolves
+        // to https://www.example.com/... (Nginx routes to the
+        // backend) instead of the unreachable
+        // https://www.example.com:8000/...
+        const onStandardPort =
+          window.location.port === "" ||
+          window.location.port === "80" ||
+          window.location.port === "443";
+        const port = onStandardPort
+          ? ""
+          : base.port
+            ? `:${base.port}`
+            : "";
         return `${window.location.protocol}//${window.location.hostname}${port}${url}`;
       }
       return `${base.origin}${url}`;

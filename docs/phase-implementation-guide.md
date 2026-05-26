@@ -33,31 +33,147 @@ lives at the repo root in
 | 15    | Interview management                             | **Done**    |
 | 16    | HR advanced search, filters, reports, export     | **Done**    |
 | 17    | Public AI assistant                              | **Done**    |
-| 18    | Responsive UI polish and mobile testing          | Partial     |
-| 19    | Security, audit, validation, and testing         | Partial     |
-| 20    | Deployment documentation and final package       | In progress |
+| 18    | Responsive UI polish and mobile testing          | **Done**    |
+| 19    | Security, audit, validation, and testing         | **Done**    |
+| 20    | Deployment documentation and final package       | **Done**    |
 
-### Phase 18 — outstanding gaps
-- Responsive Tailwind classes are applied throughout, but there is no
-  formal mobile test pass at 360 / 390 / 430 / 768 / 1024 / 1440
-  breakpoints, and no documented device-compatibility matrix.
+### Post-launch features
 
-### Phase 19 — outstanding gaps
-- 306 backend tests across 27 files; audit logging on every HR write;
-  soft deletes on candidates and applications; Pydantic validation on
-  every endpoint; AI safety guards covered by tests.
-- **No rate limiting** on public endpoints
-  (`/contact`, `/candidate-applications`, `/ai-assistant/ask`).
-- No explicit XSS / CSRF / SQL-injection test cases.
-- No admin viewer for the `public_ai_queries` usage log.
-- No documented privacy / data-retention policy.
+**Under-construction / maintenance mode** — `site_settings.maintenance_mode_enabled`
+- Toggle + custom message + ETA in **Site settings → Site status**.
+- When enabled, every public route renders a single branded
+  maintenance page (`components/site/maintenance-page.tsx`). The
+  admin and HR portals stay reachable so the team can turn it
+  back off.
+- Migration `20260525_0017_maintenance_mode.py`. Audit-logged
+  via the existing `cms.site_settings.update` action. 5
+  regression tests in `backend/tests/test_maintenance_mode.py`.
 
-### Phase 20 — in progress
-- `docs/deployment-guide.md` was a placeholder until this iteration.
-- AWS Ubuntu install guide, PostgreSQL hardening + backup, Nginx
-  reverse proxy, systemd units for uvicorn (with gunicorn workers)
-  and Next.js, Cloudflare DNS / SSL, log rotation, monitoring, and
-  the troubleshooting runbook are being added in this phase.
+**Editable site pages (universal hero / banner / sections CMS)** — migration `20260525_0019`
+- New `cms_site_pages` table with one row per predefined route
+  (about, companies, careers, contact, news, media). Hero (eyebrow /
+  title / description), banner (desktop / mobile / video), `sections`
+  (free-form JSON keyed by section name), and SEO overrides.
+- Backend endpoints:
+  - `GET /api/v1/public/site-pages/{key}` — public read used by the
+    Next.js routes
+  - `GET /api/v1/admin/cms/site-pages` — admin list
+  - `GET /api/v1/admin/cms/site-pages/{key}` — admin read
+  - `PUT /api/v1/admin/cms/site-pages/{key}` — admin upsert (audited
+    via `cms.site_page.update`)
+- Migration seeds each row with the copy that was previously
+  hardcoded in `frontend/lib/dummy-data/site-content.ts` plus the
+  matching Next.js modules, and copies the existing
+  `site_settings.<page>_banner_*` URLs into the new table so nothing
+  goes missing on upgrade. The deprecated banner columns stay in
+  the DB as a safety net.
+- Admin UI:
+  - `/admin/pages` shows a **Site pages** card grid (one card per
+    predefined route) above the existing **Custom pages** CRUD.
+  - `/admin/pages/site/[key]` is a dedicated editor with Hero,
+    Banner, Sections, and SEO cards. The Sections card is driven
+    by a registry (`app/admin/pages/site-pages-config.ts`) — About
+    surfaces Vision / Mission / History intro / Leadership header
+    editors; other pages skip it.
+  - The **Page banners** card was removed from `/admin/settings`
+    (the form filters out banner keys so saving Settings no longer
+    overwrites the per-page banner data).
+- Public pages (about, companies, careers, contact, news, media)
+  fetch their `getSitePage(key)` row and use it for the hero,
+  banner, and named sections. Every field falls back to the
+  bundled default so the site never renders blank.
+- 7 new tests in `backend/tests/test_site_pages.py`.
+
+**Media-page banner + per-asset visibility** — migration `20260525_0018`
+- `site_settings.media_banner_image_url` / `media_banner_mobile_url`
+  fill the gap in the page-banner customisation (about / careers /
+  contact / news already had them; media did not). Wired into the
+  admin Settings page and the public `/media` route's `PageHero`.
+- `cms_media_assets.is_public` (bool, default true, indexed) hides
+  individual images / videos from the public Media gallery without
+  deleting them — they stay usable as hero slides, CMS-page images,
+  leadership photos, etc. Admin Media page surfaces a "Hidden" badge
+  on each thumbnail and a toggle in the edit dialog.
+- The public Media component (`components/site/media-gallery.tsx`)
+  was redesigned to a glass-album style: frosted panel, brand-tinted
+  ambient blobs, editorial masonry grid (every 9th tile spans 2×2),
+  per-category coloured hover glows, animated tab pills with counts,
+  and a deeper-shadowed lightbox. 3 new tests in
+  `backend/tests/test_media_and_pages.py`.
+
+### Phase 18 deliverables
+- [`docs/responsive-qa-matrix.md`](responsive-qa-matrix.md) — manual
+  QA matrix covering every public, admin, and HR route at six
+  breakpoints (360 / 390 / 430 / 768 / 1024 / 1440 px) plus a
+  cross-cutting checklist (no horizontal scroll, touch targets ≥
+  44 px, sticky-CTA + iOS Safe Area, dark mode, reduced motion)
+  and a device-compatibility table.
+- `frontend/components/ui/button.tsx` — default/small/large/icon
+  button sizes now ship with phone-first heights (`h-11/h-10/h-12/
+  h-11 w-11`) that step down to the pre-existing desktop density
+  via `sm:`. Every button in the app now hits the iOS 44 × 44 px
+  minimum touch target on phones without losing desktop density.
+
+### Phase 19 deliverables
+**Rate limiting on every public POST**
+- New `app/core/rate_limit.py` — sliding-window per-IP limiter
+  exposed as four FastAPI dependencies. Limits:
+  - `/api/v1/contact` — 5/minute, 30/hour
+  - `/api/v1/newsletter` — 3/minute, 20/hour
+  - `/api/v1/candidate-applications` — 3/minute, 15/hour
+  - `/api/v1/ai-assistant/ask` — 10/minute, 60/hour
+- Honors `X-Forwarded-For` so the real client IP is used behind
+  Cloudflare + Nginx. Returns `429` with `Retry-After`.
+- Tunable via `RATE_LIMIT_ENABLED` env var (used by tests).
+- Implementation is in-tree (no extra dependency); for a multi-
+  worker production deployment, swap the in-memory dict for Redis
+  — the rest of the surface stays the same.
+
+**Explicit security regression tests** ([`tests/test_security.py`](../backend/tests/test_security.py), 16 tests)
+- **SQL injection** — 7 OWASP payloads pumped through query
+  params, path params, JSON bodies, and the login endpoint.
+- **XSS** — verifies user content stored verbatim, returned as
+  JSON, and never served as `text/html`.
+- **CSRF** — verifies the auth scheme remains bearer-only
+  (no `Set-Cookie` on login responses, cookie-only auth rejected).
+- **Rate limiting** — verifies 429s fire at the limit, `Retry-After`
+  header is set, buckets are per-endpoint, and `X-Forwarded-For` is
+  used as the client key.
+
+**Operator-facing privacy / retention doc**
+- [`docs/privacy-and-data-retention.md`](privacy-and-data-retention.md)
+  — categories collected, lawful basis under GDPR Art. 6,
+  retention schedule (24 mo contact, 36 mo candidate, 90 d AI
+  queries, etc.), DSR handling procedure (access / erasure /
+  rectification within 30 days), operator commitments
+  (encryption, audit log, breach notification, sub-processor
+  list), and a tracked list of implementation gaps to close
+  (purge job, DSR script, cookie banner).
+- The user-facing privacy page at `/privacy-policy` already exists
+  and was not modified.
+
+### Phase 20 deliverables
+- [`docs/deployment-guide.md`](deployment-guide.md) — full production
+  walkthrough covering Ubuntu 22.04 server prep, PostgreSQL install +
+  hardening, backend deploy under gunicorn + uvicorn workers, Next.js
+  production service, Nginx reverse proxy with TLS, Cloudflare DNS +
+  Origin Certificate SSL, backup + restore runbook, log inspection,
+  rolling deploy + rollback procedures, and a 12-row troubleshooting
+  matrix.
+- [`deploy/systemd/pug-backend.service`](../deploy/systemd/pug-backend.service)
+  — sandboxed systemd unit for the API.
+- [`deploy/systemd/pug-frontend.service`](../deploy/systemd/pug-frontend.service)
+  — sandboxed systemd unit for Next.js.
+- [`deploy/nginx/pug-holding.conf`](../deploy/nginx/pug-holding.conf)
+  — Nginx site config: 80 → 443 redirect, TLS, `/api/v1/` → FastAPI,
+  `/_next/static/` cached, `/api/v1/uploads/` served off disk,
+  20 MB upload cap, security headers, gzip.
+- [`deploy/scripts/pg_backup.sh`](../deploy/scripts/pg_backup.sh) —
+  daily `pg_dump` with 14-day retention and an optional S3 hook.
+- [`deploy/logrotate/pug`](../deploy/logrotate/pug) — `logrotate`
+  config for `/var/log/pug/`.
+- [`deploy/README.md`](../deploy/README.md) — index pointing each
+  artifact at its destination on the server.
 
 ## Phase 8 deliverables
 

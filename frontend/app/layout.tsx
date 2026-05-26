@@ -18,6 +18,10 @@ const inter = Inter({
   display: "swap",
 });
 
+// Root layout fetches CMS-driven SEO + site settings. Keep it dynamic
+// so the no-store responses don't collide with a cached layout.
+export const dynamic = "force-dynamic";
+
 
 /**
  * Build the root `<head>` metadata.

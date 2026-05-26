@@ -44,6 +44,8 @@ from app.models.cms import (
     NavigationItem,
     NewsItem,
     NewsletterSubscriber,
+    SITE_PAGE_KEYS,
+    SitePage,
     SiteSetting,
 )
 from app.schemas.cms import (
@@ -74,6 +76,8 @@ from app.schemas.cms import (
     NewsRead,
     NewsUpdate,
     NewsletterSubscriberRead,
+    SitePageRead,
+    SitePageUpdate,
     SiteSettingRead,
     SiteSettingUpdate,
     UploadResponse,
@@ -828,10 +832,21 @@ async def upload_image(
     # Public URL — served by the StaticFiles mount in app/main.py.
     url = f"/api/v1/uploads/cms/{filename}"
 
+    # Resize + WebP variants so the public site doesn't ship the
+    # full-res original. See app/services/image_optimization.py.
+    from app.services.image_optimization import optimize_image
+
+    variant_set = optimize_image(
+        target,
+        public_base_url="/api/v1/uploads/cms",
+        mime_type=file.content_type,
+    )
+    variants_payload = variant_set.as_dict() if variant_set is not None else None
+
     # Phase 5 follow-up — persist a MediaAsset row so the gallery can
     # list this file. Dedupe by file_hash; if a row already exists,
     # return it instead of creating a duplicate.
-    _upsert_media_asset(
+    asset, _deduped = _upsert_media_asset(
         db,
         kind=MEDIA_KIND_IMAGE,
         filename=filename,
@@ -842,6 +857,9 @@ async def upload_image(
         file_hash=content_hash,
         uploaded_by_id=user.id,
     )
+    if variants_payload is not None and asset.variants != variants_payload:
+        asset.variants = variants_payload
+        db.flush()
 
     ctx = get_request_context(request)
     record_audit(
@@ -967,6 +985,21 @@ async def upload_media(
         target.write_bytes(data)
     url = f"/api/v1/uploads/cms/{filename}"
 
+    # Generate WebP + JPEG variants for images so the public site
+    # serves a fraction of the original byte size. Video uploads
+    # and SVGs skip this step (the helper returns None).
+    variants_payload: Optional[dict] = None
+    if kind == MEDIA_KIND_IMAGE:
+        from app.services.image_optimization import optimize_image
+
+        variant_set = optimize_image(
+            target,
+            public_base_url="/api/v1/uploads/cms",
+            mime_type=content_type,
+        )
+        if variant_set is not None:
+            variants_payload = variant_set.as_dict()
+
     asset, deduped = _upsert_media_asset(
         db,
         kind=kind,
@@ -978,6 +1011,13 @@ async def upload_media(
         file_hash=content_hash,
         uploaded_by_id=user.id,
     )
+
+    # Persist variants whether or not this is a dedup hit — re-running
+    # the optimizer for a deduped file is harmless and lets us pick up
+    # variants for assets uploaded before the pipeline existed.
+    if variants_payload is not None and asset.variants != variants_payload:
+        asset.variants = variants_payload
+        db.flush()
 
     if not deduped:
         ctx = get_request_context(request)
@@ -1564,3 +1604,76 @@ def delete_brand(
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Predefined site pages — about, companies, careers, contact, news, media
+# ---------------------------------------------------------------------------
+
+
+def _validate_page_key(page_key: str) -> str:
+    """Reject unknown page keys so admins can't silently create orphan rows."""
+    key = page_key.strip().lower()
+    if key not in SITE_PAGE_KEYS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown site page '{page_key}'.",
+        )
+    return key
+
+
+def _get_or_create_site_page(db: Session, page_key: str) -> SitePage:
+    page = db.execute(
+        select(SitePage).where(SitePage.page_key == page_key)
+    ).scalar_one_or_none()
+    if page is None:
+        # Lazy-create so admins of installations that pre-date the
+        # 20260525_0019 seed step still get a writable row.
+        page = SitePage(page_key=page_key, sections={})
+        db.add(page)
+        db.commit()
+        db.refresh(page)
+    return page
+
+
+@router.get("/site-pages", response_model=List[SitePageRead])
+def list_site_pages(db: Session = Depends(get_db)) -> List[SitePage]:
+    """Every known site page (one row per key). Missing rows are
+    created on the fly so the admin UI always has something to render."""
+    return [_get_or_create_site_page(db, k) for k in SITE_PAGE_KEYS]
+
+
+@router.get("/site-pages/{page_key}", response_model=SitePageRead)
+def get_site_page(
+    page_key: str,
+    db: Session = Depends(get_db),
+) -> SitePage:
+    return _get_or_create_site_page(db, _validate_page_key(page_key))
+
+
+@router.put("/site-pages/{page_key}", response_model=SitePageRead)
+def update_site_page(
+    page_key: str,
+    payload: SitePageUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> SitePage:
+    key = _validate_page_key(page_key)
+    page = _get_or_create_site_page(db, key)
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(page, field, value)
+    page.updated_by_id = user.id
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.site_page.update",
+        target_type="site_page",
+        target_id=key,
+        details={"changed_keys": list(changes.keys())},
+    )
+    db.commit()
+    db.refresh(page)
+    return page

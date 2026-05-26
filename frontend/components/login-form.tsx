@@ -24,8 +24,6 @@ interface LoginFormProps {
   subtitle: string;
   /** Shown above the form (e.g. "Website Admin" or "HR ATS Portal"). */
   badge: string;
-  /** Default seed email shown as a hint on the form. */
-  seedHint?: { email: string; password: string };
   /** Where to send the user if they hit "Back to home". */
   homeHref?: string;
   className?: string;
@@ -35,7 +33,6 @@ export function LoginForm({
   title,
   subtitle,
   badge,
-  seedHint,
   homeHref = "/",
   className,
 }: LoginFormProps) {
@@ -144,20 +141,6 @@ export function LoginForm({
               {submitting ? "Signing in…" : "Sign in"}
             </Button>
           </form>
-
-          {seedHint && (
-            <div className="mt-6 rounded-md border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">Seed credentials (dev)</p>
-              <p className="mt-1">
-                <span className="font-mono">{seedHint.email}</span> /{" "}
-                <span className="font-mono">{seedHint.password}</span>
-              </p>
-              <p className="mt-1 text-[11px]">
-                Run <span className="font-mono">python -m app.scripts.seed_users</span>{" "}
-                to create the seed accounts.
-              </p>
-            </div>
-          )}
 
           <div className="mt-6 text-center">
             <Link

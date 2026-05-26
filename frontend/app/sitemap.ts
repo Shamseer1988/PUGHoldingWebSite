@@ -34,6 +34,10 @@ import {
 import { getPublicSeoHead } from "@/lib/seo-api";
 
 
+// Sitemap pulls live data via no-store fetches; skip Next's static
+// prerender pass so build-time `DYNAMIC_SERVER_USAGE` errors don't fire.
+export const dynamic = "force-dynamic";
+
 const STATIC_ROUTES: Array<{ path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"] }> = [
   { path: "/", priority: 1.0, changeFrequency: "weekly" },
   { path: "/about", priority: 0.8, changeFrequency: "monthly" },

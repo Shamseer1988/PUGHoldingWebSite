@@ -93,6 +93,12 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
       const root = tilesRootRef.current;
       if (!section) return;
 
+      // Safety net for the timeline below — see footer.tsx for
+      // rationale. Each brand tile is an inline <img>; their async
+      // dimensions can shift the panel after ScrollTrigger has
+      // measured it, leaving the tiles permanently at opacity:0.
+      let safetyTimer: number | undefined;
+
       const ctx = gsap.context(() => {
         if (header) gsap.set(header, { y: 30, opacity: 0 });
         if (accent) gsap.set(accent, { scaleX: 0, transformOrigin: "left center" });
@@ -124,9 +130,17 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
             0.35
           );
 
+        safetyTimer = window.setTimeout(() => {
+          if (!tl.isActive() && tl.progress() === 0) {
+            tl.progress(1);
+          }
+        }, 2500);
       }, section);
 
-      cleanup = () => ctx.revert();
+      cleanup = () => {
+        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+        ctx.revert();
+      };
     })();
 
     return () => {

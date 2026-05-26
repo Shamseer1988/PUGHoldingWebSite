@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Loader2, Save } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Save } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ImageUpload } from "@/components/admin/image-upload";
@@ -20,7 +20,24 @@ import { adminApi, AdminApiError } from "@/lib/admin/api";
 import type { SiteSettings } from "@/lib/admin/types";
 import { parseContactMapEmbed } from "@/lib/contact-map";
 
-type Form = Omit<SiteSettings, "id">;
+// Page-banner fields now live on each cms_site_page row and are
+// edited under Admin → Pages → Site pages. Excluding them here keeps
+// the settings form focused and prevents the PATCH from sending null
+// over working data.
+type Form = Omit<
+  SiteSettings,
+  | "id"
+  | "about_banner_image_url"
+  | "about_banner_video_url"
+  | "careers_banner_image_url"
+  | "careers_banner_mobile_url"
+  | "contact_banner_image_url"
+  | "contact_banner_mobile_url"
+  | "news_banner_image_url"
+  | "news_banner_mobile_url"
+  | "media_banner_image_url"
+  | "media_banner_mobile_url"
+>;
 
 const EMPTY_FORM: Form = {
   site_name: "Paris United Group Holding",
@@ -44,14 +61,12 @@ const EMPTY_FORM: Form = {
   featured_companies_cta_label: "",
   featured_companies_cta_url: "",
   featured_companies_animation_enabled: true,
-  about_banner_image_url: "",
-  about_banner_video_url: "",
-  careers_banner_image_url: "",
-  careers_banner_mobile_url: "",
-  contact_banner_image_url: "",
-  contact_banner_mobile_url: "",
-  news_banner_image_url: "",
-  news_banner_mobile_url: "",
+  // NOTE: about_/careers_/contact_/news_/media_banner_* used to be
+  // edited here. They moved to Admin → Pages → Site pages as part of
+  // the universal page-content rework. We deliberately leave them
+  // OUT of this form so the settings PATCH never overwrites the
+  // values that the migration copied into cms_site_pages (the
+  // columns stay in the database as a safety net).
   home_about_image_url: "",
   home_about_title: "",
   home_about_body: "",
@@ -73,6 +88,9 @@ const EMPTY_FORM: Form = {
   theme_accent_hex: "",
   theme_heading_font: "",
   theme_body_font: "",
+  maintenance_mode_enabled: false,
+  maintenance_message: "",
+  maintenance_eta: "",
 };
 
 export default function SiteSettingsAdminPage() {
@@ -86,10 +104,15 @@ export default function SiteSettingsAdminPage() {
   async function refresh() {
     try {
       const data = await adminApi.get<SiteSettings>("/admin/cms/site-settings");
+      // Only spread keys the form actually surfaces — the API still
+      // returns banner_* fields that are now edited under Site pages,
+      // and we mustn't let them leak into state (then back into the
+      // PATCH) and overwrite the real values on save.
+      const allowed = new Set(Object.keys(EMPTY_FORM));
       setForm({
         ...EMPTY_FORM,
         ...Object.fromEntries(
-          Object.entries(data).filter(([k]) => k !== "id")
+          Object.entries(data).filter(([k]) => allowed.has(k))
         ),
       } as Form);
     } catch (err) {
@@ -114,7 +137,8 @@ export default function SiteSettingsAdminPage() {
         "/admin/cms/site-settings",
         body
       );
-      setForm({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(updated).filter(([k]) => k !== "id")) } as Form);
+      const allowed = new Set(Object.keys(EMPTY_FORM));
+      setForm({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(updated).filter(([k]) => allowed.has(k))) } as Form);
       setToast("Settings saved.");
     } catch (err) {
       setError((err as AdminApiError).message);
@@ -153,6 +177,103 @@ export default function SiteSettingsAdminPage() {
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card
+            className={
+              form.maintenance_mode_enabled
+                ? "border-amber-500/40 bg-amber-500/5 lg:col-span-2 dark:bg-amber-500/[0.04]"
+                : "lg:col-span-2"
+            }
+          >
+            <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <AlertTriangle
+                      className={
+                        form.maintenance_mode_enabled
+                          ? "h-4 w-4 text-amber-600 dark:text-amber-400"
+                          : "h-4 w-4 text-muted-foreground"
+                      }
+                    />
+                    Site status — Under Construction mode
+                  </CardTitle>
+                  <CardDescription>
+                    When enabled, the public website shows a single
+                    maintenance page on every URL. The admin and HR
+                    portals stay reachable so you can switch it back
+                    off.
+                  </CardDescription>
+                </div>
+                <label
+                  className="relative inline-flex shrink-0 cursor-pointer items-center gap-3"
+                  htmlFor="maintenance-toggle"
+                >
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {form.maintenance_mode_enabled ? "Enabled" : "Disabled"}
+                  </span>
+                  <input
+                    id="maintenance-toggle"
+                    type="checkbox"
+                    role="switch"
+                    aria-checked={form.maintenance_mode_enabled}
+                    className="peer sr-only"
+                    checked={form.maintenance_mode_enabled}
+                    onChange={(e) =>
+                      set("maintenance_mode_enabled", e.target.checked)
+                    }
+                    disabled={saving}
+                  />
+                  <span
+                    aria-hidden
+                    className="block h-6 w-11 rounded-full bg-muted transition peer-checked:bg-amber-500 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+                  />
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute right-[26px] top-1/2 block h-5 w-5 -translate-y-1/2 translate-x-0 rounded-full bg-white shadow transition peer-checked:translate-x-5"
+                  />
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {form.maintenance_mode_enabled && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100"
+                >
+                  <p className="font-medium">
+                    Public site is currently hidden from visitors.
+                  </p>
+                  <p className="mt-1">
+                    Every page under <code>parisunitedgroup.com</code>
+                    {" "}is showing the maintenance screen. Save changes
+                    above, then verify on the live site.
+                  </p>
+                </div>
+              )}
+              <Field label="Custom message (optional)">
+                <Textarea
+                  value={form.maintenance_message ?? ""}
+                  onChange={(e) =>
+                    set("maintenance_message", e.target.value)
+                  }
+                  disabled={saving}
+                  placeholder="Our website is getting a fresh polish. We'll be back online shortly — thank you for your patience."
+                  rows={3}
+                  maxLength={500}
+                />
+              </Field>
+              <Field label="Expected back-online time (optional)">
+                <Input
+                  value={form.maintenance_eta ?? ""}
+                  onChange={(e) => set("maintenance_eta", e.target.value)}
+                  disabled={saving}
+                  placeholder="e.g. Tonight at 9 PM GMT"
+                  maxLength={120}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Brand</CardTitle>
@@ -379,103 +500,11 @@ export default function SiteSettingsAdminPage() {
             </CardContent>
           </Card>
 
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="text-base">Page banners</CardTitle>
-              <CardDescription>
-                Background imagery and video for each top-level page banner.
-                Mobile variants replace the desktop image below the sm
-                breakpoint.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <section className="space-y-3">
-                <h3 className="text-sm font-semibold">About page</h3>
-                <div className="space-y-1.5">
-                  <Label>Background image</Label>
-                  <ImageUpload
-                    value={form.about_banner_image_url}
-                    onChange={(url) => set("about_banner_image_url", url ?? "")}
-                    disabled={saving}
-                  />
-                </div>
-                <Field label="Background video URL">
-                  <Input
-                    value={form.about_banner_video_url ?? ""}
-                    onChange={(e) => set("about_banner_video_url", e.target.value)}
-                    disabled={saving}
-                    placeholder="/video/our-company/about_banner.mp4"
-                  />
-                </Field>
-              </section>
-
-              <section className="space-y-3 border-t border-border/60 pt-5">
-                <h3 className="text-sm font-semibold">Careers page</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label>Desktop banner</Label>
-                    <ImageUpload
-                      value={form.careers_banner_image_url}
-                      onChange={(url) => set("careers_banner_image_url", url ?? "")}
-                      disabled={saving}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Mobile banner</Label>
-                    <ImageUpload
-                      value={form.careers_banner_mobile_url}
-                      onChange={(url) => set("careers_banner_mobile_url", url ?? "")}
-                      disabled={saving}
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-3 border-t border-border/60 pt-5">
-                <h3 className="text-sm font-semibold">Contact page</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label>Desktop banner</Label>
-                    <ImageUpload
-                      value={form.contact_banner_image_url}
-                      onChange={(url) => set("contact_banner_image_url", url ?? "")}
-                      disabled={saving}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Mobile banner</Label>
-                    <ImageUpload
-                      value={form.contact_banner_mobile_url}
-                      onChange={(url) => set("contact_banner_mobile_url", url ?? "")}
-                      disabled={saving}
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-3 border-t border-border/60 pt-5">
-                <h3 className="text-sm font-semibold">News page</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label>Desktop banner</Label>
-                    <ImageUpload
-                      value={form.news_banner_image_url}
-                      onChange={(url) => set("news_banner_image_url", url ?? "")}
-                      disabled={saving}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Mobile banner</Label>
-                    <ImageUpload
-                      value={form.news_banner_mobile_url}
-                      onChange={(url) => set("news_banner_mobile_url", url ?? "")}
-                      disabled={saving}
-                    />
-                  </div>
-                </div>
-              </section>
-            </CardContent>
-          </Card>
+          {/* The per-page banner uploads that used to live here moved
+              under Admin → Pages → Site pages so each page owns its own
+              hero + banner together. The site_settings.*_banner_url
+              columns are kept in the database as a safety net but no
+              longer surfaced in the UI. */}
 
           <Card className="lg:col-span-2">
             <CardHeader>

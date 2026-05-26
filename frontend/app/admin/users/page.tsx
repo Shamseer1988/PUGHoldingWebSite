@@ -512,7 +512,7 @@ function UserDrawer({
               value={form.email}
               onChange={(e) => set("email", e.target.value)}
               disabled={!!editing || saving}
-              placeholder="person@pug.example.com"
+              placeholder="name@parisunitedgroup.com"
             />
             {editing && (
               <p className="text-[11px] text-muted-foreground">
@@ -633,11 +633,8 @@ function UserDrawer({
               );
             })}
             <p className="text-[11px] text-muted-foreground">
-              Roles are seeded by the backend (
-              <code className="rounded bg-muted px-1">
-                python -m app.scripts.seed_users
-              </code>
-              ). To add a new role, edit the seed script and re-run it.
+              Pick one or more roles for this user. Roles bundle the
+              permissions that show up in the admin and HR portals.
             </p>
           </fieldset>
         </div>
