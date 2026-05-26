@@ -1243,10 +1243,45 @@ def change_application_status(
             "remarks": payload.remarks,
             "rejection_reason": payload.rejection_reason,
             "blacklist_approval": payload.blacklist_approval,
+            "send_email": payload.send_email,
         },
         commit=False,
     )
     db.commit()
+
+    # Fire-and-forget candidate email if HR opted in. Only the three
+    # candidate-facing milestone statuses have templates today —
+    # shortlisted, selected, rejected. Other transitions are internal
+    # (cv_received / hr_review_pending) or already covered by their
+    # own emails (interview statuses fire from notify_interview_*).
+    if payload.send_email:
+        try:
+            from app.services import hr_notifications  # local import
+            from app.models.hr_ats import (
+                STATUS_REJECTED,
+                STATUS_SELECTED,
+                STATUS_SHORTLISTED,
+            )
+
+            if result.new_status == STATUS_SHORTLISTED:
+                hr_notifications.notify_candidate_shortlisted(
+                    application_id=app.id, actor_id=user.id
+                )
+            elif result.new_status == STATUS_REJECTED:
+                hr_notifications.notify_candidate_rejected(
+                    application_id=app.id, actor_id=user.id
+                )
+            elif result.new_status == STATUS_SELECTED:
+                hr_notifications.notify_candidate_selected(
+                    application_id=app.id, actor_id=user.id
+                )
+        except Exception:  # pragma: no cover - never break the response
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Status-change email dispatch failed"
+            )
+
     db.refresh(app.candidate)
     return _serialize_candidate(app.candidate, actor=user)
 

@@ -380,6 +380,11 @@ class CandidateStatusChange(BaseModel):
     remarks: Optional[str] = Field(default=None, max_length=2000)
     rejection_reason: Optional[str] = Field(default=None, max_length=2000)
     blacklist_approval: Optional[str] = Field(default=None, max_length=2000)
+    # When True, the backend dispatches the branded candidate email
+    # corresponding to the new status (shortlisted / selected / rejected).
+    # Defaults to False so API callers don't suddenly start emailing
+    # candidates after the upgrade — the HR portal sets it explicitly.
+    send_email: bool = False
 
 
 class StatusOption(BaseModel):

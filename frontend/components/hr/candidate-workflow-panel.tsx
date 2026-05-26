@@ -112,12 +112,16 @@ function ApplicationWorkflowRow({
   const [remarks, setRemarks] = React.useState("");
   const [rejectionReason, setRejectionReason] = React.useState("");
   const [blacklistApproval, setBlacklistApproval] = React.useState("");
+  // Default ON — the most common HR action is "shortlist/select/reject
+  // AND tell the candidate". Backend only fires emails for those three.
+  const [sendEmail, setSendEmail] = React.useState(true);
 
   React.useEffect(() => {
     setNewStatus(application.allowed_next_statuses[0] ?? "");
     setRemarks("");
     setRejectionReason("");
     setBlacklistApproval("");
+    setSendEmail(true);
     setError(null);
   }, [application.id, application.status, application.allowed_next_statuses]);
 
@@ -146,7 +150,10 @@ function ApplicationWorkflowRow({
     setChanging(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = { new_status: newStatus };
+      const body: Record<string, unknown> = {
+        new_status: newStatus,
+        send_email: sendEmail,
+      };
       if (remarks.trim()) body.remarks = remarks.trim();
       if (newStatus === "rejected") body.rejection_reason = rejectionReason.trim();
       if (newStatus === "blacklisted")
@@ -294,6 +301,27 @@ function ApplicationWorkflowRow({
               </p>
             </div>
           )}
+
+          <label className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              checked={sendEmail}
+              onChange={(e) => setSendEmail(e.target.checked)}
+              disabled={changing}
+            />
+            <span>
+              <span className="font-medium">
+                Send notification email to candidate
+              </span>
+              <span className="block text-muted-foreground">
+                Branded email fires for{" "}
+                <strong>Shortlisted</strong>, <strong>Selected</strong>,
+                and <strong>Rejected</strong> only. Other transitions
+                are internal and don&apos;t notify the candidate.
+              </span>
+            </span>
+          </label>
 
           {error && (
             <p

@@ -456,3 +456,104 @@ def test_change_status_service_unit(db_session: Session, seed_auth):
             actor=hr_user,
             blacklist_approval="MD approved",
         )
+
+
+# ---------------------------------------------------------------------------
+# Status-change email opt-in (single-row endpoint)
+# ---------------------------------------------------------------------------
+
+
+def test_change_status_send_email_dispatches_shortlisted_notification(
+    client, db_session: Session, seed_auth, monkeypatch
+):
+    """With send_email=True the endpoint must invoke the shortlisted
+    notification helper. With the flag absent (or false) it must not."""
+    job = _make_job(db_session)
+    headers = _hr_auth(client, seed_auth["password"])
+    body = _upload(client, headers, job.slug)
+    cid, aid = body["candidate_id"], body["application_id"]
+
+    # Spy on the three candidate notify_* helpers as the endpoint
+    # imports them lazily (`from app.services import hr_notifications`).
+    calls: list[tuple[str, int]] = []
+
+    def _spy_shortlisted(*, application_id: int, actor_id=None) -> None:
+        calls.append(("shortlisted", application_id))
+
+    def _spy_selected(*, application_id: int, actor_id=None) -> None:
+        calls.append(("selected", application_id))
+
+    def _spy_rejected(*, application_id: int, actor_id=None) -> None:
+        calls.append(("rejected", application_id))
+
+    from app.services import hr_notifications
+
+    monkeypatch.setattr(
+        hr_notifications, "notify_candidate_shortlisted", _spy_shortlisted
+    )
+    monkeypatch.setattr(
+        hr_notifications, "notify_candidate_selected", _spy_selected
+    )
+    monkeypatch.setattr(
+        hr_notifications, "notify_candidate_rejected", _spy_rejected
+    )
+
+    # 1. Without send_email — no notification fires.
+    silent = client.post(
+        f"/api/v1/hr/candidates/{cid}/applications/{aid}/status",
+        headers=headers,
+        json={"new_status": STATUS_SHORTLISTED},
+    )
+    assert silent.status_code == 200
+    assert calls == []
+
+    # 2. With send_email=True moving to first_interview — still no
+    #    notification (only shortlisted/selected/rejected have templates).
+    interview = client.post(
+        f"/api/v1/hr/candidates/{cid}/applications/{aid}/status",
+        headers=headers,
+        json={"new_status": STATUS_FIRST_INTERVIEW, "send_email": True},
+    )
+    assert interview.status_code == 200
+    assert calls == []
+
+    # 3. With send_email=True and STATUS_SELECTED — selected notify fires.
+    selected = client.post(
+        f"/api/v1/hr/candidates/{cid}/applications/{aid}/status",
+        headers=headers,
+        json={"new_status": STATUS_SELECTED, "send_email": True},
+    )
+    assert selected.status_code == 200, selected.text
+    assert calls == [("selected", aid)]
+
+
+def test_change_status_send_email_dispatches_rejected_notification(
+    client, db_session: Session, seed_auth, monkeypatch
+):
+    job = _make_job(db_session)
+    headers = _hr_auth(client, seed_auth["password"])
+    body = _upload(client, headers, job.slug)
+    cid, aid = body["candidate_id"], body["application_id"]
+
+    calls: list[tuple[str, int]] = []
+    from app.services import hr_notifications
+
+    monkeypatch.setattr(
+        hr_notifications,
+        "notify_candidate_rejected",
+        lambda *, application_id, actor_id=None: calls.append(
+            ("rejected", application_id)
+        ),
+    )
+
+    resp = client.post(
+        f"/api/v1/hr/candidates/{cid}/applications/{aid}/status",
+        headers=headers,
+        json={
+            "new_status": STATUS_REJECTED,
+            "rejection_reason": "Better fit found internally.",
+            "send_email": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert calls == [("rejected", aid)]
