@@ -12,6 +12,7 @@ from app.models.auth import AuditLog
 from app.models.hr_ats import (
     JOB_STATUS_OPEN,
     Candidate,
+    CandidateAutoReview,
     CandidateDocument,
     CandidateJobApplication,
     JobOpening,
@@ -107,6 +108,56 @@ def test_public_application_creates_candidate_doc_and_app(
         r.action for r in db_session.execute(select(AuditLog)).scalars()
     ]
     assert "public.candidate.apply" in audit
+
+
+def test_public_application_triggers_auto_review_and_email(
+    client, db_session: Session, monkeypatch
+):
+    """The public apply endpoint must (a) persist a CandidateAutoReview
+    row in the same transaction and (b) dispatch the application-received
+    notification email. Both wirings live in submit_candidate_application
+    after phase-9 follow-up."""
+    job = _make_job(db_session, slug="ml-eng")
+
+    # Spy on the email-dispatch path: notify_candidate_application_received
+    # opens its own SessionLocal, so we replace it with a recorder.
+    calls: list[int] = []
+
+    def _spy(*, application_id: int) -> None:
+        calls.append(application_id)
+
+    monkeypatch.setattr(
+        "app.api.endpoints.public.notify_candidate_application_received", _spy
+    )
+
+    response = client.post(
+        PUBLIC_APPLY,
+        files={"file": ("emma.pdf", io.BytesIO(TINY_PDF), "application/pdf")},
+        data={
+            "full_name": "Emma Apex",
+            "email": "emma@example.com",
+            "mobile": "+974 1111 9999",
+            "job_slug": job.slug,
+            "consent": "true",
+        },
+    )
+    assert response.status_code == 201, response.text
+    application_id = response.json()["application_id"]
+
+    # Q1 — auto-review row exists for the application even without an
+    # explicit rule (decision falls back to HR_PENDING).
+    reviews = list(
+        db_session.execute(
+            select(CandidateAutoReview).where(
+                CandidateAutoReview.application_id == application_id
+            )
+        ).scalars()
+    )
+    assert len(reviews) == 1
+    assert reviews[0].reviewed_by_system is True
+
+    # Q2 — confirmation email was dispatched with the right application id.
+    assert calls == [application_id]
 
 
 def test_public_application_requires_consent(client, db_session: Session):

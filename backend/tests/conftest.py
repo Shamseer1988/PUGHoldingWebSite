@@ -16,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.auth.security import hash_password
 from app.core.database import Base, get_db
+from app.core.rate_limit import reset_rate_limits
 from app.main import app
 from app.models.auth import (
     SCOPE_HR,
@@ -25,6 +26,17 @@ from app.models.auth import (
     Role,
     User,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> Generator[None, None, None]:
+    """Public endpoints share a process-global rate-limit bucket; without
+    a reset between tests, the cumulative request count from earlier
+    tests trips the limiter and unrelated tests get HTTP 429 instead of
+    the response they assert on."""
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
 
 
 @pytest.fixture(scope="function")

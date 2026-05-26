@@ -452,3 +452,34 @@ the audit trail stays complete.
 | Public site still shows old title after editing approved job | This is by design — edit created a `JobRevision`; public stays unchanged until HR Manager approves | `POST /hr/jobs/{id}/approve` to publish the revision |
 | Bulk-status modal greyed out for some candidates | They have no application yet (CV-only) | Move them off the candidate row — they need an application first |
 | Auto-review never returns `auto_rejected` | `auto_reject_enabled` defaults to `false` on every rule | Toggle it on per-job if you want the engine to auto-reject |
+
+---
+
+## Known limitations (phase-10 follow-up)
+
+These are intentional gaps in the current branch — captured here so the
+next phase knows where to start.
+
+### Permissions are still coarse
+
+Every HR endpoint is gated by a single `hr` scope via
+`Depends(require_hr_admin)`. A user with the **HR Manager** role can:
+
+- read, create, update, and delete every candidate
+- approve / reject / revise every job
+- schedule, reschedule, or cancel every interview
+- bulk-change candidate status
+- run auto-review manually
+
+The `Permission` model + `User.has_permission()` helper already exist
+but are not consulted by any HR route. A future phase should:
+
+1. Define fine-grained scope constants (e.g. `hr:candidates:read`,
+   `hr:candidates:write`, `hr:jobs:approve`, `hr:interviews:schedule`).
+2. Replace `Depends(require_hr_admin)` on each endpoint with the
+   narrower scope it actually needs.
+3. Seed default roles via Alembic so existing HR users keep working.
+4. Update the role-management UI under `/admin/roles` to expose the new
+   permission checkboxes.
+
+Until that ships, every HR seat is effectively "HR admin".

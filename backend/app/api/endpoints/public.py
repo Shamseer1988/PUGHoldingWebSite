@@ -6,6 +6,7 @@ Form submission endpoints write to the same tables the admin manages.
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -76,9 +77,14 @@ from app.services.candidate_intake import (
     IntakeForm,
     ingest_candidate_application,
 )
+from app.services.candidate_auto_review import run_auto_review
 from app.services.cv_storage import CvUploadError, store_cv_bytes
 from app.models.hr_ats import SOURCE_PUBLIC_FORM
 from app.services.audit_log import record_audit
+from app.services.hr_notifications import notify_candidate_application_received
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/public", tags=["Public"])
@@ -1104,7 +1110,27 @@ async def submit_candidate_application(
         },
         commit=False,
     )
+
+    # Auto-review: only meaningful when the applicant targeted a specific
+    # job. We persist the review row inside the same transaction so HR
+    # sees the AI/rule recommendation immediately after the apply. Any
+    # failure here is non-fatal — the candidate has still applied.
+    if result.application.job_opening_id is not None:
+        try:
+            run_auto_review(db, application=result.application)
+        except Exception:  # pragma: no cover - never break public apply
+            logger.exception("Auto-review failed for application %s", result.application.id)
+
     db.commit()
+
+    # Post-commit: send the "we received your application" confirmation.
+    # _dispatch opens its own session and swallows errors, so this is safe.
+    try:
+        notify_candidate_application_received(application_id=result.application.id)
+    except Exception:  # pragma: no cover - notifications must never raise
+        logger.exception(
+            "Failed to dispatch application-received email for %s", result.application.id
+        )
 
     return ApplicationSubmissionResponse(
         candidate_id=result.candidate.id,
