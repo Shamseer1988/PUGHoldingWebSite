@@ -35,7 +35,12 @@ from app.models.cms import (
     SiteSetting,
     TrustedBrand,
 )
-from app.models.hr_ats import JOB_STATUS_OPEN, JobOpening
+from app.models.hr_ats import (
+    APPROVAL_STATUS_APPROVED,
+    JOB_STATUS_OPEN,
+    JobOpening,
+    PUBLISH_STATUS_PUBLISHED,
+)
 from app.schemas.cms import (
     CMSPageRead,
     CompanyRead,
@@ -440,9 +445,20 @@ def list_open_jobs(
     ),
     q: Optional[str] = Query(default=None, max_length=200),
 ) -> List[JobOpening]:
+    """Public job listing.
+
+    Filters to the three-way intersection ``status='open'`` AND
+    ``approval_status='approved'`` AND ``publish_status='published'`` so
+    a draft / pending / rejected / unpublished job never leaks to the
+    public site even if its lifecycle status is still 'open'.
+    """
     stmt = (
         select(JobOpening)
-        .where(JobOpening.status == JOB_STATUS_OPEN)
+        .where(
+            JobOpening.status == JOB_STATUS_OPEN,
+            JobOpening.approval_status == APPROVAL_STATUS_APPROVED,
+            JobOpening.publish_status == PUBLISH_STATUS_PUBLISHED,
+        )
         .order_by(desc(JobOpening.posted_at), JobOpening.id)
     )
     if department:
@@ -470,7 +486,10 @@ def get_open_job(slug: str, db: Session = Depends(get_db)) -> JobOpening:
     job = (
         db.execute(
             select(JobOpening).where(
-                JobOpening.slug == slug, JobOpening.status == JOB_STATUS_OPEN
+                JobOpening.slug == slug,
+                JobOpening.status == JOB_STATUS_OPEN,
+                JobOpening.approval_status == APPROVAL_STATUS_APPROVED,
+                JobOpening.publish_status == PUBLISH_STATUS_PUBLISHED,
             )
         )
         .scalars()

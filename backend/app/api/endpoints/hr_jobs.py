@@ -1,10 +1,22 @@
-"""HR ATS Job Opening CRUD endpoints (Phase 9).
+"""HR ATS Job Opening CRUD endpoints with approval workflow.
 
 All routes require an HR-scoped bearer token. Write actions write
-entries to the shared ``audit_logs`` table with ``scope='hr'``.
+entries to the shared ``audit_logs`` table with ``scope='hr'`` and (for
+approval transitions) to ``hr_job_approval_history``.
+
+The advanced module adds:
+
+* :func:`create_job` lands new jobs in ``approval_status='draft'`` so the
+  public site cannot show them until an HR Manager approves.
+* :func:`update_job` routes edits on already-approved jobs into a
+  :class:`JobRevision` row instead of mutating the public content.
+* Approval endpoints (``submit-approval``, ``approve``, ``reject``,
+  ``request-revision``, ``publish``, ``unpublish``,
+  ``approval-history``) drive the workflow.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -17,17 +29,29 @@ from app.auth.dependencies import get_request_context, require_hr_admin
 from app.core.database import get_db
 from app.models.auth import User
 from app.models.hr_ats import (
+    APPROVAL_STATUS_APPROVED,
+    APPROVAL_STATUS_DRAFT,
     JOB_STATUS_CLOSED,
     JOB_STATUS_ON_HOLD,
     JOB_STATUS_OPEN,
     JobOpening,
+    JobRevision,
+    PUBLISH_STATUS_DRAFT,
 )
 from app.schemas.hr_ats import (
+    JobApprovalActionRequest,
+    JobApprovalHistoryRead,
+    JobApprovalRejectRequest,
     JobOpeningCreate,
     JobOpeningRead,
     JobOpeningUpdate,
+    JobRevisionRead,
 )
+from app.services import job_approval as approval
 from app.services.audit_log import record_audit
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(
@@ -35,6 +59,19 @@ router = APIRouter(
     tags=["HR ATS - Jobs"],
     dependencies=[Depends(require_hr_admin)],
 )
+
+
+# ---------------------------------------------------------------------------
+# Read helpers
+# ---------------------------------------------------------------------------
+
+
+def _serialize(job: JobOpening) -> JobOpeningRead:
+    """Build the response payload, adding has_pending_revision."""
+    has_pending = approval.get_pending_revision(None, job) is not None
+    data = JobOpeningRead.model_validate(job).model_dump()
+    data["has_pending_revision"] = has_pending
+    return JobOpeningRead(**data)
 
 
 # ---------------------------------------------------------------------------
@@ -50,37 +87,47 @@ def list_jobs(
         alias="status",
         pattern=r"^(open|on_hold|closed)$",
     ),
+    approval_status: Optional[str] = Query(
+        default=None,
+        pattern=r"^(draft|pending_approval|approved|rejected|revision_required)$",
+    ),
+    publish_status: Optional[str] = Query(
+        default=None, pattern=r"^(draft|published|unpublished)$"
+    ),
     department: Optional[str] = None,
     company: Optional[str] = None,
     q: Optional[str] = Query(default=None, max_length=200),
-) -> List[JobOpening]:
+) -> List[JobOpeningRead]:
     stmt = select(JobOpening).order_by(desc(JobOpening.posted_at), JobOpening.id)
     if job_status:
         stmt = stmt.where(JobOpening.status == job_status)
+    if approval_status:
+        stmt = stmt.where(JobOpening.approval_status == approval_status)
+    if publish_status:
+        stmt = stmt.where(JobOpening.publish_status == publish_status)
     if department:
         stmt = stmt.where(JobOpening.department == department)
     if company:
         stmt = stmt.where(JobOpening.company == company)
     if q:
-        like = f"%{q.lower()}%"
-        # Postgres ilike works case-insensitively. For SQLite tests
-        # we use lower(...) like which both engines accept.
         from sqlalchemy import func
 
+        like = f"%{q.lower()}%"
         stmt = stmt.where(
             (func.lower(JobOpening.title).like(like))
             | (func.lower(JobOpening.required_skills).like(like))
             | (func.lower(JobOpening.preferred_skills).like(like))
         )
-    return db.execute(stmt).scalars().all()
+    rows = db.execute(stmt).scalars().all()
+    return [_serialize(job) for job in rows]
 
 
 @router.get("/{job_id}", response_model=JobOpeningRead)
-def get_job(job_id: int, db: Session = Depends(get_db)) -> JobOpening:
+def get_job(job_id: int, db: Session = Depends(get_db)) -> JobOpeningRead:
     job = db.get(JobOpening, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _serialize(job)
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +141,32 @@ def create_job(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
-) -> JobOpening:
+) -> JobOpeningRead:
     data = payload.model_dump()
-    job = JobOpening(**data, created_by_id=user.id)
+    # New jobs always land in draft regardless of what the client sent —
+    # approval is required before the public site can show them.
+    job = JobOpening(
+        **data,
+        created_by_id=user.id,
+        approval_status=APPROVAL_STATUS_DRAFT,
+        publish_status=PUBLISH_STATUS_DRAFT,
+    )
     db.add(job)
     try:
         db.flush()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Slug already exists") from exc
+
+    approval.record_approval_history(
+        db,
+        job=job,
+        action="created",
+        actor=user,
+        old_status=None,
+        new_status=APPROVAL_STATUS_DRAFT,
+        remarks="Job draft created",
+    )
 
     _audit(
         db,
@@ -114,7 +178,12 @@ def create_job(
     )
     db.commit()
     db.refresh(job)
-    return job
+    _notify_safe(
+        "notify_job_created",
+        job_id=job.id,
+        actor_id=user.id,
+    )
+    return _serialize(job)
 
 
 @router.patch("/{job_id}", response_model=JobOpeningRead)
@@ -124,23 +193,38 @@ def update_job(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
-) -> JobOpening:
+) -> JobOpeningRead:
     job = db.get(JobOpening, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
     changes = payload.model_dump(exclude_unset=True)
 
-    # Auto-stamp closed_at when transitioning to closed (or clear it
-    # when moving back to open / on_hold).
-    if "status" in changes and changes["status"] != job.status:
-        if changes["status"] == JOB_STATUS_CLOSED:
+    # Lifecycle ``status`` (open/on_hold/closed) is handled outside the
+    # approval workflow — pull it off and apply it directly even on
+    # approved jobs (HR still needs to close/hold immediately).
+    lifecycle_change = changes.pop("status", None)
+
+    edit_keys = list(changes.keys())
+    job, revision = approval.apply_edit(
+        db, job=job, changes=changes, actor=user
+    )
+
+    if lifecycle_change and lifecycle_change != job.status:
+        old_lifecycle = job.status
+        job.status = lifecycle_change
+        if lifecycle_change == JOB_STATUS_CLOSED:
             job.closed_at = datetime.now(timezone.utc)
         else:
             job.closed_at = None
-
-    for k, v in changes.items():
-        setattr(job, k, v)
+        _audit(
+            db,
+            user,
+            request,
+            action="hr.job.status_change",
+            target_id=job.id,
+            details={"old_status": old_lifecycle, "new_status": lifecycle_change},
+        )
 
     try:
         db.flush()
@@ -148,17 +232,28 @@ def update_job(
         db.rollback()
         raise HTTPException(status_code=409, detail="Slug already exists") from exc
 
+    audit_action = "hr.job.update_revision" if revision is not None else "hr.job.update"
     _audit(
         db,
         user,
         request,
-        action="hr.job.update",
+        action=audit_action,
         target_id=job.id,
-        details={"changed_keys": list(changes.keys())},
+        details={
+            "changed_keys": edit_keys,
+            "revision_id": revision.id if revision else None,
+        },
     )
     db.commit()
     db.refresh(job)
-    return job
+    if revision is not None:
+        _notify_safe(
+            "notify_job_revision_submitted",
+            job_id=job.id,
+            revision_id=revision.id,
+            actor_id=user.id,
+        )
+    return _serialize(job)
 
 
 @router.post("/{job_id}/close", response_model=JobOpeningRead)
@@ -167,7 +262,7 @@ def close_job(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
-) -> JobOpening:
+) -> JobOpeningRead:
     return _transition(db, user, request, job_id, JOB_STATUS_CLOSED, "hr.job.close")
 
 
@@ -177,7 +272,7 @@ def reopen_job(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
-) -> JobOpening:
+) -> JobOpeningRead:
     return _transition(db, user, request, job_id, JOB_STATUS_OPEN, "hr.job.reopen")
 
 
@@ -187,7 +282,7 @@ def hold_job(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
-) -> JobOpening:
+) -> JobOpeningRead:
     return _transition(db, user, request, job_id, JOB_STATUS_ON_HOLD, "hr.job.hold")
 
 
@@ -216,8 +311,241 @@ def delete_job(
 
 
 # ---------------------------------------------------------------------------
+# Approval workflow endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{job_id}/submit-approval", response_model=JobOpeningRead)
+def submit_for_approval(
+    job_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
+    remarks = (payload.remarks if payload else None)
+    approval.submit_for_approval(db, job=job, actor=user, remarks=remarks)
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.submit_for_approval",
+        target_id=job.id,
+        details={"remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    _notify_safe("notify_job_submitted", job_id=job.id, actor_id=user.id)
+    return _serialize(job)
+
+
+@router.post("/{job_id}/approve", response_model=JobOpeningRead)
+def approve_job_endpoint(
+    job_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
+    remarks = (payload.remarks if payload else None)
+
+    # If a pending revision exists, approving the job approves the revision
+    # too (HR Manager has signed off on the new content).
+    pending_revision = approval.get_pending_revision(db, job)
+    if pending_revision is not None:
+        approval.approve_revision(
+            db, revision=pending_revision, actor=user, remarks=remarks
+        )
+        # If the job is still pending_approval, also approve the job itself.
+        if job.approval_status != APPROVAL_STATUS_APPROVED:
+            approval.approve_job(db, job=job, actor=user, remarks=remarks)
+    else:
+        approval.approve_job(db, job=job, actor=user, remarks=remarks)
+
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.approve",
+        target_id=job.id,
+        details={"remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    _notify_safe("notify_job_approved", job_id=job.id, actor_id=user.id)
+    return _serialize(job)
+
+
+@router.post("/{job_id}/reject", response_model=JobOpeningRead)
+def reject_job_endpoint(
+    job_id: int,
+    payload: JobApprovalRejectRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
+
+    pending_revision = approval.get_pending_revision(db, job)
+    if pending_revision is not None:
+        approval.reject_revision(
+            db, revision=pending_revision, actor=user, remarks=payload.remarks
+        )
+        # The public job stays untouched. If the job itself was pending
+        # (first approval), also mark it rejected.
+        from app.models.hr_ats import APPROVAL_STATUS_PENDING
+
+        if job.approval_status == APPROVAL_STATUS_PENDING:
+            approval.reject_job(db, job=job, actor=user, remarks=payload.remarks)
+    else:
+        approval.reject_job(db, job=job, actor=user, remarks=payload.remarks)
+
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.reject",
+        target_id=job.id,
+        details={"remarks": payload.remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    _notify_safe(
+        "notify_job_rejected",
+        job_id=job.id,
+        actor_id=user.id,
+        reason=payload.remarks,
+    )
+    return _serialize(job)
+
+
+@router.post("/{job_id}/request-revision", response_model=JobOpeningRead)
+def request_revision_endpoint(
+    job_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
+    remarks = (payload.remarks if payload else None)
+    approval.request_revision(db, job=job, actor=user, remarks=remarks)
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.request_revision",
+        target_id=job.id,
+        details={"remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    _notify_safe(
+        "notify_job_revision_requested",
+        job_id=job.id,
+        actor_id=user.id,
+        reason=remarks,
+    )
+    return _serialize(job)
+
+
+@router.post("/{job_id}/publish", response_model=JobOpeningRead)
+def publish_job_endpoint(
+    job_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
+    remarks = (payload.remarks if payload else None)
+    approval.publish_job(db, job=job, actor=user, remarks=remarks)
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.publish",
+        target_id=job.id,
+        details={"remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    _notify_safe("notify_job_published", job_id=job.id, actor_id=user.id)
+    return _serialize(job)
+
+
+@router.post("/{job_id}/unpublish", response_model=JobOpeningRead)
+def unpublish_job_endpoint(
+    job_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
+    remarks = (payload.remarks if payload else None)
+    approval.unpublish_job(db, job=job, actor=user, remarks=remarks)
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.unpublish",
+        target_id=job.id,
+        details={"remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
+
+
+@router.get(
+    "/{job_id}/approval-history",
+    response_model=List[JobApprovalHistoryRead],
+)
+def get_approval_history(
+    job_id: int,
+    db: Session = Depends(get_db),
+) -> List[JobApprovalHistoryRead]:
+    job = _get_or_404(db, job_id)
+    history = approval.list_approval_history(db, job.id)
+    return [JobApprovalHistoryRead.model_validate(h) for h in history]
+
+
+@router.get(
+    "/{job_id}/pending-revision",
+    response_model=Optional[JobRevisionRead],
+)
+def get_pending_revision_endpoint(
+    job_id: int,
+    db: Session = Depends(get_db),
+) -> Optional[JobRevisionRead]:
+    """Return the active pending revision (or null) for the HR Manager UI."""
+    job = _get_or_404(db, job_id)
+    revision = approval.get_pending_revision(db, job)
+    return JobRevisionRead.model_validate(revision) if revision else None
+
+
+@router.get("/{job_id}/revisions", response_model=List[JobRevisionRead])
+def list_revisions(
+    job_id: int,
+    db: Session = Depends(get_db),
+) -> List[JobRevisionRead]:
+    job = _get_or_404(db, job_id)
+    return [JobRevisionRead.model_validate(r) for r in job.revisions]
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _get_or_404(db: Session, job_id: int) -> JobOpening:
+    job = db.get(JobOpening, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 def _transition(
@@ -227,13 +555,11 @@ def _transition(
     job_id: int,
     next_status: str,
     action: str,
-) -> JobOpening:
-    job = db.get(JobOpening, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+) -> JobOpeningRead:
+    job = _get_or_404(db, job_id)
 
     if job.status == next_status:
-        return job  # no-op; idempotent
+        return _serialize(job)  # no-op; idempotent
 
     old_status = job.status
     job.status = next_status
@@ -252,19 +578,23 @@ def _transition(
     )
     db.commit()
     db.refresh(job)
-    return job
+    return _serialize(job)
 
 
 def _audit(
     db: Session,
     user: User,
-    request: Request,
+    request: Optional[Request],
     *,
     action: str,
     target_id: int,
     details: Optional[dict] = None,
 ) -> None:
-    ctx = get_request_context(request)
+    ctx = (
+        get_request_context(request)
+        if request is not None
+        else {"ip_address": None, "user_agent": None}
+    )
     record_audit(
         db,
         action=action,
@@ -278,3 +608,23 @@ def _audit(
         details=details,
         commit=False,
     )
+
+
+def _notify_safe(func_name: str, **kwargs) -> None:
+    """Call hr_notifications.<func_name>(**kwargs) and swallow any error.
+
+    Notifications must never break the API transaction — the caller has
+    already committed. The notifications module is added in Phase 3; until
+    it exists this just no-ops, letting Phase 2 land cleanly.
+    """
+    try:
+        from app.services import hr_notifications  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover - module not yet present
+        return
+    func = getattr(hr_notifications, func_name, None)
+    if func is None:
+        return
+    try:
+        func(**kwargs)
+    except Exception:  # pragma: no cover - never break the transaction
+        logger.exception("hr_notifications.%s failed", func_name)
