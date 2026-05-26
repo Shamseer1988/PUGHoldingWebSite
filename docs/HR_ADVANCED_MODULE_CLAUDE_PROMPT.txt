@@ -1,0 +1,999 @@
+PUG HOLDING WEBSITE — ADVANCED HR ATS MODULE UPGRADE PROMPT
+Repository: https://github.com/Shamseer1988/PUGHoldingWebSite.git
+
+Purpose:
+Upgrade the existing HR ATS backend/frontend into an advanced professional recruitment system with job approval workflow, auto-shortlisting, bulk candidate status actions, CV parsing/autofill, Excel reports, branded email notifications, and optional Google Meet interview scheduling.
+
+============================================================
+CURRENT SYSTEM REVIEW SUMMARY
+============================================================
+
+Current backend already contains a strong HR ATS foundation:
+
+1. FastAPI HR routers are already wired:
+   - hr_auth
+   - hr_dashboard
+   - hr_jobs
+   - hr_candidates
+   - hr_interviews
+   - hr_reports
+
+2. Existing HR ATS files:
+   - backend/app/api/endpoints/hr_jobs.py
+   - backend/app/api/endpoints/hr_candidates.py
+   - backend/app/api/endpoints/hr_interviews.py
+   - backend/app/api/endpoints/hr_reports.py
+   - backend/app/models/hr_ats.py
+   - backend/app/services/candidate_intake.py
+   - backend/app/services/cv_parser.py
+   - backend/app/services/candidate_workflow.py
+   - backend/app/services/hr_reports.py
+   - backend/app/services/hr_export.py
+
+3. Existing features:
+   - Job opening CRUD
+   - Candidate upload
+   - Bulk CV ZIP upload
+   - CV parsing for PDF/DOCX/images
+   - Candidate extracted data
+   - Candidate scoring
+   - AI candidate review
+   - Candidate workflow/status history
+   - Interview scheduling base module
+   - Interview feedback
+   - HR reports
+   - CSV/XLSX/PDF export
+
+4. Missing advanced features:
+   - Job approval workflow before public posting
+   - Job revision approval after edits
+   - HR Manager approval portal
+   - Email notification service
+   - Admin email configuration
+   - Auto-shortlist/auto-review rules
+   - Bulk candidate status change
+   - Google Meet auto-create during online interview schedule
+   - Branded interview scheduled emails
+   - Additional interview attendee/CC/BCC emails
+   - Public CV upload auto-fill form
+   - More advanced reports
+   - Better Excel table export
+   - Delivery/email logs
+   - Google calendar logs
+   - Fine-grained HR permissions
+
+Important:
+Do not rebuild the HR module from zero. Extend the existing implementation safely.
+
+============================================================
+MASTER CLAUDE AI PROMPT
+============================================================
+
+You are working inside this repository:
+
+https://github.com/Shamseer1988/PUGHoldingWebSite.git
+
+Project stack:
+- Backend: FastAPI, SQLAlchemy, Alembic, PostgreSQL
+- Frontend: Next.js 14, TypeScript, Tailwind, Framer Motion
+- Existing module: HR ATS backend already exists under:
+  backend/app/api/endpoints/hr_jobs.py
+  backend/app/api/endpoints/hr_candidates.py
+  backend/app/api/endpoints/hr_interviews.py
+  backend/app/api/endpoints/hr_reports.py
+  backend/app/models/hr_ats.py
+  backend/app/services/candidate_intake.py
+  backend/app/services/cv_parser.py
+  backend/app/services/candidate_workflow.py
+  backend/app/services/hr_reports.py
+  backend/app/services/hr_export.py
+
+Important rule:
+Do not rebuild the HR module from zero. Deeply review the existing code and extend it safely. Preserve existing API contracts unless a migration/compatibility layer is required. All changes must be professional, production-safe, audited, and role/permission protected.
+
+Goal:
+Upgrade the HR ATS into an advanced recruitment module with:
+
+1. Job approval workflow:
+   - HR Executive creates or edits a job.
+   - Job becomes Draft or Pending Approval.
+   - HR Manager approves/rejects via HR Admin Portal.
+   - Only approved jobs become public/open.
+   - Any edit to an already approved/public job must create a pending revision and require HR Manager approval before public changes go live.
+   - Record full approval history.
+   - Send confirmation email to configured HR email IDs when job is created, edited, approved, rejected, or published.
+
+2. Candidate auto shortlist and auto review:
+   - Use existing CV parser, rule-based score, and AI review.
+   - Add configurable auto-review rules per job:
+     minimum score, required skills, visa preference, location, nationality preference, salary range, notice period, experience range.
+   - System should classify candidates as:
+     Auto Shortlisted
+     HR Review Pending
+     Auto Rejected
+     Duplicate
+     Selected
+     Interview Scheduled
+   - Do not permanently reject by AI alone without HR visibility.
+   - Store auto-review result, score, reason, matched skills, missing skills, risk flags, and recommendation source.
+
+3. Bulk candidate status change:
+   - Admin can select many candidate applications and change status in one operation.
+   - Support statuses:
+     Reject
+     Approve / HR Review Pending
+     Shortlist
+     Selected
+     Interview Scheduled
+     Offer Sent
+     Joined
+   - Enforce existing candidate workflow rules.
+   - Rejection reason must be mandatory.
+   - Each row must write CandidateStatusHistory and AuditLog.
+   - Return per-row result: success, failed, reason.
+
+4. Advanced reports and export:
+   - Improve all existing HR reports.
+   - Add reports:
+     All Received CVs Report
+     Auto Shortlist Report
+     Auto Rejected Report
+     Manual Review Pending Report
+     Duplicate Candidates Report
+     Job Approval Pending Report
+     Job Approval History Report
+     Candidate Source Report
+     Interview Schedule Report
+     Interview Feedback Report
+     Selected vs Rejected Summary
+     CV Parsing Quality Report
+     Missing Information Report
+     Salary Comparison Report
+     Visa Status Report
+     Notice Period Report
+     Skills Gap Report
+   - Export all reports to Excel as a real formatted table:
+     branded title
+     generated date
+     filters used
+     Excel table with auto-filter
+     frozen header
+     autosized columns
+     status badges/colors where possible
+   - Keep existing CSV/PDF export working.
+
+5. Interview scheduling automation:
+   - When interview is scheduled:
+     if mode is online, optionally auto-create Google Calendar event with Google Meet link.
+     Save calendar_event_id and meeting_link on the interview row.
+     Send branded interview scheduled email to candidate.
+     Send invitation/notification email to interviewer and additional CC/BCC emails.
+   - Add fields:
+     candidate_email_override
+     additional_attendee_emails
+     cc_emails
+     bcc_emails
+     email_subject
+     email_body_preview
+     send_email_now
+     create_google_meet
+   - Google Calendar integration must be optional and controlled by Admin Settings.
+   - If Google integration is not configured, system should still schedule interview and allow manual meeting link entry.
+   - Use Google Calendar API event insert with conferenceDataVersion=1 and conferenceData.createRequest for Meet link creation.
+
+6. Public CV autofill:
+   - On public Apply form, when candidate attaches CV, frontend should call a preview parsing endpoint.
+   - Backend should parse CV and return extracted fields:
+     full_name
+     email
+     mobile
+     nationality
+     current_location
+     current_designation
+     current_company
+     total_experience_years
+     gcc_experience_years
+     qatar_experience_years
+     expected_salary
+     notice_period
+     visa_status
+     skills
+     education
+     languages
+     certifications
+   - Frontend should auto-fill form fields.
+   - Candidate must be able to edit corrected values before final submit.
+   - The preview endpoint should not create final candidate/application records.
+   - Use temporary storage or in-memory parse safely; avoid duplicate candidate creation during preview.
+   - Add validation and file-size/type checks.
+
+7. Email system:
+   - Build a reusable email service using existing SMTP settings from backend/app/core/config.py.
+   - Add Admin Email Configuration page if not already present.
+   - Add test email endpoint.
+   - Add branded email templates for:
+     job submitted for approval
+     job approved/published
+     job rejected/revision required
+     candidate application received
+     candidate shortlisted
+     candidate rejected
+     interview scheduled
+     interview rescheduled
+     interview cancelled
+     selected candidate
+   - Emails must be logged with delivery status.
+
+8. Security/audit:
+   - Use existing auth dependencies and permission system.
+   - Add fine-grained permissions:
+     hr.jobs.create
+     hr.jobs.edit
+     hr.jobs.submit_for_approval
+     hr.jobs.approve
+     hr.jobs.reject
+     hr.candidates.bulk_status_change
+     hr.candidates.auto_review
+     hr.reports.export
+     hr.interviews.schedule
+     hr.interviews.create_meet
+     hr.email.send
+     hr.settings.manage
+   - Every write action must create audit log entry.
+   - No public endpoint should expose private candidate data.
+
+9. Testing:
+   - Add/update tests for models, migrations, API endpoints, permissions, email service mock, Google Meet service mock, bulk status changes, job approval workflow, public CV parse preview, and Excel export.
+   - Existing tests must continue passing.
+
+Implementation style:
+- Work phase by phase.
+- Before coding each phase, inspect current relevant files.
+- Make small migrations, small services, and clear endpoints.
+- Do not break existing public jobs/candidate application flow.
+- Keep backward compatibility wherever possible.
+
+============================================================
+PHASE 1 — DATABASE + APPROVAL MODELS
+============================================================
+
+Phase 1: Add HR job approval and email/calendar data models.
+
+Review:
+- backend/app/models/hr_ats.py
+- backend/app/api/endpoints/hr_jobs.py
+- backend/app/auth/dependencies.py
+- existing Alembic migration structure
+
+Implement:
+
+1. Extend JobOpening model:
+   - approval_status: draft | pending_approval | approved | rejected | revision_required
+   - publish_status: draft | published | unpublished
+   - approved_by_id
+   - approved_at
+   - submitted_for_approval_by_id
+   - submitted_for_approval_at
+   - rejected_by_id
+   - rejected_at
+   - approval_remarks
+   - public_revision_id or active_revision_id if using revision table
+
+2. Add model HRJobApprovalHistory:
+   table: hr_job_approval_history
+   fields:
+   - id
+   - job_opening_id
+   - action: created | submitted | approved | rejected | revision_requested | revision_submitted | published | unpublished
+   - old_approval_status
+   - new_approval_status
+   - actor_id
+   - actor_email snapshot
+   - remarks
+   - changed_fields JSON
+   - created_at
+
+3. Add model HRJobRevision if safest:
+   table: hr_job_revisions
+   fields:
+   - id
+   - job_opening_id
+   - payload JSON
+   - status: pending | approved | rejected
+   - created_by_id
+   - reviewed_by_id
+   - reviewed_at
+   - remarks
+   - created_at
+   Use this so editing approved jobs does not immediately change public job content.
+
+4. Extend Interview model:
+   - calendar_event_id
+   - meeting_link
+   - calendar_provider
+   - email_sent_at
+   - email_delivery_status
+   - additional_attendee_emails JSON
+   - cc_emails JSON
+   - bcc_emails JSON
+
+5. Add EmailLog model:
+   table: email_logs
+   fields:
+   - id
+   - scope
+   - template_key
+   - subject
+   - to_emails JSON
+   - cc_emails JSON
+   - bcc_emails JSON
+   - status: pending | sent | failed
+   - provider_response JSON
+   - error_message
+   - related_type
+   - related_id
+   - created_by_id
+   - sent_at
+   - created_at
+
+6. Add HRAutoReviewRule model:
+   table: hr_auto_review_rules
+   fields:
+   - id
+   - job_opening_id
+   - is_active
+   - min_score
+   - required_skills JSON
+   - preferred_skills JSON
+   - min_experience
+   - max_expected_salary
+   - visa_keywords JSON
+   - location_keywords JSON
+   - notice_period_keywords JSON
+   - auto_shortlist_threshold
+   - auto_reject_threshold
+   - created_by_id
+   - updated_by_id
+   - created_at
+   - updated_at
+
+7. Add CandidateAutoReview model:
+   table: hr_candidate_auto_reviews
+   fields:
+   - id
+   - application_id unique
+   - rule_id nullable
+   - score
+   - decision: auto_shortlisted | hr_review_pending | auto_rejected | duplicate | selected
+   - matched_skills JSON
+   - missing_skills JSON
+   - risk_flags JSON
+   - reason_summary
+   - reviewed_at
+   - reviewed_by_system boolean
+
+8. Create Alembic migration.
+9. Add indexes for approval_status, publish_status, job_opening_id, application_id.
+10. Update Pydantic schemas in backend/app/schemas/hr_ats.py.
+
+Acceptance:
+- Migration runs cleanly.
+- Existing HR tests still pass.
+- Existing public /public/jobs returns only approved + published/open jobs.
+- Existing admin /hr/jobs can still list all jobs with approval status.
+
+============================================================
+PHASE 2 — JOB APPROVAL API
+============================================================
+
+Phase 2: Convert HR job create/edit into approval workflow.
+
+Review:
+- backend/app/api/endpoints/hr_jobs.py
+- backend/app/models/hr_ats.py
+- backend/app/services/audit_log.py
+- backend/app/auth/dependencies.py
+
+Implement:
+
+1. Replace direct public publishing behavior:
+   - create_job by HR Executive creates job as draft or pending_approval.
+   - status should not become public/open until HR Manager approves.
+   - public endpoint /public/jobs must only show:
+     JobOpening.status == open
+     approval_status == approved
+     publish_status == published
+
+2. Add endpoints:
+   POST /hr/jobs/{job_id}/submit-approval
+   POST /hr/jobs/{job_id}/approve
+   POST /hr/jobs/{job_id}/reject
+   POST /hr/jobs/{job_id}/request-revision
+   POST /hr/jobs/{job_id}/publish
+   POST /hr/jobs/{job_id}/unpublish
+   GET  /hr/jobs/{job_id}/approval-history
+
+3. Edit flow:
+   - If job is draft/rejected, patch can update directly.
+   - If job is approved/published, patch should create HRJobRevision pending approval instead of changing public fields.
+   - HR Manager approval applies revision to JobOpening and republishes.
+
+4. Permissions:
+   - hr.jobs.create for create
+   - hr.jobs.edit for edit
+   - hr.jobs.submit_for_approval for submit
+   - hr.jobs.approve for approve/reject/revision
+   - hr.jobs.publish for publish/unpublish
+   - superuser can bypass only when explicitly coded and audited.
+
+5. Audit:
+   - record audit_logs for each action.
+   - insert HRJobApprovalHistory for every approval action.
+
+6. Email event hooks:
+   - call a placeholder notification service method after:
+     job submitted
+     job approved
+     job rejected
+     revision requested
+   - do not fail main transaction if email fails; write email_logs.
+
+Acceptance:
+- HR Executive cannot publish job directly.
+- HR Manager approval is required before public display.
+- Editing approved job does not instantly affect public job.
+- Approval history is visible from API.
+
+============================================================
+PHASE 3 — EMAIL SERVICE + ADMIN EMAIL CONFIGURATION
+============================================================
+
+Phase 3: Implement reusable SMTP email service and admin email configuration.
+
+Review:
+- backend/app/core/config.py
+- backend/app/models/cms.py or settings models
+- admin settings structure
+- existing auth/permission patterns
+- email placeholders in Settings
+
+Implement:
+
+1. Create backend/app/services/email_service.py:
+   - send_email(to, subject, html_body, text_body=None, cc=None, bcc=None, template_key=None, related_type=None, related_id=None)
+   - use SMTP settings from get_settings()
+   - support TLS
+   - handle errors safely
+   - write EmailLog records
+   - return EmailSendResult
+
+2. Add Admin Email Settings model if no database settings exist:
+   table: email_settings
+   fields:
+   - id = 1 singleton
+   - smtp_host
+   - smtp_port
+   - smtp_username
+   - smtp_from_email
+   - smtp_use_tls
+   - hr_notification_emails JSON
+   - candidate_email_enabled
+   - interview_email_enabled
+   - job_approval_email_enabled
+   - brand_logo_url
+   - email_footer_text
+   - updated_by_id
+   - updated_at
+   Do not store SMTP password in DB unless encrypted. Prefer .env for password.
+
+3. Add endpoints:
+   GET /admin/email-settings
+   PATCH /admin/email-settings
+   POST /admin/email-settings/test-email
+
+4. Add branded templates under backend/app/services/email_templates.py:
+   - job_submitted_for_approval
+   - job_approved_published
+   - job_rejected
+   - candidate_application_received
+   - candidate_shortlisted
+   - candidate_rejected
+   - interview_scheduled
+   - interview_rescheduled
+   - interview_cancelled
+
+5. Add notification service:
+   backend/app/services/hr_notifications.py
+   Functions:
+   - notify_job_submitted(job, actor)
+   - notify_job_approved(job, actor)
+   - notify_job_rejected(job, actor, reason)
+   - notify_candidate_application_received(application)
+   - notify_interview_scheduled(interview)
+
+6. Add tests with SMTP mocked.
+
+Acceptance:
+- Test email endpoint sends or returns clean config error.
+- Email failures do not break job/candidate/interview transactions.
+- EmailLog records status sent/failed.
+
+============================================================
+PHASE 4 — AUTO REVIEW + AUTO SHORTLIST ENGINE
+============================================================
+
+Phase 4: Implement auto-review and auto-shortlist engine.
+
+Review:
+- backend/app/services/candidate_scoring.py
+- backend/app/ai/candidate_review.py
+- backend/app/services/candidate_intake.py
+- backend/app/api/endpoints/hr_candidates.py
+- backend/app/models/hr_ats.py
+
+Implement:
+
+1. Create backend/app/services/candidate_auto_review.py:
+   - run_auto_review(application_id)
+   - run_auto_review_for_job(job_id)
+   - run_auto_review_for_candidate(candidate_id)
+   - classify based on:
+     existing CandidateScore total
+     AI recommendation if available
+     required skills
+     missing skills
+     experience fit
+     salary fit
+     visa/location/notice period fit
+   - decision:
+     auto_shortlisted if score >= threshold and no critical missing requirement
+     hr_review_pending if medium score or missing info
+     auto_rejected if below reject threshold or hard rule mismatch
+   - never set final rejected status without HR manual confirmation unless setting auto_reject_enabled=true.
+
+2. Store result in CandidateAutoReview.
+
+3. Add endpoints:
+   POST /hr/candidates/{candidate_id}/applications/{application_id}/auto-review
+   POST /hr/jobs/{job_id}/auto-review
+   GET  /hr/candidates/{candidate_id}/applications/{application_id}/auto-review
+   GET  /hr/jobs/{job_id}/auto-review-summary
+
+4. Add auto-review rules endpoints:
+   GET /hr/jobs/{job_id}/auto-review-rule
+   PUT /hr/jobs/{job_id}/auto-review-rule
+
+5. On new candidate intake:
+   - after parsing + scoring, auto-review if job has active rule.
+   - if decision auto_shortlisted, move status to HR_REVIEW_PENDING or SHORTLISTED depending config.
+   - if decision auto_rejected, move status to HR_REVIEW_PENDING with auto review flag, not final rejected by default.
+
+6. Audit every auto-review run.
+
+Acceptance:
+- Auto review runs after public application and HR upload.
+- HR can see reason summary, matched skills, missing skills, risk flags.
+- HR can override decision manually.
+
+============================================================
+PHASE 5 — BULK CANDIDATE STATUS CHANGE
+============================================================
+
+Phase 5: Add bulk candidate status change with validation and audit.
+
+Review:
+- backend/app/api/endpoints/hr_candidates.py
+- backend/app/services/candidate_workflow.py
+- backend/app/models/hr_ats.py
+
+Implement:
+
+1. Add schemas:
+   BulkCandidateStatusChangeRequest:
+   - application_ids: list[int]
+   - new_status
+   - remarks
+   - rejection_reason
+   - blacklist_approval
+   - send_email: bool = false
+
+   BulkCandidateStatusChangeResult:
+   - total
+   - success_count
+   - failed_count
+   - rows: application_id, candidate_id, old_status, new_status, success, error
+
+2. Add endpoint:
+   POST /hr/candidates/applications/bulk-status
+
+3. Rules:
+   - Use existing change_status() service for each application.
+   - Do not bypass workflow rules.
+   - Rejection requires reason.
+   - Blacklist requires superuser and approval reason.
+   - Use one transaction if all_or_nothing=true; otherwise per-row savepoints.
+   - Record CandidateStatusHistory and audit_logs.
+   - Optional email notifications:
+     shortlisted
+     rejected
+     selected
+
+4. Frontend support:
+   - Add checkbox selection in candidate list.
+   - Add bulk action dropdown.
+   - Show preview before applying.
+   - Show success/failed result modal.
+
+Acceptance:
+- Bulk status change works safely.
+- Failed rows do not hide errors.
+- Audit history is complete.
+
+============================================================
+PHASE 6 — GOOGLE MEET + INTERVIEW EMAIL AUTOMATION
+============================================================
+
+Phase 6: Add optional Google Calendar/Meet integration and branded interview emails.
+
+Review:
+- backend/app/api/endpoints/hr_interviews.py
+- backend/app/services/interview_management.py
+- backend/app/models/hr_ats.py
+- backend/app/core/config.py
+- email service from Phase 3
+
+Implement:
+
+1. Add Google settings:
+   - GOOGLE_CALENDAR_ENABLED
+   - GOOGLE_CALENDAR_ID
+   - GOOGLE_SERVICE_ACCOUNT_JSON_PATH or OAuth config
+   - GOOGLE_CALENDAR_TIMEZONE default Asia/Qatar
+
+2. Create backend/app/services/google_calendar_service.py:
+   - create_interview_event(interview, candidate, job, attendees, create_meet=True)
+   - update_interview_event(...)
+   - cancel_interview_event(...)
+   - return event_id and meet_link
+   - use conferenceDataVersion=1 and conferenceData.createRequest for Google Meet.
+   - handle config missing gracefully.
+
+3. Extend InterviewCreate schema:
+   - create_google_meet: bool = false
+   - send_email_now: bool = true
+   - additional_attendee_emails: list[str] = []
+   - cc_emails: list[str] = []
+   - bcc_emails: list[str] = []
+   - candidate_email_override: optional email
+   - email_note: optional string
+
+4. In create_interview_endpoint:
+   - create Interview row.
+   - if mode == online and create_google_meet true:
+     create calendar event.
+     save calendar_event_id and meeting_link.
+   - send branded email if enabled.
+   - update application status to first_interview/technical_interview/final_interview according to round.
+   - audit all actions.
+
+5. Add endpoints:
+   POST /hr/interviews/{interview_id}/send-email
+   POST /hr/interviews/{interview_id}/create-meet
+   POST /hr/interviews/{interview_id}/resend-invitation
+
+6. Email template must include:
+   - PUG logo/header
+   - candidate name
+   - job title
+   - interview date/time
+   - round
+   - mode
+   - Google Meet link or location
+   - interviewer/contact
+   - instructions
+   - footer
+
+Acceptance:
+- Online interview can create Google Meet link.
+- Manual meeting link still works if Google disabled.
+- Email is logged.
+- Interview creation does not fail if email/Google fails; it returns warning.
+
+============================================================
+PHASE 7 — PUBLIC CV PARSE PREVIEW + AUTO FILL FORM
+============================================================
+
+Phase 7: Add public CV parse preview endpoint and frontend autofill.
+
+Review:
+- backend/app/api/endpoints/public.py
+- backend/app/services/cv_parser.py
+- backend/app/services/cv_storage.py
+- public careers/apply frontend page/components
+
+Implement backend:
+
+1. Add endpoint:
+   POST /public/candidate-applications/parse-preview
+
+2. Behavior:
+   - Accept UploadFile only.
+   - Validate file size and type.
+   - Supported: PDF, DOCX, PNG, JPG, JPEG.
+   - For legacy DOC, return clear message: "Please upload PDF or DOCX."
+   - Parse using existing cv_parser.parse_cv or direct temp file parse.
+   - Do not create Candidate, CandidateDocument, or CandidateJobApplication.
+   - Delete temp file after parse.
+   - Return:
+     parsed: true/false
+     confidence/warnings
+     fields:
+       full_name
+       email
+       mobile
+       nationality
+       current_location
+       current_designation
+       current_company
+       total_experience_years
+       gcc_experience_years
+       qatar_experience_years
+       expected_salary
+       notice_period
+       visa_status
+       skills
+       education
+       languages
+       certifications
+
+3. Rate limit endpoint.
+
+4. Audit only lightweight public parse attempt without storing private extracted full text.
+
+Implement frontend:
+
+1. On CV attach:
+   - show "Reading CV..."
+   - call parse-preview endpoint
+   - auto-fill available form fields
+   - highlight auto-filled fields
+   - allow user to edit all fields before submit
+   - show warning if parsing failed
+
+2. Final submit still calls existing:
+   POST /public/candidate-applications
+
+Acceptance:
+- Attaching CV auto-fills candidate form.
+- No duplicate candidate is created before final submit.
+- Candidate can correct fields before submit.
+
+============================================================
+PHASE 8 — ADVANCED HR REPORTS + EXCEL TABLE EXPORT
+============================================================
+
+Phase 8: Upgrade HR reporting and Excel exports.
+
+Review:
+- backend/app/api/endpoints/hr_reports.py
+- backend/app/services/hr_reports.py
+- backend/app/services/hr_export.py
+- candidate search filters
+
+Implement:
+
+1. Keep existing reports working:
+   shortlist
+   job_wise_summary
+   interview_status
+   selected_candidates
+   rejected_candidates
+   salary_expectations
+   skill_availability
+
+2. Add new reports:
+   - all_received_cvs
+   - auto_shortlist
+   - auto_rejected
+   - manual_review_pending
+   - duplicate_candidates
+   - job_approval_pending
+   - job_approval_history
+   - candidate_source
+   - interview_schedule
+   - interview_feedback
+   - selected_vs_rejected_summary
+   - cv_parsing_quality
+   - missing_information
+   - salary_comparison
+   - visa_status
+   - notice_period
+   - skills_gap
+
+3. Improve Excel export:
+   - Use openpyxl Table object.
+   - Add Excel auto-filter.
+   - Freeze pane below header.
+   - Add title, generated date, report filters.
+   - Add branded header colors.
+   - Autosize columns.
+   - Format dates and numbers.
+   - Add summary sheet if report has summary.
+   - Keep CSV and PDF export unchanged or improved safely.
+
+4. Add endpoint:
+   GET /hr/reports/{report_type}/export?format=xlsx
+   must work for every report.
+
+5. Add tests:
+   - each report returns columns and rows
+   - each XLSX opens with openpyxl
+   - table exists in sheet
+   - export audit log written
+
+Acceptance:
+- HR can export every report as Excel table.
+- Excel file is professional and filterable.
+
+============================================================
+PHASE 9 — FRONTEND HR ADMIN PORTAL UPGRADE
+============================================================
+
+Phase 9: Upgrade HR Admin Portal UI.
+
+Review existing frontend HR/admin files and keep current visual identity.
+
+Implement pages/components:
+
+1. Jobs:
+   - Job list with approval status badges
+   - Create job form
+   - Submit for approval button
+   - HR Manager approval panel
+   - Approval history drawer
+   - Revision comparison view: current public version vs pending edit
+
+2. Candidates:
+   - Candidate list with filters
+   - Bulk checkbox selection
+   - Bulk status action modal
+   - Auto-review badges
+   - Score/AI review panel
+   - Extracted CV data panel
+   - Missing data indicators
+
+3. Interviews:
+   - Schedule interview modal
+   - Online/offline toggle
+   - Create Google Meet checkbox
+   - Additional attendees / CC / BCC
+   - Branded email preview
+   - Send/resend interview email button
+
+4. Reports:
+   - Report center cards
+   - Filters
+   - Export CSV/XLSX/PDF
+   - Important HR reports grouped by:
+     Recruitment
+     Approval
+     Interview
+     Selection
+     Rejection
+     Analytics
+
+5. Settings:
+   - Email Configuration
+   - Google Calendar/Meet Configuration
+   - Auto Review Rules per job
+   - HR Notification Emails
+
+Acceptance:
+- UI is responsive.
+- No overflow on mobile.
+- HR Executive and HR Manager see actions according to permissions.
+- Public job page shows only approved/published jobs.
+
+============================================================
+PHASE 10 — TESTING, MIGRATION, AND PRODUCTION HARDENING
+============================================================
+
+Phase 10: Add tests and harden production behavior.
+
+Implement tests:
+
+1. Migration tests:
+   - Alembic upgrade succeeds.
+   - New columns/tables exist.
+
+2. Job approval tests:
+   - HR Executive create job => pending approval.
+   - Public jobs does not show pending job.
+   - HR Manager approves => public job visible.
+   - Edit approved job creates pending revision.
+   - Reject revision keeps old public job unchanged.
+
+3. Email tests:
+   - SMTP config missing returns clean error.
+   - Test email endpoint works with mocked SMTP.
+   - EmailLog created for success/failure.
+
+4. Auto-review tests:
+   - high score candidate auto shortlisted.
+   - medium score candidate HR review pending.
+   - low score candidate auto rejected/pending review according config.
+   - manual override still possible.
+
+5. Bulk status tests:
+   - valid bulk shortlist.
+   - rejection requires reason.
+   - invalid transition returns row-level failure.
+   - audit/history rows created.
+
+6. Interview tests:
+   - create interview without Google config still succeeds.
+   - online interview with Google mocked saves meet link.
+   - branded email logged.
+
+7. Public parse preview tests:
+   - PDF/DOCX parse returns fields.
+   - DOC returns supported error.
+   - preview does not create candidate/application.
+
+8. Export tests:
+   - every report exports XLSX.
+   - workbook contains Excel table.
+   - headers and rows exist.
+
+Commands:
+- Run backend tests.
+- Run frontend type-check.
+- Run frontend build.
+- Fix all failures.
+
+Acceptance:
+- No existing feature breaks.
+- Tests pass.
+- API docs show new endpoints.
+- Migrations are safe for existing production data.
+
+============================================================
+RECOMMENDED DEVELOPMENT ORDER
+============================================================
+
+1. Phase 1 + Phase 2:
+   Job approval workflow.
+
+2. Phase 3:
+   Email service and admin email configuration.
+
+3. Phase 6:
+   Interview Google Meet and branded interview email.
+
+4. Phase 7:
+   Public CV upload autofill.
+
+5. Phase 4 + Phase 5:
+   Auto-review and bulk candidate status change.
+
+6. Phase 8 + Phase 9:
+   Reports and frontend UI.
+
+7. Phase 10:
+   Full test hardening.
+
+============================================================
+SUGGESTED FILE NAME INSIDE PROJECT
+============================================================
+
+Save this file inside your project as:
+
+docs/HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt
+
+or:
+
+HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt
+
+============================================================
+END
+============================================================
