@@ -16,6 +16,7 @@ import {
 
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
+import { InterviewActions } from "@/components/hr/interview-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -181,6 +182,7 @@ export default function HrInterviewsPage() {
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden lg:table-cell">Outcome</TableHead>
                 <TableHead className="w-20 text-right">Link</TableHead>
+                <TableHead className="w-44 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -249,6 +251,14 @@ export default function HrInterviewsPage() {
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <InterviewActions
+                      interviewId={row.id}
+                      status={row.status}
+                      onChanged={refresh}
+                      compact
+                    />
                   </TableCell>
                 </TableRow>
               ))}

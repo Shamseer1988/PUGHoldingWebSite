@@ -3,14 +3,11 @@
 import * as React from "react";
 import {
   AlertTriangle,
-  Ban,
   CalendarClock,
-  CheckCircle2,
   ExternalLink,
   Loader2,
   MapPin,
   Plus,
-  RefreshCw,
   Star,
   ThumbsDown,
   ThumbsUp,
@@ -26,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { InterviewActions } from "@/components/hr/interview-actions";
 import { hrApi, HrApiError } from "@/lib/hr/api";
 import type {
   Candidate,
@@ -288,63 +286,33 @@ function InterviewRow({
               )}
 
               {/* Status actions */}
-              {detail.status === "scheduled" && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => changeStatus("completed")}
-                    disabled={statusBusy !== null}
-                  >
-                    {statusBusy === "completed" ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-3 w-3" />
-                    )}
-                    Mark completed
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => changeStatus("no_show")}
-                    disabled={statusBusy !== null}
-                  >
-                    No-show
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => changeStatus("rescheduled")}
-                    disabled={statusBusy !== null}
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    Reschedule
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => changeStatus("cancelled")}
-                    disabled={statusBusy !== null}
-                  >
-                    <Ban className="h-3 w-3" />
-                    Cancel
-                  </Button>
-                  <span className="flex-1" />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={remove}
-                    disabled={deleting}
-                    className="text-rose-600 hover:text-rose-700"
-                  >
-                    {deleting ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3 w-3" />
-                    )}
-                  </Button>
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <InterviewActions
+                  interviewId={detail.id}
+                  status={detail.status}
+                  onChanged={() => {
+                    setDetail(null);
+                    void loadDetail();
+                    onChanged();
+                  }}
+                />
+                <span className="flex-1" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={remove}
+                  disabled={deleting}
+                  className="text-rose-600 hover:text-rose-700"
+                  title="Delete this interview"
+                  aria-label="Delete interview"
+                >
+                  {deleting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3 w-3" />
+                  )}
+                </Button>
+              </div>
 
               {/* Feedback list */}
               {detail.feedback.length > 0 && (
