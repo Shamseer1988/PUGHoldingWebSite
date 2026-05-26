@@ -554,6 +554,13 @@ export interface InterviewCreatePayload {
   mode: InterviewMode | string;
   location_or_link?: string | null;
   interviewer_id?: number | null;
+  /**
+   * When true the backend renders the branded
+   * `interview_scheduled` email and sends it to the candidate plus any
+   * additional attendees. When false the interview is saved silently
+   * and HR can re-send later via POST /hr/interviews/{id}/send-email.
+   */
+  send_email_now?: boolean;
 }
 
 export interface InterviewFeedbackPayload {

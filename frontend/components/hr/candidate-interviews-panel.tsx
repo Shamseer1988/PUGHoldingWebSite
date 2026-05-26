@@ -599,6 +599,10 @@ function ScheduleDialog({
   const [mode, setMode] = React.useState<"online" | "phone" | "in_person">("online");
   const [locationLink, setLocationLink] = React.useState("");
   const [interviewerId, setInterviewerId] = React.useState("");
+  // Default ON — the most common HR workflow is "schedule AND notify
+  // the candidate immediately". HR has to actively untick to save a
+  // draft without emailing.
+  const [sendEmail, setSendEmail] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -616,6 +620,7 @@ function ScheduleDialog({
         mode,
         location_or_link: locationLink.trim() || null,
         interviewer_id: interviewerId ? Number(interviewerId) : null,
+        send_email_now: sendEmail,
       };
       await hrApi.post("/hr/interviews", payload);
       onSaved();
@@ -749,6 +754,27 @@ function ScheduleDialog({
             />
           </div>
         </div>
+
+        <label className="flex items-start gap-2 text-xs">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+            checked={sendEmail}
+            onChange={(e) => setSendEmail(e.target.checked)}
+            disabled={saving}
+          />
+          <span>
+            <span className="font-medium">
+              Send invitation email to candidate immediately
+            </span>
+            <span className="block text-muted-foreground">
+              Branded HTML email with the round details, date/time, and a
+              &ldquo;Join meeting&rdquo; button pointing to the link above.
+              Untick to save the interview silently and send later via the
+              interview row&apos;s resend button.
+            </span>
+          </span>
+        </label>
 
         {error && (
           <p
