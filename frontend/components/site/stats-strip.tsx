@@ -73,6 +73,14 @@ export function StatsStrip() {
       let safetyTimer: number | undefined;
 
       const ctx = gsap.context(() => {
+        // If the stats strip is already in view (hard refresh
+        // preserved scroll), skip hide-then-reveal so SSR-rendered
+        // numbers stay visible — no 3-4s blank flash.
+        const rect = section.getBoundingClientRect();
+        const alreadyInView =
+          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+        if (alreadyInView) return;
+
         // Hide everything until the timeline runs, so first paint
         // matches the animation starting position.
         gsap.set(cards, { y: 32, opacity: 0, scale: 0.97 });
@@ -111,7 +119,7 @@ export function StatsStrip() {
           if (!tl.isActive() && tl.progress() === 0) {
             tl.progress(1);
           }
-        }, 2500);
+        }, 800);
       }, section);
 
       cleanup = () => {

@@ -734,7 +734,59 @@ def create_contact_message(
     )
     db.commit()
     db.refresh(msg)
+
+    # Best-effort admin notification — failure never blocks the 201
+    # back to the visitor. Runs in-process (the inbox is small) but
+    # any exception is swallowed and logged.
+    try:
+        _notify_admin_of_contact(db, msg)
+    except Exception:  # pragma: no cover - defensive belt-and-braces
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Admin contact-notify failed for message id=%s", msg.id
+        )
     return msg
+
+
+def _notify_admin_of_contact(db, msg) -> None:
+    """Send a short notification email to the configured admin address.
+
+    Silently returns if email is disabled or no notification address is
+    configured. The visitor's submission is already committed by the
+    time this runs, so no exception can roll it back.
+    """
+    from app.services.email import EmailService
+
+    config = EmailService.get_config(db)
+    target = config.notification_email
+    if not (config.is_send_ready and target):
+        return
+
+    subject_part = (msg.subject or "(no subject)").strip()
+    body_text = (
+        f"New contact submission from {msg.name} <{msg.email}>.\n"
+        f"Department: {msg.department or '—'}\n"
+        f"Subject: {subject_part}\n\n"
+        f"Message:\n{msg.message}\n"
+    )
+    body_html = (
+        "<div style=\"font-family:Inter,Arial,sans-serif;color:#17382f;\">"
+        f"<p><strong>New contact submission from</strong> "
+        f"{msg.name} &lt;{msg.email}&gt;.</p>"
+        f"<p><strong>Department:</strong> {msg.department or '—'}<br>"
+        f"<strong>Subject:</strong> {subject_part}</p>"
+        f"<pre style=\"white-space:pre-wrap;background:#f6f3eb;padding:12px;"
+        f"border-radius:8px;\">{msg.message}</pre></div>"
+    )
+    EmailService.send_simple(
+        db,
+        to_email=target,
+        subject=f"[PUG Inbox] {subject_part}",
+        body_text=body_text,
+        body_html=body_html,
+        reply_to=msg.email,
+    )
 
 
 # ---------------------------------------------------------------------------

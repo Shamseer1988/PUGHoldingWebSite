@@ -345,6 +345,70 @@ class ContactMessage(Base):
         index=True,
     )
 
+    replies: Mapped[List["ContactReply"]] = relationship(
+        "ContactReply",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        order_by="ContactReply.created_at.asc()",
+    )
+
+
+# Email delivery state for an outbound admin reply.
+REPLY_STATUS_PENDING = "pending"
+REPLY_STATUS_SENT = "sent"
+REPLY_STATUS_FAILED = "failed"
+REPLY_STATUSES = (REPLY_STATUS_PENDING, REPLY_STATUS_SENT, REPLY_STATUS_FAILED)
+
+
+class ContactReply(Base):
+    """Single message in a contact-inbox thread.
+
+    Both the original inbound submission and every outbound admin reply
+    are represented as rows here so the admin UI can render the thread
+    as a chat. The original ``contact_messages`` columns are kept for
+    backwards compatibility — the first inbound row mirrors them.
+    """
+
+    __tablename__ = "contact_replies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    contact_message_id: Mapped[int] = mapped_column(
+        ForeignKey("contact_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # "inbound" = customer wrote it; "outbound" = admin reply via email.
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    admin_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    sender_name: Mapped[Optional[str]] = mapped_column(String(255))
+    sender_email: Mapped[Optional[str]] = mapped_column(String(255))
+    recipient_email: Mapped[Optional[str]] = mapped_column(String(255))
+    subject: Mapped[Optional[str]] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    email_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=REPLY_STATUS_PENDING,
+        server_default=REPLY_STATUS_PENDING,
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    message: Mapped["ContactMessage"] = relationship(
+        "ContactMessage", back_populates="replies"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Newsletter subscribers

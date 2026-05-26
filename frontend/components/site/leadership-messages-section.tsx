@@ -105,6 +105,16 @@ export function LeadershipMessagesSection({
       let safetyTimer: number | undefined;
 
       const ctx = gsap.context(() => {
+        // If the section is already visible at JS-execution time
+        // (e.g. hard refresh where the browser preserved scroll
+        // position), skip the hide-then-reveal. The SSR HTML is
+        // already rendered correctly; hiding it would cause the
+        // 3-4s blank flash the user reported on Leadership / Footer.
+        const rect = section.getBoundingClientRect();
+        const alreadyInView =
+          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+        if (alreadyInView) return;
+
         // Always start hidden so first paint matches the animation.
         if (header) {
           gsap.set(header, { y: 36, opacity: 0 });
@@ -239,7 +249,7 @@ export function LeadershipMessagesSection({
           if (!tl.isActive() && tl.progress() === 0) {
             tl.progress(1);
           }
-        }, 2500);
+        }, 800);
       }, section);
 
       cleanup = () => {
