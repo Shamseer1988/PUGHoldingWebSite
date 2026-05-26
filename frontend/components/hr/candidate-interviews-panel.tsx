@@ -599,6 +599,7 @@ function ScheduleDialog({
   const [mode, setMode] = React.useState<"online" | "phone" | "in_person">("online");
   const [locationLink, setLocationLink] = React.useState("");
   const [interviewerId, setInterviewerId] = React.useState("");
+  const [createTeamsMeeting, setCreateTeamsMeeting] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -616,6 +617,9 @@ function ScheduleDialog({
         mode,
         location_or_link: locationLink.trim() || null,
         interviewer_id: interviewerId ? Number(interviewerId) : null,
+        // Only meaningful for online rounds — backend ignores the flag
+        // otherwise and silently no-ops when Teams isn't configured.
+        create_teams_meeting: mode === "online" && createTeamsMeeting,
       };
       await hrApi.post("/hr/interviews", payload);
       onSaved();
@@ -732,22 +736,52 @@ function ScheduleDialog({
                 : mode === "in_person"
                   ? "Location"
                   : "Notes (optional)"}
-              {mode !== "phone" && <span className="text-rose-500"> *</span>}
+              {mode !== "phone" && !(mode === "online" && createTeamsMeeting) && (
+                <span className="text-rose-500"> *</span>
+              )}
             </Label>
             <Input
               value={locationLink}
               onChange={(e) => setLocationLink(e.target.value)}
               placeholder={
                 mode === "online"
-                  ? "https://meet.example.com/abc"
+                  ? createTeamsMeeting
+                    ? "Auto-filled with the Teams link on save"
+                    : "https://meet.example.com/abc"
                   : mode === "in_person"
                     ? "HQ Boardroom, 5th floor"
                     : "Dial-out number, etc."
               }
-              required={mode !== "phone"}
+              required={
+                mode === "in_person" ||
+                (mode === "online" && !createTeamsMeeting)
+              }
               disabled={saving}
             />
           </div>
+          {mode === "online" && (
+            <div className="sm:col-span-2">
+              <label className="flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  checked={createTeamsMeeting}
+                  onChange={(e) => setCreateTeamsMeeting(e.target.checked)}
+                  disabled={saving}
+                />
+                <span>
+                  <span className="font-medium">
+                    Auto-create Microsoft Teams meeting
+                  </span>
+                  <span className="block text-muted-foreground">
+                    When enabled the backend asks Microsoft Graph to mint a
+                    Teams join URL and writes it onto the meeting link
+                    field. Falls back silently if Teams isn&apos;t configured.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
         </div>
 
         {error && (

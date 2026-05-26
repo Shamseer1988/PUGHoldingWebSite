@@ -294,7 +294,7 @@ def create_interview_endpoint(
     #     create_interview's location_or_link requirement when the
     #     caller hasn't supplied one --------------------------------
     meet_result = None
-    if payload.create_google_meet and payload.mode == "online":
+    if payload.create_teams_meeting and payload.mode == "online":
         meet_result = _try_create_meet_from_payload(app, payload)
 
     effective_location = payload.location_or_link or (
@@ -330,7 +330,7 @@ def create_interview_endpoint(
     if meet_result is not None:
         interview.calendar_event_id = meet_result.event_id
         interview.meeting_link = meet_result.meet_link
-        interview.calendar_provider = "google"
+        interview.calendar_provider = "teams"
 
     db.flush()
 
@@ -352,7 +352,7 @@ def create_interview_endpoint(
             "scheduled_at": interview.scheduled_at.isoformat(),
             "mode": interview.mode,
             "interviewer_id": interview.interviewer_id,
-            "create_google_meet": payload.create_google_meet,
+            "create_teams_meeting": payload.create_teams_meeting,
             "send_email_now": payload.send_email_now,
             "has_meet_link": bool(interview.meeting_link),
         },
@@ -377,8 +377,8 @@ def create_interview_endpoint(
 
 
 def _try_create_meet_from_payload(app, payload: InterviewCreate):
-    """Best-effort Google Meet creation. Returns None on failure."""
-    from app.services.google_calendar_service import create_interview_event
+    """Best-effort Microsoft Teams meeting creation. Returns None on failure."""
+    from app.services.teams_meeting_service import create_interview_event
 
     candidate = app.candidate if app else None
     candidate_email = (
@@ -682,14 +682,14 @@ def create_interview_meet(
     db: Session = Depends(get_db),
     user: User = Depends(require_hr_admin),
 ) -> InterviewRead:
-    """Create (or recreate) a Google Meet link for an existing interview."""
-    from app.services.google_calendar_service import create_interview_event
+    """Create (or recreate) a Microsoft Teams meeting link for an existing interview."""
+    from app.services.teams_meeting_service import create_interview_event
 
     interview = _get_interview_or_404(db, interview_id)
     if interview.mode != "online":
         raise HTTPException(
             status_code=409,
-            detail="Google Meet links are only created for online interviews.",
+            detail="Teams meeting links are only created for online interviews.",
         )
 
     app = interview.application
@@ -713,12 +713,12 @@ def create_interview_meet(
     if result is None:
         raise HTTPException(
             status_code=503,
-            detail="Google Calendar integration is not configured.",
+            detail="Microsoft Teams integration is not configured.",
         )
 
     interview.calendar_event_id = result.event_id
     interview.meeting_link = result.meet_link
-    interview.calendar_provider = "google"
+    interview.calendar_provider = "teams"
     if not interview.location_or_link:
         interview.location_or_link = result.meet_link
 

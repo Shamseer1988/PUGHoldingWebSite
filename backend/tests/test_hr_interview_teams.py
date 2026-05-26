@@ -1,13 +1,12 @@
-"""Tests for the advanced interview workflow (phase 6).
+"""Tests for the Microsoft Teams interview workflow (phase 6 — Teams replacement).
 
 Covers:
 
-* Google Meet integration uses the stub backend in tests.
-* When Google is configured, online interview can create a Meet link
-  and the link + event id are persisted on the Interview row.
-* When Google is NOT configured, interview create still succeeds; the
+* Teams integration uses the stub backend in tests — no Graph calls.
+* When Teams is configured, online interview can create a meeting link
+  and the join URL + meeting id are persisted on the Interview row.
+* When Teams is NOT configured, interview create still succeeds; the
   meeting link stays as the manually-entered one (or null).
-* send-email endpoint stamps email_sent_at + status.
 * create-meet endpoint adds a link to an existing online interview.
 """
 from __future__ import annotations
@@ -23,10 +22,9 @@ from app.models.hr_ats import (
     STATUS_CV_RECEIVED,
     Candidate,
     CandidateJobApplication,
-    Interview,
     JobOpening,
 )
-from app.services import google_calendar_service
+from app.services import teams_meeting_service
 
 
 HR_LOGIN = "/api/v1/hr/auth/login"
@@ -34,19 +32,19 @@ INTERVIEWS = "/api/v1/hr/interviews"
 
 
 @pytest.fixture
-def stub_calendar(monkeypatch):
-    stub = google_calendar_service.StubGoogleCalendarBackend(configured=True)
-    google_calendar_service.set_backend(stub)
+def stub_teams(monkeypatch):
+    stub = teams_meeting_service.StubTeamsBackend(configured=True)
+    teams_meeting_service.set_backend(stub)
     yield stub
-    google_calendar_service.set_backend(None)
+    teams_meeting_service.set_backend(None)
 
 
 @pytest.fixture
-def stub_calendar_disabled(monkeypatch):
-    stub = google_calendar_service.StubGoogleCalendarBackend(configured=False)
-    google_calendar_service.set_backend(stub)
+def stub_teams_disabled(monkeypatch):
+    stub = teams_meeting_service.StubTeamsBackend(configured=False)
+    teams_meeting_service.set_backend(stub)
     yield stub
-    google_calendar_service.set_backend(None)
+    teams_meeting_service.set_backend(None)
 
 
 def _auth(client: TestClient, password: str) -> dict:
@@ -88,8 +86,8 @@ def _future_dt(hours: int = 24) -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
 
 
-def test_create_online_interview_with_meet_link(
-    client, seed_auth, db_session: Session, stub_calendar
+def test_create_online_interview_with_teams_link(
+    client, seed_auth, db_session: Session, stub_teams
 ):
     app = _seed_application(db_session)
     headers = _auth(client, seed_auth["password"])
@@ -103,7 +101,7 @@ def test_create_online_interview_with_meet_link(
             "scheduled_at": _future_dt(48),
             "duration_minutes": 60,
             "mode": "online",
-            "create_google_meet": True,
+            "create_teams_meeting": True,
             "send_email_now": False,
         },
         headers=headers,
@@ -112,15 +110,15 @@ def test_create_online_interview_with_meet_link(
     body = response.json()
     assert body["meeting_link"]
     assert body["calendar_event_id"]
-    assert body["calendar_provider"] == "google"
-    assert "meet.google.com" in body["meeting_link"]
+    assert body["calendar_provider"] == "teams"
+    assert "teams.microsoft.com" in body["meeting_link"]
 
     # Stub backend captured the event.
-    assert len(stub_calendar.events) == 1
+    assert len(stub_teams.events) == 1
 
 
-def test_create_online_interview_without_google_config(
-    client, seed_auth, db_session: Session, stub_calendar_disabled
+def test_create_online_interview_without_teams_config(
+    client, seed_auth, db_session: Session, stub_teams_disabled
 ):
     app = _seed_application(db_session)
     headers = _auth(client, seed_auth["password"])
@@ -135,7 +133,7 @@ def test_create_online_interview_without_google_config(
             "duration_minutes": 60,
             "mode": "online",
             "location_or_link": "https://zoom.us/j/123",
-            "create_google_meet": True,  # asked, but Google not configured
+            "create_teams_meeting": True,  # asked, but Teams not configured
             "send_email_now": False,
         },
         headers=headers,
@@ -147,8 +145,8 @@ def test_create_online_interview_without_google_config(
     assert body["calendar_event_id"] is None
 
 
-def test_create_meet_endpoint_adds_link(
-    client, seed_auth, db_session: Session, stub_calendar
+def test_create_meet_endpoint_adds_teams_link(
+    client, seed_auth, db_session: Session, stub_teams
 ):
     app = _seed_application(db_session)
     headers = _auth(client, seed_auth["password"])
@@ -162,7 +160,7 @@ def test_create_meet_endpoint_adds_link(
             "duration_minutes": 30,
             "mode": "online",
             "location_or_link": "TBD",
-            "create_google_meet": False,
+            "create_teams_meeting": False,
             "send_email_now": False,
         },
         headers=headers,
@@ -177,10 +175,11 @@ def test_create_meet_endpoint_adds_link(
     body = add_meet.json()
     assert body["meeting_link"]
     assert body["calendar_event_id"]
+    assert body["calendar_provider"] == "teams"
 
 
 def test_create_meet_endpoint_rejects_for_in_person(
-    client, seed_auth, db_session: Session, stub_calendar
+    client, seed_auth, db_session: Session, stub_teams
 ):
     app = _seed_application(db_session)
     headers = _auth(client, seed_auth["password"])
@@ -205,7 +204,7 @@ def test_create_meet_endpoint_rejects_for_in_person(
 
 
 def test_send_email_endpoint_stamps_metadata(
-    client, seed_auth, db_session: Session, stub_calendar_disabled
+    client, seed_auth, db_session: Session, stub_teams_disabled
 ):
     app = _seed_application(db_session)
     headers = _auth(client, seed_auth["password"])
