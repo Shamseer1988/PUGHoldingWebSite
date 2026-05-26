@@ -42,6 +42,9 @@ from app.schemas.hr_ats import (
     JobApprovalActionRequest,
     JobApprovalHistoryRead,
     JobApprovalRejectRequest,
+    JobAutoReviewRuleRead,
+    JobAutoReviewRuleUpdate,
+    JobAutoReviewSummary,
     JobOpeningCreate,
     JobOpeningRead,
     JobOpeningUpdate,
@@ -628,3 +631,99 @@ def _notify_safe(func_name: str, **kwargs) -> None:
         func(**kwargs)
     except Exception:  # pragma: no cover - never break the transaction
         logger.exception("hr_notifications.%s failed", func_name)
+
+
+# ---------------------------------------------------------------------------
+# Auto-review rule per job (advanced module — phase 4)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{job_id}/auto-review-rule",
+    response_model=Optional[JobAutoReviewRuleRead],
+)
+def get_auto_review_rule(
+    job_id: int,
+    db: Session = Depends(get_db),
+) -> Optional[JobAutoReviewRuleRead]:
+    from app.models.hr_ats import JobAutoReviewRule
+
+    _get_or_404(db, job_id)
+    rule = db.execute(
+        select(JobAutoReviewRule).where(JobAutoReviewRule.job_opening_id == job_id)
+    ).scalar_one_or_none()
+    return JobAutoReviewRuleRead.model_validate(rule) if rule else None
+
+
+@router.put(
+    "/{job_id}/auto-review-rule",
+    response_model=JobAutoReviewRuleRead,
+)
+def upsert_auto_review_rule(
+    job_id: int,
+    payload: JobAutoReviewRuleUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> JobAutoReviewRuleRead:
+    from app.services import candidate_auto_review
+
+    _get_or_404(db, job_id)
+    rule = candidate_auto_review.get_or_create_rule(
+        db, job_opening_id=job_id, created_by_id=user.id
+    )
+
+    changes = payload.model_dump(exclude_unset=True)
+    for k, v in changes.items():
+        setattr(rule, k, v)
+    rule.updated_by_id = user.id
+
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.auto_review_rule.upsert",
+        target_id=job_id,
+        details={"keys": list(changes.keys())},
+    )
+    db.commit()
+    db.refresh(rule)
+    return JobAutoReviewRuleRead.model_validate(rule)
+
+
+@router.post("/{job_id}/auto-review-run", response_model=dict)
+def run_job_auto_review(
+    job_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> dict:
+    """Re-run auto-review on every application of this job."""
+    from app.services import candidate_auto_review
+
+    _get_or_404(db, job_id)
+    reviews = candidate_auto_review.run_auto_review_for_job(
+        db, job_opening_id=job_id
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.auto_review.run",
+        target_id=job_id,
+        details={"reviewed": len(reviews)},
+    )
+    db.commit()
+    return {"reviewed": len(reviews)}
+
+
+@router.get("/{job_id}/auto-review-summary", response_model=JobAutoReviewSummary)
+def get_auto_review_summary(
+    job_id: int,
+    db: Session = Depends(get_db),
+) -> JobAutoReviewSummary:
+    from app.services import candidate_auto_review
+
+    _get_or_404(db, job_id)
+    summary = candidate_auto_review.summarise_job(db, job_opening_id=job_id)
+    return JobAutoReviewSummary(**summary)

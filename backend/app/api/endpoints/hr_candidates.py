@@ -51,6 +51,7 @@ from app.schemas.hr_ats import (
     CandidateAIReviewPreview,
     CandidateAIReviewRead,
     CandidateApplicationSummary,
+    CandidateAutoReviewRead,
     CandidateDocumentRead,
     CandidateExtractedDataRead,
     CandidateExtractedDataUpdate,
@@ -1452,3 +1453,68 @@ def bulk_change_application_status(
         failed_count=failed_count,
         rows=rows,
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-review (advanced module — phase 4)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{candidate_id}/applications/{application_id}/auto-review",
+    response_model=CandidateAutoReviewRead,
+)
+def run_application_auto_review(
+    candidate_id: int,
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_hr_admin),
+) -> CandidateAutoReviewRead:
+    """Run (or re-run) the auto-review engine on a single application."""
+    from app.services import candidate_auto_review
+
+    app = _get_application_or_404(db, candidate_id, application_id)
+    review = candidate_auto_review.run_auto_review(db, application=app)
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.auto_review.run",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate_application",
+        target_id=str(application_id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "decision": review.decision,
+            "score": review.score,
+            "rule_id": review.rule_id,
+        },
+        commit=False,
+    )
+    db.commit()
+    db.refresh(review)
+    return CandidateAutoReviewRead.model_validate(review)
+
+
+@router.get(
+    "/{candidate_id}/applications/{application_id}/auto-review",
+    response_model=Optional[CandidateAutoReviewRead],
+)
+def get_application_auto_review(
+    candidate_id: int,
+    application_id: int,
+    db: Session = Depends(get_db),
+) -> Optional[CandidateAutoReviewRead]:
+    from app.models.hr_ats import CandidateAutoReview
+
+    app = _get_application_or_404(db, candidate_id, application_id)
+    review = db.execute(
+        select(CandidateAutoReview).where(
+            CandidateAutoReview.application_id == app.id
+        )
+    ).scalar_one_or_none()
+    return CandidateAutoReviewRead.model_validate(review) if review else None
