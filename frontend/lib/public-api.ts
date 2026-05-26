@@ -531,6 +531,14 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 export function resolveAssetUrl(url: string | null | undefined): string | null {
   if (!url) return null;
+  // Normalise Windows-style backslashes to forward slashes.
+  // Admins occasionally paste a local file path (e.g.
+  // "\images\foo\bar.webp") into an image URL field — most browsers
+  // resolve that to a relative URL with backslashes, which 404s.
+  // Treat any backslash as a forward slash so a typo never breaks
+  // the live site.
+  url = url.replace(/\\/g, "/").trim();
+  if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/api/")) {
     try {
