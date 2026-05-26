@@ -440,7 +440,7 @@ def _r_interview_scheduled(ctx: Dict[str, Any]) -> RenderedEmail:
             if interviewer
             else ""
         )
-        + _btn("Join Google Meet", meeting_link)
+        + _btn("Join meeting", meeting_link)
         + (
             f"<p style='margin:12px 0;'><strong style='color:#61736b;'>"
             f"Note from HR:</strong></p>"
