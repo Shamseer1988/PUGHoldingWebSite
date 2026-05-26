@@ -573,7 +573,7 @@ class InterviewCreate(InterviewBase):
     email_subject: Optional[str] = Field(default=None, max_length=500)
     email_note: Optional[str] = Field(default=None, max_length=4000)
     send_email_now: bool = False
-    create_teams_meeting: bool = False
+    create_google_meet: bool = False
 
 
 class InterviewUpdate(BaseModel):
@@ -864,4 +864,4 @@ class InterviewEmailFields(BaseModel):
     email_subject: Optional[str] = Field(default=None, max_length=500)
     email_note: Optional[str] = Field(default=None, max_length=4000)
     send_email_now: bool = False
-    create_teams_meeting: bool = False
+    create_google_meet: bool = False

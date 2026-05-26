@@ -554,13 +554,6 @@ export interface InterviewCreatePayload {
   mode: InterviewMode | string;
   location_or_link?: string | null;
   interviewer_id?: number | null;
-  /**
-   * When true and mode is "online", the backend asks Microsoft Graph to
-   * create a Teams meeting and stamps `meeting_link` + `calendar_event_id`
-   * on the interview. Silently no-ops when Teams isn't configured on the
-   * server.
-   */
-  create_teams_meeting?: boolean;
 }
 
 export interface InterviewFeedbackPayload {

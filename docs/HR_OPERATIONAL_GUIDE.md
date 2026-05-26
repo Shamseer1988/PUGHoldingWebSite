@@ -1,8 +1,8 @@
 # PUG HR — Operational Guide
 
 End-to-end workflow guide for the advanced HR ATS module: who does what,
-when each email fires, and how to enable the optional Microsoft Teams
-integration. Companion document to
+when each email fires, and how to enable the optional Google Calendar /
+Meet integration. Companion document to
 [`HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt`](./HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt)
 (the build spec).
 
@@ -15,7 +15,7 @@ integration. Companion document to
 3. [Candidate lifecycle](#candidate-lifecycle)
 4. [Auto-review rule setup](#auto-review-rule-setup-per-job)
 5. [Interview workflow](#interview-workflow)
-6. [Microsoft Teams setup](#microsoft-teams-setup)
+6. [Google Calendar / Meet setup](#google-calendar--meet-setup)
 7. [SMTP / branded email setup](#smtp--branded-email-setup)
 8. [Troubleshooting](#troubleshooting)
 
@@ -27,7 +27,7 @@ integration. Companion document to
 |------|--------------|------------|
 | **HR Executive** | Creates job drafts, edits jobs, uploads candidates, schedules interviews, runs auto-review | Logs into `/hr/login`, has `scope=hr` |
 | **HR Manager** | Approves/rejects jobs and revisions, signs off rejections, manages auto-review rules | Same login; for now the UI shows approval buttons to everyone with `scope=hr` (fine-grained `hr.jobs.approve` permission is a future tweak) |
-| **System Admin** | Configures SMTP, HR notification emails, Microsoft Teams integration | `scope=system`, accesses `/admin/email-settings` |
+| **System Admin** | Configures SMTP, HR notification emails, Google Meet integration | `scope=system`, accesses `/admin/email-settings` |
 
 ---
 
@@ -225,7 +225,7 @@ Authorization: Bearer <hr-token>
   "duration_minutes": 60,
   "mode": "online",                              // or "in_person" / "phone"
   "interviewer_id": 7,
-  "create_teams_meeting": true,                  // auto-creates Teams meeting link
+  "create_google_meet": true,                    // auto-creates Meet link
   "send_email_now": true,                        // fires branded email
   "candidate_email_override": null,              // optional
   "additional_attendee_emails": ["tech-lead@pug.com"],
@@ -238,128 +238,121 @@ Authorization: Bearer <hr-token>
 
 ### What happens behind the scenes
 
-1. If `create_teams_meeting=true` **AND** `mode=online` **AND** Teams is
-   configured → calls Microsoft Graph, gets a `joinUrl`, saves to
-   `Interview.meeting_link` + `calendar_event_id` (provider = `teams`).
+1. If `create_google_meet=true` **AND** `mode=online` **AND** Google is
+   configured → creates a Calendar event, gets a Meet link, saves to
+   `Interview.meeting_link` + `calendar_event_id`.
 2. Interview row is created (status=`scheduled`).
 3. If `send_email_now=true` → renders the `interview_scheduled` template,
    sends to candidate + attendees, CCs/BCCs, logs to `hr_email_logs`.
-4. **Fails gracefully** — Graph outage doesn't break the create; email
+4. **Fails gracefully** — Google outage doesn't break the create; email
    failure is logged but doesn't roll back.
 
 ### Manual triggers later
 
 ```http
-POST /hr/interviews/{id}/create-meet           # add Teams link to existing online iv
+POST /hr/interviews/{id}/create-meet           # add Meet to existing online iv
 POST /hr/interviews/{id}/send-email            # resend invitation
 POST /hr/interviews/{id}/resend-invitation     # alias of send-email
 ```
 
 ---
 
-## Microsoft Teams setup
+## Google Calendar / Meet setup
 
 The integration is **fully optional** — when env vars are missing, every
-interview still saves; only the auto-Teams-meeting feature is skipped.
+interview still saves; only the auto-Meet feature is skipped.
 
-Architecture: backend calls Microsoft Graph
-`POST /users/{organizer}/onlineMeetings` with client-credentials auth.
-The resulting `joinUrl` is written onto the interview's `meeting_link`
-field; the meeting id is stored on `calendar_event_id` so future
-edits / cancels can find it.
+### Step 1 — Create a Google Cloud project
 
-### Step 1 — Register an app in Azure AD
+1. Go to <https://console.cloud.google.com/>
+2. **New Project** → name it "PUG HR Calendar"
+3. Note the project ID
 
-1. Open <https://portal.azure.com/> → sign in as a tenant administrator.
-2. **Microsoft Entra ID** → **App registrations** → **New registration**.
-   - Name: `PUG HR Interviews`
-   - Supported account types: **Accounts in this organizational
-     directory only (single tenant)**
-   - Redirect URI: leave blank (this is a daemon app, not user-interactive)
-   - Click **Register**.
-3. On the new app's overview page, copy two values you'll need later:
-   - **Application (client) ID** → `MS_CLIENT_ID`
-   - **Directory (tenant) ID** → `MS_TENANT_ID`
+### Step 2 — Enable Calendar API
 
-### Step 2 — Create a client secret
+1. **APIs & Services** → **Library**
+2. Search **"Google Calendar API"** → **Enable**
 
-1. Left menu → **Certificates & secrets** → **Client secrets** tab →
-   **New client secret**.
-2. Description: `pug-hr-interviews` — expiry: pick the longest your
-   tenant policy allows (12-24 months is typical).
-3. Click **Add** → **immediately copy the `Value` column** — it's only
-   shown once. This is `MS_CLIENT_SECRET`.
+### Step 3 — Create a service account
 
-### Step 3 — Grant Graph API permissions
+1. **IAM & Admin** → **Service Accounts** → **Create Service Account**
+   - Name: `pug-hr-calendar`
+   - Role: leave blank (we grant calendar access at the calendar level,
+     not the project level — least privilege)
+2. Open the new service account → **Keys** tab → **Add Key** → **JSON**
+3. Save the downloaded file as `pug-google-service-account.json` —
+   **treat it as a password**, never commit it to git.
+4. **Copy the service account email** — it looks like
+   `pug-hr-calendar@<project-id>.iam.gserviceaccount.com`
 
-1. Left menu → **API permissions** → **Add a permission**.
-2. **Microsoft Graph** → **Application permissions** (not Delegated).
-3. Search for `OnlineMeetings.ReadWrite.All` → tick it → **Add permissions**.
-4. Back on the API permissions page click **Grant admin consent for
-   `<tenant name>`** → **Yes**. The status column for the permission
-   must turn into a green "Granted for …".
+### Step 4 — Create the HR calendar + share with the service account
 
-### Step 4 — Grant the app access to the HR organizer mailbox
+1. Sign in to <https://calendar.google.com/> as the **HR mailbox**
+   (e.g. `hr@pug.example.com`).
+2. **Left sidebar** → "Other calendars" → **+** → **Create new calendar**
+   - Name: "PUG HR Interviews"
+   - Time zone: Asia/Qatar (or your local)
+3. Open the new calendar's settings → **Share with specific people or
+   groups**.
+4. **Add people** → paste the service-account email → permission **"Make
+   changes to events"**.
+5. Scroll down to **Integrate calendar** → copy the **Calendar ID**
+   (looks like `abc123@group.calendar.google.com`).
 
-Application permission alone is not enough — Microsoft requires an
-**Application Access Policy** that whitelists which user mailboxes your
-app can create meetings on behalf of. This is a one-time PowerShell
-command run by a tenant admin.
-
-On a Windows machine (or any machine with PowerShell 7):
-
-```powershell
-# Install the Microsoft Teams module once
-Install-Module MicrosoftTeams -Scope CurrentUser
-
-# Sign in as a Global Admin / Teams Service Admin
-Connect-MicrosoftTeams
-
-# Create the policy (one-time)
-New-CsApplicationAccessPolicy `
-  -Identity "PugHrInterviewsPolicy" `
-  -AppIds "<MS_CLIENT_ID from step 1>" `
-  -Description "PUG HR interview bot"
-
-# Grant it to the organizer mailbox — the user the meetings will be
-# created 'on behalf of'. Most teams use a dedicated HR mailbox like
-# hr@yourdomain.com.
-Grant-CsApplicationAccessPolicy `
-  -PolicyName "PugHrInterviewsPolicy" `
-  -Identity "hr@yourdomain.com"
-```
-
-> Policy propagation can take 20-30 minutes after `Grant-CsApplicationAccessPolicy`.
-> If the smoke test in Step 6 returns `403 Forbidden`, wait and retry.
-
-### Step 5 — Add env vars
-
-Edit `backend/.env` (local) or `/home/parisgroup/PugWebSite/backend/.env`
-(production) and append:
+### Step 5 — Place the credentials file on the server
 
 ```bash
-# Microsoft Teams meeting integration
-MS_TEAMS_ENABLED=true
-MS_TENANT_ID=<Directory (tenant) ID from step 1>
-MS_CLIENT_ID=<Application (client) ID from step 1>
-MS_CLIENT_SECRET=<client secret value from step 2>
-MS_TEAMS_ORGANIZER_USER_ID=hr@yourdomain.com
-MS_TEAMS_TIMEZONE=Asia/Qatar
+# As parisgroup user on the EC2 box
+mkdir -p /home/parisgroup/PugWebSite/backend/secrets
+chmod 700 /home/parisgroup/PugWebSite/backend/secrets
+
+# Upload the JSON (from your laptop)
+scp pug-google-service-account.json ubuntu@<EC2>:/tmp/
+ssh ubuntu@<EC2> "sudo mv /tmp/pug-google-service-account.json \
+                    /home/parisgroup/PugWebSite/backend/secrets/ && \
+                  sudo chown parisgroup:parisgroup \
+                    /home/parisgroup/PugWebSite/backend/secrets/pug-google-service-account.json && \
+                  sudo chmod 600 \
+                    /home/parisgroup/PugWebSite/backend/secrets/pug-google-service-account.json"
 ```
 
-`MS_TEAMS_ORGANIZER_USER_ID` must match the user you granted in
-Step 4 — either the UPN (`hr@yourdomain.com`) or the AAD object id.
+### Step 6 — Add env vars
 
-> No new Python packages are required — the integration uses `httpx`,
-> which is already in `requirements.txt`.
-
-### Step 6 — Restart + smoke-test
+Edit `/home/parisgroup/PugWebSite/backend/.env` and append:
 
 ```bash
-# Local
-python run.py
+# Google Calendar / Meet integration
+GOOGLE_CALENDAR_ENABLED=true
+GOOGLE_CALENDAR_ID=abc123@group.calendar.google.com
+GOOGLE_SERVICE_ACCOUNT_JSON_PATH=/home/parisgroup/PugWebSite/backend/secrets/pug-google-service-account.json
+GOOGLE_CALENDAR_TIMEZONE=Asia/Qatar
+```
 
-# Production
+### Step 7 — Install the Google client library
+
+The backend **lazy-imports** the client, so it's not a hard dependency.
+Install it once:
+
+```bash
+sudo -u parisgroup bash -c '
+  cd /home/parisgroup/PugWebSite/backend
+  source .venv/bin/activate
+  pip install google-api-python-client google-auth
+  deactivate
+'
+```
+
+Then pin the versions in `backend/requirements.txt` so future deploys
+keep them:
+
+```
+google-api-python-client==2.149.0
+google-auth==2.35.0
+```
+
+### Step 8 — Restart + smoke-test
+
+```bash
 sudo systemctl restart pugweb-backend
 sudo journalctl -u pugweb-backend -n 30 --no-pager
 ```
@@ -376,44 +369,38 @@ curl -X POST http://127.0.0.1:8000/api/v1/hr/interviews \
     "scheduled_at": "2026-12-01T10:00:00+03:00",
     "duration_minutes": 30,
     "mode": "online",
-    "create_teams_meeting": true,
+    "create_google_meet": true,
     "send_email_now": false
   }' | jq .
 
-# Look for "meeting_link" with a real teams.microsoft.com URL,
-# "calendar_event_id" populated, and "calendar_provider": "teams".
+# Look for "meeting_link" with a real meet.google.com URL
+# and "calendar_event_id" populated.
 ```
 
 ### How candidates experience it
 
-1. Candidate gets a branded HTML email with the Teams link as a
-   **"Join Microsoft Teams meeting"** button, date/time in your
-   configured timezone (default `Asia/Qatar`), round name, interviewer,
-   any HR note.
-2. Clicking the link opens Teams in the browser or app — no Microsoft
-   account required on the candidate's side, the meeting accepts
-   external/guest joiners by default.
-3. **No automatic calendar invite is sent** (unlike the previous Google
-   integration which created a calendar event). Candidates add the
-   time to their own calendar from the email; HR can forward an Outlook
-   invite separately if that's part of their flow. A future phase can
-   wire in `POST /users/{id}/events` to send a real Outlook invite — it
-   needs the additional `Calendars.ReadWrite` permission.
+1. Candidate gets an HTML email with PUG branding, the Meet link as a
+   button, date/time in `Asia/Qatar`, round name, interviewer, any HR
+   note.
+2. **Calendar invite arrives separately from Google** (because we set
+   `sendUpdates="all"` when creating the event) — so candidate +
+   interviewer + attendees see it on their own calendars.
+3. If candidate emails HR back to reschedule, HR uses `PATCH
+   /hr/interviews/{id}` to update — and either clicks "Send email" again
+   or relies on the rescheduled-email template (manual call to
+   `notify_interview_rescheduled` from the API).
 
 ### Disabling without uninstalling
 
-Set `MS_TEAMS_ENABLED=false` (or just remove the env var) and restart
-the backend. The interview create endpoint will skip Teams meeting
-creation; HR keeps using the manual `location_or_link` field. The
-existing `meeting_link` values on past interviews keep working — the
-Teams URLs remain valid until the underlying meeting is deleted in
-Teams admin.
+Set `GOOGLE_CALENDAR_ENABLED=false` (or just remove the env var) and
+restart the backend. The interview create endpoint will skip Meet
+creation; HR keeps using the manual `location_or_link` field.
 
 ---
 
 ## SMTP / branded email setup
 
-Without SMTP, the interview row is still created and the Teams link is
+Without SMTP, the interview row is still created and the Meet link is
 still generated — but the candidate never gets the branded HTML email.
 
 1. Log in to `/admin/email-settings` as the system admin.
@@ -455,11 +442,10 @@ the audit trail stays complete.
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `meeting_link` is null but interview created | One of the `MS_*` env vars is unset/blank | Re-check `MS_TEAMS_ENABLED`, `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TEAMS_ORGANIZER_USER_ID` |
-| Backend log shows `Token request failed (401)` | Wrong tenant id, client id or secret — or the secret expired | Re-issue the client secret in Azure → **App registrations** → **Certificates & secrets** and update `MS_CLIENT_SECRET` |
-| Backend log shows `Graph POST … failed (403)` with `Forbidden` | Application Access Policy not granted to the organizer mailbox yet (or still propagating — takes up to 30 min) | Re-run `Grant-CsApplicationAccessPolicy` from step 4; wait, then retry |
-| Backend log shows `Graph POST … failed (404)` with `Resource … not found` | `MS_TEAMS_ORGANIZER_USER_ID` doesn't match a real mailbox in the tenant | Use the UPN (e.g. `hr@yourdomain.com`) or the user's AAD object id |
-| Teams link works but external candidates can't join | Tenant policy blocks anonymous join | Teams Admin Center → **Meetings** → **Meeting policies** — enable "Anonymous users can join a meeting" |
+| `meeting_link` is null but interview created | Google client lib not installed | `pip install google-api-python-client google-auth` in the venv |
+| `meeting_link` null + log shows "Service account JSON not found" | Wrong path or wrong permissions | Check `GOOGLE_SERVICE_ACCOUNT_JSON_PATH`; `chmod 600` + correct owner |
+| `calendarNotFound` in log | Calendar ID typo OR service account not shared on it | Re-check Calendar Settings → Integrate calendar; re-share with the service-account email |
+| Meet link created but no calendar invite emails to attendees | Calendar isn't a Google Workspace calendar (free accounts can't invite externals via API) | Use a Workspace calendar |
 | Email logged as "failed" with "SMTP authentication failed" | Wrong username/password in `/admin/email-settings` | Re-enter the password (it's encrypted at rest, blank = "keep existing") |
 | Test email button works but interview emails don't | One of the per-event toggles is off | Check `interview_email_enabled` in Admin Email Settings |
 | Job stays at `draft` after `submit-approval` | Job lifecycle status is `closed` — submit was a no-op | Reopen the job first (`POST /hr/jobs/{id}/reopen`) |
