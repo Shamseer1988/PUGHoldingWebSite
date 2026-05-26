@@ -16,6 +16,8 @@ import {
 
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
+import { JobApprovalActions } from "@/components/hr/job-approval-actions";
+import { JobApprovalBadge } from "@/components/hr/job-approval-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -368,7 +370,7 @@ export default function HrJobsPage() {
                 <TableHead className="hidden md:table-cell">Department</TableHead>
                 <TableHead className="hidden md:table-cell">Company</TableHead>
                 <TableHead className="hidden lg:table-cell w-32">Posted</TableHead>
-                <TableHead className="w-32">Status</TableHead>
+                <TableHead className="w-56">Status</TableHead>
                 <TableHead className="w-44 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -391,15 +393,34 @@ export default function HrJobsPage() {
                     {new Date(job.posted_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
-                    {job.status === "open" && (
-                      <Badge variant="success">{STATUS_LABEL[job.status]}</Badge>
-                    )}
-                    {job.status === "on_hold" && (
-                      <Badge variant="warning">{STATUS_LABEL[job.status]}</Badge>
-                    )}
-                    {job.status === "closed" && (
-                      <Badge variant="muted">{STATUS_LABEL[job.status]}</Badge>
-                    )}
+                    <div className="space-y-1.5">
+                      <div>
+                        {job.status === "open" && (
+                          <Badge variant="success">{STATUS_LABEL[job.status]}</Badge>
+                        )}
+                        {job.status === "on_hold" && (
+                          <Badge variant="warning">{STATUS_LABEL[job.status]}</Badge>
+                        )}
+                        {job.status === "closed" && (
+                          <Badge variant="muted">{STATUS_LABEL[job.status]}</Badge>
+                        )}
+                      </div>
+                      <JobApprovalBadge
+                        approvalStatus={job.approval_status}
+                        publishStatus={job.publish_status}
+                        hasPendingRevision={job.has_pending_revision}
+                      />
+                      <JobApprovalActions
+                        job={job}
+                        onUpdated={(updated) => {
+                          setItems((prev) =>
+                            (prev ?? []).map((j) =>
+                              j.id === updated.id ? updated : j,
+                            ),
+                          );
+                        }}
+                      />
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     {busyId === job.id ? (
