@@ -19,6 +19,7 @@ from app.core.rate_limit import (
     rate_limit_ai_assistant,
     rate_limit_apply,
     rate_limit_contact,
+    rate_limit_cv_preview,
     rate_limit_newsletter,
 )
 from app.models.cms import (
@@ -67,6 +68,7 @@ from app.schemas.hr_ats import (
     JobOpeningRead,
     PublicAIAskRequest,
     PublicAIAskResponse,
+    PublicCvParsePreview,
 )
 from app.ai.public_assistant import answer_question, log_query
 from app.services.candidate_intake import (
@@ -897,6 +899,131 @@ def subscribe_to_newsletter(
 # ---------------------------------------------------------------------------
 # Write: candidate application from the public Apply form
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/candidate-applications/parse-preview",
+    response_model=PublicCvParsePreview,
+    dependencies=[Depends(rate_limit_cv_preview)],
+)
+async def parse_cv_preview(
+    request: Request,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(..., description="CV file (PDF / DOCX / PNG / JPG)"),
+) -> PublicCvParsePreview:
+    """Parse a candidate-uploaded CV and return the extracted fields.
+
+    Auto-fill endpoint used by the public Apply form. This endpoint must
+    never create Candidate / CandidateDocument / CandidateJobApplication
+    rows — that happens in :func:`submit_candidate_application` once the
+    candidate clicks the final submit button. The temp file is deleted
+    after parsing so we never accumulate unowned CVs on disk.
+    """
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from app.services.cv_parser import CvParseError, parse_cv
+    from app.services.cv_storage import (
+        ALLOWED_CV_EXT,
+        ALLOWED_CV_MIME,
+        MAX_CV_BYTES,
+    )
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty CV upload.")
+    if len(payload) > MAX_CV_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CV is too large. Maximum size is {MAX_CV_BYTES // (1024 * 1024)} MB.",
+        )
+
+    # Resolve extension from MIME first, then filename.
+    filename = file.filename or "cv"
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    mime_ext = ALLOWED_CV_MIME.get((file.content_type or "").lower())
+    ext = mime_ext or (suffix if suffix in ALLOWED_CV_EXT else "")
+    if not ext:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported CV file type. Please upload a PDF, DOCX, PNG or JPG."
+            ),
+        )
+    if ext == "doc":
+        # Legacy .doc unsupported by python-docx — surface a clean error
+        # rather than the CvParseError fallback.
+        raise HTTPException(
+            status_code=400,
+            detail="Legacy .doc files aren't supported. Please upload PDF or DOCX.",
+        )
+
+    warnings: List[str] = []
+    parsed = None
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=f".{ext}", prefix="cv_preview_"
+        ) as tmp:
+            tmp.write(payload)
+            tmp_path = tmp.name
+        try:
+            parsed = parse_cv(tmp_path, extension=ext)
+        except CvParseError as exc:
+            return PublicCvParsePreview(parsed=False, warnings=[str(exc)])
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if parsed is None:
+        return PublicCvParsePreview(parsed=False, warnings=["Could not parse CV."])
+
+    # Light audit so HR can see scrape attempts; we deliberately do NOT
+    # store the full extracted text on this public endpoint.
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="public.candidate.parse_preview",
+        scope="hr",
+        target_type="cv_preview",
+        target_id=None,
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "filename": filename,
+            "size": len(payload),
+            "parsed_email_present": bool(parsed.email),
+            "parsed_name_present": bool(parsed.name),
+        },
+        commit=True,
+    )
+
+    return PublicCvParsePreview(
+        parsed=True,
+        parser_version=parsed.parser_version,
+        warnings=warnings,
+        full_name=parsed.name,
+        email=parsed.email,
+        mobile=parsed.mobile,
+        nationality=parsed.nationality,
+        current_location=parsed.current_location,
+        current_designation=parsed.current_designation,
+        current_company=parsed.current_company,
+        total_experience_years=parsed.total_experience_years,
+        gcc_experience_years=parsed.gcc_experience_years,
+        qatar_experience_years=parsed.qatar_experience_years,
+        expected_salary=parsed.expected_salary,
+        notice_period=parsed.notice_period,
+        visa_status=parsed.visa_status,
+        skills=", ".join(parsed.skills) if parsed.skills else None,
+        education=parsed.education_as_json() if parsed.education else None,
+        languages=parsed.languages or None,
+        certifications=parsed.certifications or None,
+    )
 
 
 @router.post(
