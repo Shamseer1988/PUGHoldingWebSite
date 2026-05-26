@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, FileUp, Info, Loader2 } from "lucide-react";
+import { CheckCircle2, FileUp, Info, Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  parseCvPreview,
   PublicApiError,
   submitCandidateApplication,
 } from "@/lib/public-api-client";
@@ -34,6 +35,77 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
   >("idle");
   const [error, setError] = React.useState<string | null>(null);
   const [wasExisting, setWasExisting] = React.useState(false);
+
+  // Auto-fill state — populated when the candidate attaches a CV.
+  const [parsing, setParsing] = React.useState(false);
+  const [parseWarning, setParseWarning] = React.useState<string | null>(null);
+  const [autoFilled, setAutoFilled] = React.useState<Set<string>>(new Set());
+
+  /** Set state only when the form field is still empty — never clobber
+   * a value the candidate just typed manually. */
+  function setIfEmpty(
+    field: string,
+    setter: (v: string) => void,
+    current: string,
+    value: string | null | undefined,
+  ) {
+    if (!value) return;
+    if (current.trim().length > 0) return;
+    setter(value);
+    setAutoFilled((prev) => new Set(prev).add(field));
+  }
+
+  async function onCvAttach(file: File) {
+    setCvFile(file);
+    setParseWarning(null);
+    setAutoFilled(new Set());
+    setParsing(true);
+    try {
+      const preview = await parseCvPreview(file);
+      if (!preview.parsed) {
+        setParseWarning(
+          preview.warnings[0] ||
+            "Could not auto-fill from this CV — please complete the form manually.",
+        );
+        return;
+      }
+      setIfEmpty("full_name", setName, name, preview.full_name);
+      setIfEmpty("email", setEmail, email, preview.email);
+      setIfEmpty("mobile", setPhone, phone, preview.mobile);
+      setIfEmpty("nationality", setNationality, nationality, preview.nationality);
+      setIfEmpty(
+        "current_location",
+        setLocation,
+        location,
+        preview.current_location,
+      );
+      if (preview.total_experience_years != null) {
+        setIfEmpty(
+          "total_experience_years",
+          setExperience,
+          experience,
+          String(preview.total_experience_years),
+        );
+      }
+      if (preview.expected_salary != null) {
+        setIfEmpty(
+          "expected_salary",
+          setSalary,
+          salary,
+          String(preview.expected_salary),
+        );
+      }
+      setIfEmpty("notice_period", setNotice, notice, preview.notice_period);
+    } catch (err) {
+      setParseWarning(
+        err instanceof PublicApiError
+          ? err.message
+          : "We couldn't read your CV automatically — please fill the form manually.",
+      );
+    } finally {
+      setParsing(false);
+    }
+  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -213,12 +285,33 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
           type="file"
           accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
-          onChange={(e) => setCvFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onCvAttach(file);
+            else setCvFile(null);
+          }}
           disabled={state === "submitting"}
         />
         <p className="text-xs text-muted-foreground">
           Max 10 MB. Identical CVs are deduplicated automatically.
         </p>
+        {parsing ? (
+          <p className="inline-flex items-center gap-1.5 text-xs text-primary">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading CV…
+          </p>
+        ) : null}
+        {!parsing && autoFilled.size > 0 ? (
+          <p className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
+            <Sparkles className="h-3.5 w-3.5" /> Auto-filled {autoFilled.size}{" "}
+            field{autoFilled.size === 1 ? "" : "s"} from your CV — please review
+            below.
+          </p>
+        ) : null}
+        {parseWarning ? (
+          <p className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+            <Info className="h-3.5 w-3.5" /> {parseWarning}
+          </p>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">

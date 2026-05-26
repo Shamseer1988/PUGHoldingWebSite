@@ -99,6 +99,12 @@ export const hrApi = {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   },
+  put<T>(path: string, body?: unknown) {
+    return request<T>(path, {
+      method: "PUT",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  },
   delete<T = void>(path: string) {
     return request<T>(path, { method: "DELETE" });
   },
