@@ -1115,24 +1115,23 @@ function PreviewMediaItem({
             // player. The admin uses the dashboard preview instead.
             controls={false}
             disablePictureInPicture
-            // Fade in once the first frame decodes. Same pattern as
-            // the image branch below so both behave identically.
-            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
-            onLoadedData={(e) => {
-              e.currentTarget.style.opacity = "1";
-            }}
+            // The gradient backdrop sits underneath this element, so
+            // the surface is never blank while the video buffers — no
+            // JS opacity choreography needed. onError hides a broken
+            // video so the browser's default media error icon never
+            // surfaces.
+            className="absolute inset-0 h-full w-full object-cover"
             onError={(e) => {
-              // Keep the gradient visible — hide the broken video
-              // so the browser's default media error icon never
-              // surfaces over the brand surface.
               e.currentTarget.style.display = "none";
             }}
           />
         ) : featured ? (
-          // Raw <img> + onLoad/onError gives us a deterministic fade-in
-          // and a way to keep the gradient visible when the file is
-          // missing or slow. next/image (even with unoptimized) gives
-          // an empty box on broken URLs — no good for a hero surface.
+          // Raw <img>: the gradient backdrop is rendered underneath so
+          // the surface is brand-coloured the instant the layout
+          // paints, then the image arrives on top whenever the bytes
+          // finish downloading. No opacity fade-in — that pattern
+          // races React's onLoad attachment for cached images and
+          // leaves the image stuck invisible.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={featured}
@@ -1146,10 +1145,7 @@ function PreviewMediaItem({
             // not yet in the @types/react JSX surface here.
             fetchpriority={isActive ? "high" : "auto"}
             sizes="(max-width: 1024px) 100vw, 720px"
-            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
-            onLoad={(e) => {
-              e.currentTarget.style.opacity = "1";
-            }}
+            className="absolute inset-0 h-full w-full object-cover"
             onError={(e) => {
               // Hide the broken element so the gradient backdrop is
               // the only thing visible.
@@ -1225,6 +1221,10 @@ function MobileCompanyCard({
           )}
         />
         {featured && (
+          // Gradient backdrop sits underneath, so the surface is
+          // brand-coloured until the image paints. No opacity fade
+          // — that pattern can race React's onLoad attachment for
+          // cached images and leave the image stuck invisible.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={featured}
@@ -1232,10 +1232,7 @@ function MobileCompanyCard({
             loading="lazy"
             decoding="async"
             sizes="100vw"
-            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
-            onLoad={(e) => {
-              e.currentTarget.style.opacity = "1";
-            }}
+            className="absolute inset-0 h-full w-full object-cover"
             onError={(e) => {
               e.currentTarget.style.display = "none";
             }}
