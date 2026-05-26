@@ -11,6 +11,7 @@ import {
   Send,
   Server,
   ShieldCheck,
+  Users,
 } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
 import type {
   EmailSettings,
@@ -46,6 +48,13 @@ type Form = {
   email_reply_to: string;
   notification_email: string;
   test_email_to: string;
+  // HR Advanced module — branded HR notifications
+  hr_notification_emails: string; // newline/comma-separated for the textarea
+  candidate_email_enabled: boolean;
+  interview_email_enabled: boolean;
+  job_approval_email_enabled: boolean;
+  brand_logo_url: string;
+  email_footer_text: string;
 };
 
 function blankForm(): Form {
@@ -62,6 +71,12 @@ function blankForm(): Form {
     email_reply_to: "",
     notification_email: "",
     test_email_to: "",
+    hr_notification_emails: "",
+    candidate_email_enabled: true,
+    interview_email_enabled: true,
+    job_approval_email_enabled: true,
+    brand_logo_url: "",
+    email_footer_text: "",
   };
 }
 
@@ -80,7 +95,21 @@ function formFromSettings(s: EmailSettings): Form {
     email_reply_to: s.email_reply_to ?? "",
     notification_email: s.notification_email ?? "",
     test_email_to: s.test_email_to ?? "",
+    hr_notification_emails: (s.hr_notification_emails ?? []).join("\n"),
+    candidate_email_enabled: s.candidate_email_enabled,
+    interview_email_enabled: s.interview_email_enabled,
+    job_approval_email_enabled: s.job_approval_email_enabled,
+    brand_logo_url: s.brand_logo_url ?? "",
+    email_footer_text: s.email_footer_text ?? "",
   };
+}
+
+/** Split a textarea into a clean email list (newline OR comma separated). */
+function parseEmailList(raw: string): string[] {
+  return raw
+    .split(/[\n,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export default function EmailSettingsAdminPage() {
@@ -144,6 +173,12 @@ function EmailSettingsBody() {
         email_reply_to: form.email_reply_to.trim() || null,
         notification_email: form.notification_email.trim() || null,
         test_email_to: form.test_email_to.trim() || null,
+        hr_notification_emails: parseEmailList(form.hr_notification_emails),
+        candidate_email_enabled: form.candidate_email_enabled,
+        interview_email_enabled: form.interview_email_enabled,
+        job_approval_email_enabled: form.job_approval_email_enabled,
+        brand_logo_url: form.brand_logo_url.trim() || null,
+        email_footer_text: form.email_footer_text.trim() || null,
       };
       // Only send password when the admin actually typed one.
       if (form.smtp_password.length > 0) {
@@ -444,6 +479,94 @@ function EmailSettingsBody() {
                 {data.last_test_message ? `: ${data.last_test_message}` : "."}
               </p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* 5. HR notifications + branded templates (advanced module) */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="h-4 w-4 text-pug-green-600" />
+              HR notifications &amp; branded templates
+            </CardTitle>
+            <CardDescription>
+              Configures the recipient list, per-event mute switches, and the
+              header/footer chrome used by every HR-side email (job approval,
+              candidate status, interview invitations).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <Field label="HR notification recipients">
+              <Textarea
+                value={form.hr_notification_emails}
+                onChange={(e) =>
+                  set("hr_notification_emails", e.target.value)
+                }
+                placeholder={
+                  "hr-manager@parisunitedgroup.com\nrecruitment@parisunitedgroup.com"
+                }
+                rows={3}
+                disabled={saving}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                One email per line (commas also work). These addresses are
+                CC&apos;d on every job approval-workflow event — submitted,
+                approved, rejected, revision-requested, published.
+              </p>
+            </Field>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Toggle
+                label="Job approval emails"
+                hint="Job submitted / approved / rejected / revision requested / published."
+                checked={form.job_approval_email_enabled}
+                onChange={(v) => set("job_approval_email_enabled", v)}
+                disabled={saving}
+              />
+              <Toggle
+                label="Candidate emails"
+                hint="Application received, shortlisted, rejected, selected."
+                checked={form.candidate_email_enabled}
+                onChange={(v) => set("candidate_email_enabled", v)}
+                disabled={saving}
+              />
+              <Toggle
+                label="Interview emails"
+                hint="Interview scheduled / rescheduled / cancelled invitations."
+                checked={form.interview_email_enabled}
+                onChange={(v) => set("interview_email_enabled", v)}
+                disabled={saving}
+              />
+            </div>
+
+            <Field label="Brand logo URL (optional)">
+              <Input
+                type="url"
+                value={form.brand_logo_url}
+                onChange={(e) => set("brand_logo_url", e.target.value)}
+                placeholder="https://parisunitedgroup.com/logo.png"
+                disabled={saving}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Shown at the top of every branded HR email. Use a full HTTPS
+                URL — most email clients block relative paths and many block
+                HTTP.
+              </p>
+            </Field>
+
+            <Field label="Email footer text (optional)">
+              <Textarea
+                value={form.email_footer_text}
+                onChange={(e) => set("email_footer_text", e.target.value)}
+                placeholder="© Paris United Group Holding. This is an automated notification — please do not reply."
+                rows={2}
+                disabled={saving}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Appears in the muted footer band of every HR email. Leave
+                blank to use the default copy.
+              </p>
+            </Field>
           </CardContent>
         </Card>
       </div>
