@@ -85,6 +85,57 @@ async function postMultipart<T>(
   return (await response.json()) as T;
 }
 
+/**
+ * Trigger a binary download from an admin endpoint and save it to disk
+ * via an anchor click. Used for database backups — the response body
+ * may be hundreds of megabytes, so we stream it as a Blob instead of
+ * trying to parse it as JSON. ``method`` defaults to POST since most
+ * "generate + download" endpoints want a write-style verb.
+ */
+async function downloadFile(
+  path: string,
+  fallbackName: string,
+  method: "GET" | "POST" = "POST"
+): Promise<void> {
+  const session = loadSession("admin");
+  if (!session) throw new AdminApiError("Not authenticated", 401);
+  const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const response = await fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `Download failed (${response.status})`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* swallow */
+    }
+    throw new AdminApiError(detail, response.status);
+  }
+
+  // Prefer the server-provided filename from Content-Disposition; fall
+  // back to ``fallbackName`` if the header is missing or unparseable.
+  let filename = fallbackName;
+  const disposition = response.headers.get("content-disposition");
+  if (disposition) {
+    const match = /filename="?([^"]+)"?/i.exec(disposition);
+    if (match?.[1]) filename = match[1];
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export interface UploadedImage {
   url: string;
   filename: string;
@@ -126,5 +177,14 @@ export const adminApi = {
     const fd = new FormData();
     fd.append("file", file);
     return postMultipart<T>("/admin/cms/media/upload", fd);
+  },
+  /**
+   * Run pg_dump server-side and stream the resulting .dump file back
+   * as a downloadable file. The browser saves it via an anchor click.
+   */
+  downloadFile,
+  /** Generic JSON-returning multipart POST (e.g. restore upload). */
+  postMultipart<T>(path: string, fd: FormData) {
+    return postMultipart<T>(path, fd);
   },
 };

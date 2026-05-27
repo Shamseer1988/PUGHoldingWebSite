@@ -7,6 +7,7 @@ import {
   BarChart3,
   Brain,
   Building2,
+  DatabaseBackup,
   ExternalLink,
   FileText,
   History,
@@ -41,10 +42,12 @@ interface NavLink {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
-  /** When set, this item is only rendered for users who hold the
-   *  given backend scope (or are a superuser). Keeps the sidebar
-   *  honest about what each user can actually open. */
-  requiresScope?: "system";
+  /** When set, this item is only rendered for users who satisfy the
+   *  named gate. ``system`` covers any user with the system scope or
+   *  the superuser flag. ``superuser`` is stricter — only accounts
+   *  with ``is_superuser = true`` see it (used for backup / restore,
+   *  which can wipe the database). */
+  requiresScope?: "system" | "superuser";
 }
 
 const NAV: NavGroup[] = [
@@ -103,6 +106,12 @@ const NAV: NavGroup[] = [
         icon: ShieldCheck,
         requiresScope: "system",
       },
+      {
+        label: "Database backup",
+        href: "/admin/backup",
+        icon: DatabaseBackup,
+        requiresScope: "superuser",
+      },
       { label: "Audit log", href: "/admin/audit", icon: History },
     ],
   },
@@ -121,6 +130,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
   const hasSystem = Boolean(
     user?.is_superuser || user?.scopes?.includes("system")
   );
+  const isSuperuser = Boolean(user?.is_superuser);
 
   // Close mobile drawer on route change
   React.useEffect(() => {
@@ -130,11 +140,15 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
 
   // Hide nav items the current user can't actually open, then drop any
   // group that ends up empty.
+  const canOpen = (item: NavLink): boolean => {
+    if (!item.requiresScope) return true;
+    if (item.requiresScope === "system") return hasSystem;
+    if (item.requiresScope === "superuser") return isSuperuser;
+    return false;
+  };
   const visibleGroups = NAV.map((group) => ({
     ...group,
-    items: group.items.filter(
-      (item) => !item.requiresScope || (item.requiresScope === "system" && hasSystem)
-    ),
+    items: group.items.filter(canOpen),
   })).filter((group) => group.items.length > 0);
 
   return (

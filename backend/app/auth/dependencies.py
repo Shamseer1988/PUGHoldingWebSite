@@ -153,6 +153,20 @@ require_website_admin = require_scope(SCOPE_WEBSITE)
 require_hr_admin = require_scope(SCOPE_HR)
 
 
+def require_superuser(user: User = Depends(get_current_user)) -> User:
+    """Dependency: only ``is_superuser`` accounts pass.
+
+    Stricter than ``require_scope(SCOPE_SYSTEM)`` because a system-scope
+    role can be assigned to non-founder admins (e.g. Email-config admin)
+    while ``is_superuser`` is the small set of operator-tier accounts.
+    Used for irrecoverable actions such as full-database backup +
+    restore where a misclick could wipe production data.
+    """
+    if not user.is_superuser:
+        raise _forbidden("Superuser privileges required for this action")
+    return user
+
+
 def get_request_context(request: Request) -> dict[str, str | None]:
     """Extract IP + user-agent for audit logging."""
     client_host = request.client.host if request.client else None

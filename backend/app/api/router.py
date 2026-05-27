@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from app.api.endpoints import (
     admin_ai,
     admin_auth,
+    admin_backup,
     admin_cms,
     admin_email_settings,
     admin_seo,
@@ -30,6 +31,7 @@ api_router.include_router(admin_seo.router)
 api_router.include_router(admin_ai.router)
 api_router.include_router(admin_email_settings.router)
 api_router.include_router(admin_users.router)
+api_router.include_router(admin_backup.router)
 api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)
 api_router.include_router(hr_jobs.router)
