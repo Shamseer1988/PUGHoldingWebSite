@@ -103,7 +103,14 @@ export function InterviewActions({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-1.5",
+        // ``text-left`` overrides any inherited text-align (the host
+        // table cell uses ``text-right`` to right-align the action
+        // buttons within the column). Without this reset, dialogs
+        // mounted inside this wrapper (Reschedule, Quick-update, …)
+        // inherit right-aligned label text. Button placement is
+        // handled by ``justify-end`` below, not text-align, so this
+        // is safe.
+        "flex flex-wrap items-center gap-1.5 text-left",
         compact && "justify-end"
       )}
     >

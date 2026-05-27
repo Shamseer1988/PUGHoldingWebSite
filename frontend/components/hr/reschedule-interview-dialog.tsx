@@ -89,7 +89,13 @@ export function RescheduleInterviewDialog({ interview, onClose, onSaved }: Props
       role="dialog"
       aria-modal="true"
       aria-label="Reschedule interview"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-background/60 backdrop-blur-sm p-4"
+      // ``text-left`` resets any inherited text-align — this dialog is
+      // mounted inside an action-cell that's ``text-right`` for column
+      // alignment, and without the reset the form labels render
+      // right-aligned. ``ltr:text-left`` would be the same; we use the
+      // plain class so it survives if the app later adds a global
+      // ``dir`` toggle.
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-background/60 backdrop-blur-sm p-4 text-left"
     >
       <form
         onSubmit={submit}
