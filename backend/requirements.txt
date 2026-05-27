@@ -57,3 +57,8 @@ openai==1.54.0
 # openpyxl, PDF via reportlab.
 openpyxl==3.1.5
 reportlab==4.2.5
+
+# Background scheduler — drives scheduled report digests and
+# (future) nightly automatic database backups. Runs in-process
+# inside the FastAPI lifespan; no external broker required.
+APScheduler==3.10.4

@@ -24,10 +24,27 @@ from app.core.config import ensure_production_safety, get_settings
 async def lifespan(app: FastAPI):
     """Application startup / shutdown hooks.
 
-    Kept intentionally minimal in Phase 1. Later phases can attach
-    connection pools, schedulers, or background workers here.
+    Boots the in-process APScheduler at startup so scheduled report
+    digests (and, in a future commit, nightly automatic database
+    backups) fire even when no HTTP traffic is hitting the process.
+    The scheduler is disabled in tests via SCHEDULER_ENABLED=false.
     """
-    yield
+    from app.core.scheduler import shutdown_scheduler, start_scheduler
+
+    # Import the job modules for their register_job side effects.
+    # Adding new scheduled jobs is as simple as creating a module
+    # under app.jobs and importing it here.
+    try:
+        from app import jobs as _jobs  # noqa: F401
+    except ImportError:
+        # No jobs registered yet — scheduler boots empty, which is fine.
+        pass
+
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 def create_app() -> FastAPI:

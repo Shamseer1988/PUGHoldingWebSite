@@ -6,7 +6,15 @@ create the tables fresh per session.
 """
 from __future__ import annotations
 
-from typing import Generator
+import os
+
+# Disable the background scheduler before the FastAPI app is imported,
+# so test sessions don't accidentally fire real digest jobs against the
+# ephemeral SQLite engine. Individual scheduler-feature tests opt back
+# in with monkeypatch.setenv.
+os.environ.setdefault("SCHEDULER_ENABLED", "false")
+
+from typing import Generator  # noqa: E402
 
 import pytest
 from fastapi.testclient import TestClient
