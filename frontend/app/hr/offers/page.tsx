@@ -18,6 +18,7 @@ import { usePermission } from "@/components/auth/permission";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { OfferDetailDrawer } from "@/components/hr/offer-detail-drawer";
+import { HrStatusBadge } from "@/components/hr/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -276,7 +277,7 @@ export default function HrOffersPage() {
                     {o.joining_date ?? "—"}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={o.status} />
+                    <HrStatusBadge kind="offer" value={o.status} />
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-xs">
                     {o.offer_letter_number ?? "—"}
@@ -351,33 +352,4 @@ function StatCard({
 }
 
 
-function StatusBadge({ status }: { status: string }) {
-  const tone =
-    {
-      draft: "border-border/60 bg-muted/50 text-muted-foreground",
-      pending_approval:
-        "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-      approved: "border-primary/30 bg-primary/10 text-primary",
-      sent: "border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
-      accepted:
-        "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-      declined:
-        "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-      withdrawn: "border-border/60 bg-muted/50 text-muted-foreground",
-      joined:
-        "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-      not_joined:
-        "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-    }[status] ?? "border-border/60 bg-muted/50 text-muted-foreground";
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        tone,
-      )}
-    >
-      {STATUS_LABEL[status] ?? status}
-    </span>
-  );
-}
+// StatusBadge moved to the shared <HrStatusBadge> component (Phase 10).

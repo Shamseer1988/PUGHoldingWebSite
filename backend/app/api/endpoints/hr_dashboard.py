@@ -7,7 +7,7 @@ All routes require an HR-scoped bearer token.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -24,9 +24,15 @@ from app.models.auth import AuditLog, User
 from app.models.hr_ats import (
     AI_HIGHLY_RECOMMENDED,
     AI_RECOMMENDED,
+    APPROVAL_STATUS_APPROVED,
+    APPROVAL_STATUS_PENDING,
+    INTERVIEW_COMPLETED,
     INTERVIEW_SCHEDULED,
+    JOB_STATUS_OPEN,
     OFFER_DRAFT,
+    OFFER_PENDING_APPROVAL,
     OFFER_SENT,
+    PUBLISH_STATUS_PUBLISHED,
     STATUS_AI_REVIEWED,
     STATUS_CV_RECEIVED,
     STATUS_FINAL_INTERVIEW,
@@ -42,6 +48,7 @@ from app.models.hr_ats import (
     CandidateAIReview,
     CandidateJobApplication,
     Interview,
+    InterviewFeedback,
     JobOpening,
     OfferTracking,
 )
@@ -114,7 +121,31 @@ def hr_dashboard(
         )
     )
     open_jobs = count(
-        select(func.count()).select_from(JobOpening).where(JobOpening.status == "open")
+        select(func.count()).select_from(JobOpening).where(JobOpening.status == JOB_STATUS_OPEN)
+    )
+    # Phase 10 — master-plan dashboard counters.
+    total_jobs = count(
+        select(func.count())
+        .select_from(JobOpening)
+        .where(JobOpening.is_archived.is_(False))
+    )
+    pending_approval_jobs = count(
+        select(func.count())
+        .select_from(JobOpening)
+        .where(
+            JobOpening.approval_status == APPROVAL_STATUS_PENDING,
+            JobOpening.is_archived.is_(False),
+        )
+    )
+    live_jobs = count(
+        select(func.count())
+        .select_from(JobOpening)
+        .where(
+            JobOpening.status == JOB_STATUS_OPEN,
+            JobOpening.approval_status == APPROVAL_STATUS_APPROVED,
+            JobOpening.publish_status == PUBLISH_STATUS_PUBLISHED,
+            JobOpening.is_archived.is_(False),
+        )
     )
 
     # Status-based counts (use the application as the unit, since pipeline
@@ -140,21 +171,103 @@ def hr_dashboard(
             Interview.scheduled_at >= now,
         )
     )
+    # Phase 10 master-plan additions:
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    today_end = today_start + timedelta(days=1)
+    interviews_today = count(
+        select(func.count())
+        .select_from(Interview)
+        .where(
+            Interview.scheduled_at >= today_start,
+            Interview.scheduled_at < today_end,
+            Interview.status == INTERVIEW_SCHEDULED,
+        )
+    )
+    # Pending feedback = completed interviews with no feedback row yet.
+    pending_feedback = count(
+        select(func.count())
+        .select_from(Interview)
+        .outerjoin(InterviewFeedback, InterviewFeedback.interview_id == Interview.id)
+        .where(
+            Interview.status == INTERVIEW_COMPLETED,
+            InterviewFeedback.id.is_(None),
+        )
+    )
     pending_offers_count = count(
         select(func.count())
         .select_from(OfferTracking)
         .where(OfferTracking.status.in_([OFFER_DRAFT, OFFER_SENT]))
     )
+    offers_pending_approval = count(
+        select(func.count())
+        .select_from(OfferTracking)
+        .where(OfferTracking.status == OFFER_PENDING_APPROVAL)
+    )
+    offers_issued = count(
+        select(func.count())
+        .select_from(OfferTracking)
+        .where(OfferTracking.status == OFFER_SENT)
+    )
+    joining_pending = count(
+        select(func.count())
+        .select_from(OfferTracking)
+        .where(
+            OfferTracking.status == "accepted",
+            OfferTracking.joining_status == "pending",
+        )
+    )
+    joined_this_month = count(
+        select(func.count())
+        .select_from(OfferTracking)
+        .where(OfferTracking.joined_at >= month_start)
+    )
 
     stats = [
-        StatItem(key="open_jobs", label="Open jobs", value=open_jobs),
-        StatItem(key="total_candidates", label="Total candidates", value=total_candidates),
-        StatItem(key="applications_total", label="Applications", value=applications_total),
+        # Phase 10 — the twelve master-plan cards, in display order.
+        StatItem(key="total_jobs", label="Total jobs", value=total_jobs),
         StatItem(
-            key="applications_this_month",
-            label="This month",
+            key="pending_approval_jobs",
+            label="Pending approval jobs",
+            value=pending_approval_jobs,
+        ),
+        StatItem(key="live_jobs", label="Live jobs", value=live_jobs),
+        StatItem(key="total_candidates", label="Total candidates", value=total_candidates),
+        StatItem(
+            key="new_applications",
+            label="New applications (this month)",
             value=applications_this_month,
         ),
+        StatItem(key="shortlisted", label="Shortlisted", value=shortlisted),
+        StatItem(
+            key="interviews_today",
+            label="Interviews today",
+            value=interviews_today,
+        ),
+        StatItem(
+            key="pending_feedback",
+            label="Pending feedback",
+            value=pending_feedback,
+        ),
+        StatItem(
+            key="offers_pending_approval",
+            label="Offers pending approval",
+            value=offers_pending_approval,
+        ),
+        StatItem(key="offers_issued", label="Offers issued", value=offers_issued),
+        StatItem(
+            key="joining_pending",
+            label="Joining pending",
+            value=joining_pending,
+        ),
+        StatItem(
+            key="joined_this_month",
+            label="Joined this month",
+            value=joined_this_month,
+        ),
+        # Legacy / supplementary stats retained so older dashboard
+        # screens that switch on these keys keep working.
+        StatItem(key="open_jobs", label="Open jobs", value=open_jobs),
+        StatItem(key="applications_total", label="Applications", value=applications_total),
         StatItem(key="ai_reviewed", label="AI reviewed", value=ai_reviewed),
         StatItem(
             key="highly_recommended",
@@ -166,7 +279,6 @@ def hr_dashboard(
             label="HR review pending",
             value=pending_review,
         ),
-        StatItem(key="shortlisted", label="Shortlisted", value=shortlisted),
         StatItem(key="rejected", label="Rejected", value=rejected),
         StatItem(key="selected", label="Selected", value=selected),
         StatItem(key="joined", label="Joined", value=joined),
