@@ -246,6 +246,27 @@ export interface PublicCvParsePreview {
   certifications: string[] | null;
 }
 
+// Phase 3 — unified candidate timeline ------------------------------------
+
+export type CandidateTimelineStream =
+  | "recruitment"
+  | "interview"
+  | "offer"
+  | "system";
+
+export interface CandidateTimelineEvent {
+  occurred_at: string;
+  stream: CandidateTimelineStream | string;
+  action: string;
+  title: string;
+  description: string | null;
+  actor_email: string | null;
+  ref_type: string | null;
+  ref_id: number | null;
+  old_status: string | null;
+  new_status: string | null;
+}
+
 // Candidates (Phase 10) ---------------------------------------------------
 
 export interface CandidateListItem {

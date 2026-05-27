@@ -34,11 +34,14 @@ from app.models.hr_ats import (
     STATUS_FIRST_INTERVIEW,
     STATUS_HR_REVIEW_PENDING,
     STATUS_JOINED,
+    STATUS_NOT_JOINED,
     STATUS_OFFER_SENT,
+    STATUS_RECOMMENDED_FOR_OFFER,
     STATUS_REJECTED,
     STATUS_SELECTED,
     STATUS_SHORTLISTED,
     STATUS_TECHNICAL_INTERVIEW,
+    STATUS_WAITING_LIST,
     Candidate,
     CandidateJobApplication,
     CandidateStatusHistory,
@@ -54,9 +57,12 @@ PIPELINE_ORDER = [
     STATUS_FIRST_INTERVIEW,
     STATUS_TECHNICAL_INTERVIEW,
     STATUS_FINAL_INTERVIEW,
+    STATUS_WAITING_LIST,
+    STATUS_RECOMMENDED_FOR_OFFER,
     STATUS_SELECTED,
     STATUS_OFFER_SENT,
     STATUS_JOINED,
+    STATUS_NOT_JOINED,
     STATUS_REJECTED,
     STATUS_BLACKLISTED,
 ]
@@ -70,14 +76,22 @@ STATUS_LABELS: Dict[str, str] = {
     STATUS_FIRST_INTERVIEW: "First Interview",
     STATUS_TECHNICAL_INTERVIEW: "Technical Interview",
     STATUS_FINAL_INTERVIEW: "Final Interview",
+    STATUS_WAITING_LIST: "Waiting List",
+    STATUS_RECOMMENDED_FOR_OFFER: "Recommended for Offer",
     STATUS_SELECTED: "Selected",
     STATUS_OFFER_SENT: "Offer Sent",
     STATUS_JOINED: "Joined",
+    STATUS_NOT_JOINED: "Not Joined",
     STATUS_REJECTED: "Rejected",
     STATUS_BLACKLISTED: "Blacklisted",
 }
 
-FINAL_STATUSES: Set[str] = {STATUS_JOINED, STATUS_REJECTED, STATUS_BLACKLISTED}
+FINAL_STATUSES: Set[str] = {
+    STATUS_JOINED,
+    STATUS_NOT_JOINED,
+    STATUS_REJECTED,
+    STATUS_BLACKLISTED,
+}
 
 
 def _common_terminal() -> Set[str]:
@@ -106,13 +120,30 @@ ALLOWED_TRANSITIONS: Dict[str, Set[str]] = {
     STATUS_FIRST_INTERVIEW: {
         STATUS_TECHNICAL_INTERVIEW,
         STATUS_FINAL_INTERVIEW,
+        STATUS_WAITING_LIST,
+        STATUS_RECOMMENDED_FOR_OFFER,
         STATUS_SELECTED,
     } | _common_terminal(),
     STATUS_TECHNICAL_INTERVIEW: {
         STATUS_FINAL_INTERVIEW,
+        STATUS_WAITING_LIST,
+        STATUS_RECOMMENDED_FOR_OFFER,
         STATUS_SELECTED,
     } | _common_terminal(),
     STATUS_FINAL_INTERVIEW: {
+        STATUS_WAITING_LIST,
+        STATUS_RECOMMENDED_FOR_OFFER,
+        STATUS_SELECTED,
+    } | _common_terminal(),
+    # Waiting list = keeping a candidate warm. From there HR can still
+    # promote them to selected/recommended later, or reject.
+    STATUS_WAITING_LIST: {
+        STATUS_RECOMMENDED_FOR_OFFER,
+        STATUS_SELECTED,
+    } | _common_terminal(),
+    # Recommended-for-offer is the manager's sign-off before the offer
+    # is actually drafted/sent. Selected = offer authorised.
+    STATUS_RECOMMENDED_FOR_OFFER: {
         STATUS_SELECTED,
     } | _common_terminal(),
     STATUS_SELECTED: {
@@ -120,8 +151,10 @@ ALLOWED_TRANSITIONS: Dict[str, Set[str]] = {
     } | _common_terminal(),
     STATUS_OFFER_SENT: {
         STATUS_JOINED,
+        STATUS_NOT_JOINED,
     } | _common_terminal(),
     STATUS_JOINED: set(),
+    STATUS_NOT_JOINED: set(),
     STATUS_REJECTED: set(),
     STATUS_BLACKLISTED: set(),
 }

@@ -66,7 +66,8 @@ EMPLOYMENT_PART_TIME = "part_time"
 EMPLOYMENT_CONTRACT = "contract"
 EMPLOYMENT_TYPES = (EMPLOYMENT_FULL_TIME, EMPLOYMENT_PART_TIME, EMPLOYMENT_CONTRACT)
 
-# Candidate / application status (per master prompt)
+# Candidate / application status (per master prompt). Phase 3 added
+# waiting_list, recommended_for_offer, and not_joined.
 STATUS_CV_RECEIVED = "cv_received"
 STATUS_AI_REVIEWED = "ai_reviewed"
 STATUS_HR_REVIEW_PENDING = "hr_review_pending"
@@ -74,9 +75,12 @@ STATUS_SHORTLISTED = "shortlisted"
 STATUS_FIRST_INTERVIEW = "first_interview"
 STATUS_TECHNICAL_INTERVIEW = "technical_interview"
 STATUS_FINAL_INTERVIEW = "final_interview"
+STATUS_WAITING_LIST = "waiting_list"
+STATUS_RECOMMENDED_FOR_OFFER = "recommended_for_offer"
 STATUS_SELECTED = "selected"
 STATUS_OFFER_SENT = "offer_sent"
 STATUS_JOINED = "joined"
+STATUS_NOT_JOINED = "not_joined"
 STATUS_REJECTED = "rejected"
 STATUS_BLACKLISTED = "blacklisted"
 
@@ -88,9 +92,12 @@ APPLICATION_STATUSES = (
     STATUS_FIRST_INTERVIEW,
     STATUS_TECHNICAL_INTERVIEW,
     STATUS_FINAL_INTERVIEW,
+    STATUS_WAITING_LIST,
+    STATUS_RECOMMENDED_FOR_OFFER,
     STATUS_SELECTED,
     STATUS_OFFER_SENT,
     STATUS_JOINED,
+    STATUS_NOT_JOINED,
     STATUS_REJECTED,
     STATUS_BLACKLISTED,
 )

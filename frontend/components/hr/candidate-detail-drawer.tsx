@@ -16,6 +16,7 @@ import {
 
 import { CandidateAIReviewPanel } from "@/components/hr/candidate-ai-review-panel";
 import { CandidateInterviewsPanel } from "@/components/hr/candidate-interviews-panel";
+import { CandidateTimeline } from "@/components/hr/candidate-timeline";
 import { CandidateScorePanel } from "@/components/hr/candidate-score-panel";
 import { CandidateWorkflowPanel } from "@/components/hr/candidate-workflow-panel";
 import { ScoreBadge } from "@/components/hr/score-badge";
@@ -529,6 +530,21 @@ export function CandidateDetailDrawer({
                 candidate={candidate}
                 onChanged={() => void load(candidate.id)}
               />
+
+              {/* --- Unified timeline (recruitment + interview + offer) --- */}
+              <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5">
+                <header>
+                  <h3 className="text-sm font-semibold">Activity timeline</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Every recruitment status change, interview, and offer event
+                    for this candidate, newest first.
+                  </p>
+                </header>
+                <CandidateTimeline
+                  candidateId={candidate.id}
+                  refreshKey={candidate.applications.length}
+                />
+              </section>
 
               {/* --- Interviews --- */}
               <CandidateInterviewsPanel

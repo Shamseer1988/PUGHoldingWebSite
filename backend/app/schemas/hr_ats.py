@@ -381,6 +381,34 @@ class CandidateStatusHistoryRead(BaseModel):
     created_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 — unified candidate timeline event (recruitment + interview + offer)
+# ---------------------------------------------------------------------------
+
+
+class CandidateTimelineEvent(BaseModel):
+    """One row in the candidate's unified timeline.
+
+    ``stream`` partitions the feed by domain so the UI can colour-code:
+    ``recruitment`` / ``interview`` / ``offer`` / ``system``. ``action``
+    is a short verb (``applied``, ``status_changed``, ``interview_scheduled``,
+    ``offer_issued``, etc.). ``ref_id`` points at the underlying row id so
+    the UI can deep-link to it.
+    """
+
+    occurred_at: datetime
+    stream: str  # recruitment | interview | offer | system
+    action: str
+    title: str
+    description: Optional[str] = None
+    actor_email: Optional[str] = None
+    ref_type: Optional[str] = None
+    ref_id: Optional[int] = None
+    # Optional from→to status pair for status_changed events
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+
+
 class CandidateStatusChange(BaseModel):
     new_status: str = Field(min_length=1, max_length=40)
     remarks: Optional[str] = Field(default=None, max_length=2000)
