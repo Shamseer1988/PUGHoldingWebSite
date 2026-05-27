@@ -507,6 +507,10 @@ export interface InterviewFeedback {
   technical_score: number | null;
   communication_score: number | null;
   cultural_fit_score: number | null;
+  // Phase 4 — structured free-text fields
+  strengths: string | null;
+  weaknesses: string | null;
+  next_action: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -597,6 +601,9 @@ export interface InterviewFeedbackPayload {
   technical_score?: number | null;
   communication_score?: number | null;
   cultural_fit_score?: number | null;
+  strengths?: string | null;
+  weaknesses?: string | null;
+  next_action?: string | null;
 }
 
 export interface CandidateDocument {

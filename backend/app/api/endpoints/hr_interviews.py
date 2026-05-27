@@ -97,6 +97,9 @@ def _serialize_feedback(
         technical_score=fb.technical_score,
         communication_score=fb.communication_score,
         cultural_fit_score=fb.cultural_fit_score,
+        strengths=fb.strengths,
+        weaknesses=fb.weaknesses,
+        next_action=fb.next_action,
         created_at=fb.created_at,
         updated_at=fb.updated_at,
     )
@@ -620,6 +623,9 @@ def submit_feedback_endpoint(
             technical_score=payload.technical_score,
             communication_score=payload.communication_score,
             cultural_fit_score=payload.cultural_fit_score,
+            strengths=payload.strengths,
+            weaknesses=payload.weaknesses,
+            next_action=payload.next_action,
         )
     except FeedbackPermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

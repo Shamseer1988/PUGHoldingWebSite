@@ -573,6 +573,10 @@ class InterviewFeedbackBase(BaseModel):
     technical_score: Optional[int] = Field(default=None, ge=0, le=10)
     communication_score: Optional[int] = Field(default=None, ge=0, le=10)
     cultural_fit_score: Optional[int] = Field(default=None, ge=0, le=10)
+    # Phase 4 — structured free-text fields used by the quick-update modal
+    strengths: Optional[str] = Field(default=None, max_length=4000)
+    weaknesses: Optional[str] = Field(default=None, max_length=4000)
+    next_action: Optional[str] = Field(default=None, max_length=1000)
 
 
 class InterviewFeedbackCreate(InterviewFeedbackBase):

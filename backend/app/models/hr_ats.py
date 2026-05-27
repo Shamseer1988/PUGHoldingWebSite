@@ -817,6 +817,11 @@ class InterviewFeedback(Base, TimestampMixin):
     communication_score: Mapped[Optional[int]] = mapped_column(Integer)
     cultural_fit_score: Mapped[Optional[int]] = mapped_column(Integer)
 
+    # Phase 4 — structured free-text fields used by the quick-update modal.
+    strengths: Mapped[Optional[str]] = mapped_column(Text)
+    weaknesses: Mapped[Optional[str]] = mapped_column(Text)
+    next_action: Mapped[Optional[str]] = mapped_column(Text)
+
     interview: Mapped[Interview] = relationship(back_populates="feedback")
 
 

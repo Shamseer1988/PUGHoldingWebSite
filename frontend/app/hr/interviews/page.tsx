@@ -17,6 +17,7 @@ import {
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { InterviewActions } from "@/components/hr/interview-actions";
+import { InterviewQuickUpdateDialog } from "@/components/hr/interview-quick-update-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +41,10 @@ export default function HrInterviewsPage() {
   const [tab, setTab] = React.useState<"all" | "upcoming" | "mine">("upcoming");
   const [statusFilter, setStatusFilter] = React.useState<string>("");
   const [query, setQuery] = React.useState("");
+  // Phase 4 — clicking a candidate name opens the quick-update modal so
+  // interviewers can record feedback + status without leaving this page.
+  const [quickUpdateRow, setQuickUpdateRow] =
+    React.useState<InterviewListRow | null>(null);
 
   React.useEffect(() => {
     void refresh();
@@ -197,12 +202,14 @@ export default function HrInterviewsPage() {
                     </p>
                   </TableCell>
                   <TableCell>
-                    <Link
-                      href={`/hr/candidates?focus=${row.candidate_id}`}
-                      className="font-medium hover:text-primary"
+                    <button
+                      type="button"
+                      onClick={() => setQuickUpdateRow(row)}
+                      className="text-left font-medium hover:text-primary"
+                      aria-label={`Quick update for ${row.candidate_name}`}
                     >
                       {row.candidate_name}
-                    </Link>
+                    </button>
                     {row.job_title && (
                       <p className="text-[11px] text-muted-foreground">
                         {row.job_title}
@@ -265,6 +272,17 @@ export default function HrInterviewsPage() {
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {quickUpdateRow && (
+        <InterviewQuickUpdateDialog
+          row={quickUpdateRow}
+          onClose={() => setQuickUpdateRow(null)}
+          onSaved={() => {
+            setQuickUpdateRow(null);
+            void refresh();
+          }}
+        />
       )}
     </HrShell>
   );
