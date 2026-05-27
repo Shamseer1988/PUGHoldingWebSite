@@ -588,6 +588,20 @@ class CandidateExtractedData(Base, TimestampMixin):
     full_text: Mapped[Optional[str]] = mapped_column(Text)
     parser_version: Mapped[Optional[str]] = mapped_column(String(40))
 
+    # Feature F5 — semantic search.
+    # ``embedding`` stores the candidate's profile vector as a JSON list
+    # of floats. We use JSON (not Postgres pgvector) for portability: it
+    # works on SQLite for tests and on Postgres for prod without an
+    # extension dependency, at the cost of doing similarity in Python.
+    # If/when pgvector is installed, a follow-up migration can add a
+    # parallel ``embedding_vec vector(1536)`` column for index-backed
+    # nearest-neighbour search.
+    embedding: Mapped[Optional[list]] = mapped_column(JSON)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(64))
+    embedding_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     candidate: Mapped[Candidate] = relationship(back_populates="extracted_data")
 
 

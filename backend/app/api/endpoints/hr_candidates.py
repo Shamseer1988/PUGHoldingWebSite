@@ -1911,3 +1911,129 @@ def get_application_auto_review(
         )
     ).scalar_one_or_none()
     return CandidateAutoReviewRead.model_validate(review) if review else None
+
+
+# ---------------------------------------------------------------------------
+# Feature F5 — Semantic candidate search
+# ---------------------------------------------------------------------------
+
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SemanticSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=2000)
+    limit: int = Field(default=25, ge=1, le=200)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class SemanticSearchHit(BaseModel):
+    candidate_id: int
+    score: float
+    full_name: Optional[str] = None
+    current_designation: Optional[str] = None
+    current_location: Optional[str] = None
+
+
+class SemanticSearchResponse(BaseModel):
+    query: str
+    hit_count: int
+    hits: List[SemanticSearchHit]
+
+
+@router.post(
+    "/semantic-search", response_model=SemanticSearchResponse
+)
+def semantic_search(
+    payload: SemanticSearchRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_VIEW_LIST)),
+) -> SemanticSearchResponse:
+    """Embedding-based "find candidates similar to this query" search.
+
+    The query (e.g. "senior Python developer with AWS and Kubernetes
+    experience") is embedded via Azure OpenAI; every candidate with
+    a stored embedding is ranked by cosine similarity. Returns the
+    top-K hits with the candidate's headline fields for quick
+    rendering.
+
+    503 if AI is not configured (no Azure endpoint / key / ai_enabled
+    flag) — the operator can wire those up under /admin/ai-settings.
+    """
+    from app.services.semantic_search import (
+        SemanticSearchError,
+        semantic_search_candidates,
+    )
+
+    try:
+        hits = semantic_search_candidates(
+            db,
+            payload.query,
+            limit=payload.limit,
+            min_score=payload.min_score,
+        )
+    except SemanticSearchError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Hydrate the candidate headline fields in one query — we don't
+    # ship full CandidateRead because the result page just shows a
+    # compact list and links into the regular profile drawer.
+    if not hits:
+        return SemanticSearchResponse(
+            query=payload.query, hit_count=0, hits=[]
+        )
+
+    ids = [h.candidate_id for h in hits]
+    rows = db.execute(
+        select(
+            Candidate.id,
+            Candidate.full_name,
+            Candidate.current_designation,
+            Candidate.current_location,
+        ).where(Candidate.id.in_(ids))
+    ).all()
+    by_id = {
+        cid: (name, des, loc) for cid, name, des, loc in rows
+    }
+    out: list[SemanticSearchHit] = []
+    for h in hits:
+        name, des, loc = by_id.get(h.candidate_id, (None, None, None))
+        out.append(
+            SemanticSearchHit(
+                candidate_id=h.candidate_id,
+                score=round(h.score, 4),
+                full_name=name,
+                current_designation=des,
+                current_location=loc,
+            )
+        )
+
+    return SemanticSearchResponse(
+        query=payload.query,
+        hit_count=len(out),
+        hits=out,
+    )
+
+
+@router.post("/semantic-search/backfill")
+def backfill_semantic_index(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
+    limit: int = 50,
+) -> dict:
+    """Embed up to ``limit`` candidates that don't yet have a vector.
+
+    Single batch — the operator clicks "Rebuild" repeatedly (or hits
+    this endpoint from a cron) to chew through the backlog so one
+    HTTP request doesn't time out on a large pool. Returns the run
+    summary { refreshed, skipped, remaining_to_visit }.
+    """
+    from app.services.semantic_search import backfill_candidate_embeddings
+
+    result = backfill_candidate_embeddings(db, limit=limit)
+    # `remaining_to_visit` is a list of ids; the count is what the UI
+    # actually needs — replace it with the integer.
+    result["remaining_count"] = len(result.pop("remaining_to_visit"))
+    return result
