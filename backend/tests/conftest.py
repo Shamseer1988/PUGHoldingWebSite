@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth.permissions import HR_PERMISSIONS, HR_ROLES, HR_ROLES_BY_NAME
 from app.auth.security import hash_password
 from app.core.database import Base, get_db
 from app.core.rate_limit import reset_rate_limits
@@ -104,87 +105,132 @@ def client(db_engine) -> Generator[TestClient, None, None]:
 
 @pytest.fixture
 def seed_auth(db_session: Session) -> dict[str, object]:
-    """Create a small set of permissions, roles, and users for tests.
+    """Create the full RBAC catalogue + one user per HR role for tests.
 
-    Returns a dict with:
-      - users: dict[str, User]   # keyed by email
-      - password: str            # password used for every seeded user
+    After Phase 1 of the RBAC overhaul the HR endpoints require
+    fine-grained permission keys, so the conftest must seed the full
+    permission table and the seven HR roles defined in
+    :mod:`app.auth.permissions`. The Test users are:
+
+      - superadmin@pug.example.com     Super Admin (is_superuser=True)
+      - webadmin@pug.example.com       Website Admin
+      - hr@pug.example.com             HR Manager (legacy fixture key)
+      - hradmin@pug.example.com        HR Admin
+      - hrexec@pug.example.com         HR Executive
+      - deptmgr@pug.example.com        Department Manager (department=Engineering)
+      - interviewer@pug.example.com    Interviewer
+      - viewer@pug.example.com         Viewer / Auditor
+      - disabled@pug.example.com       Inactive user
+
+    Returns:
+      - users:    dict[email, User]
+      - roles:    dict[name, Role]
+      - password: str
     """
     password = "TestPass!123"
     password_hash = hash_password(password)
 
-    # Permissions
+    # 1. Permissions — both website (legacy two) and the full HR set
     p_website = Permission(
         key="website.dashboard.read",
         scope=SCOPE_WEBSITE,
         description="Read website dashboard",
     )
-    p_hr = Permission(
-        key="hr.dashboard.read",
-        scope=SCOPE_HR,
-        description="Read HR dashboard",
-    )
-    db_session.add_all([p_website, p_hr])
+    db_session.add(p_website)
+
+    hr_perms: dict[str, Permission] = {}
+    for key, description in HR_PERMISSIONS:
+        perm = Permission(key=key, scope=SCOPE_HR, description=description)
+        hr_perms[key] = perm
+        db_session.add(perm)
     db_session.flush()
 
-    # Roles
-    r_super = Role(
-        name="Super Admin",
-        scope=SCOPE_SYSTEM,
-        description="All scopes",
-        permissions=[p_website, p_hr],
-    )
+    # 2. Roles — Website + all seven HR roles from the catalogue
     r_web = Role(
         name="Website Admin",
         scope=SCOPE_WEBSITE,
         description="Website only",
         permissions=[p_website],
     )
-    r_hr = Role(
-        name="HR Manager",
-        scope=SCOPE_HR,
-        description="HR only",
-        permissions=[p_hr],
-    )
-    db_session.add_all([r_super, r_web, r_hr])
+    db_session.add(r_web)
+
+    roles: dict[str, Role] = {"Website Admin": r_web}
+    for spec in HR_ROLES:
+        scope = SCOPE_SYSTEM if spec.name == "Super Admin" else SCOPE_HR
+        role = Role(
+            name=spec.name,
+            scope=scope,
+            description=spec.description,
+            permissions=[hr_perms[k] for k in spec.permissions if k in hr_perms],
+        )
+        # Super Admin should also have website permission so legacy
+        # tests that exercise both portals via this user still work.
+        if spec.name == "Super Admin":
+            role.permissions = role.permissions + [p_website]
+        roles[spec.name] = role
+        db_session.add(role)
     db_session.flush()
 
-    # Users
-    u_super = User(
-        email="superadmin@pug.example.com",
-        full_name="Super Admin",
-        password_hash=password_hash,
-        is_active=True,
+    # 3. Users — one per role plus the legacy ``hr@pug.example.com``
+    # mapped to HR Manager so older tests keep working.
+    def _mk_user(
+        email: str,
+        full_name: str,
+        role_names: list[str],
+        *,
+        is_active: bool = True,
+        is_superuser: bool = False,
+        department: str | None = None,
+    ) -> User:
+        return User(
+            email=email,
+            full_name=full_name,
+            password_hash=password_hash,
+            is_active=is_active,
+            is_superuser=is_superuser,
+            department=department,
+            roles=[roles[name] for name in role_names if name in roles],
+        )
+
+    u_super = _mk_user(
+        "superadmin@pug.example.com",
+        "Super Admin",
+        ["Super Admin"],
         is_superuser=True,
-        roles=[r_super],
     )
-    u_web = User(
-        email="webadmin@pug.example.com",
-        full_name="Web Admin",
-        password_hash=password_hash,
-        is_active=True,
-        roles=[r_web],
+    u_web = _mk_user("webadmin@pug.example.com", "Web Admin", ["Website Admin"])
+    # Legacy fixture key — older tests use 'hr@pug.example.com' as HR Manager
+    u_hr = _mk_user("hr@pug.example.com", "HR Manager", ["HR Manager"])
+    u_hradmin = _mk_user("hradmin@pug.example.com", "HR Admin", ["HR Admin"])
+    u_hrexec = _mk_user("hrexec@pug.example.com", "HR Executive", ["HR Executive"])
+    u_dept = _mk_user(
+        "deptmgr@pug.example.com",
+        "Dept Manager",
+        ["Department Manager"],
+        department="Engineering",
     )
-    u_hr = User(
-        email="hr@pug.example.com",
-        full_name="HR Manager",
-        password_hash=password_hash,
-        is_active=True,
-        roles=[r_hr],
+    u_interviewer = _mk_user(
+        "interviewer@pug.example.com",
+        "Interviewer",
+        ["Interviewer"],
     )
-    u_inactive = User(
-        email="disabled@pug.example.com",
-        full_name="Disabled User",
-        password_hash=password_hash,
+    u_viewer = _mk_user("viewer@pug.example.com", "Viewer", ["Viewer / Auditor"])
+    u_inactive = _mk_user(
+        "disabled@pug.example.com",
+        "Disabled User",
+        ["Website Admin"],
         is_active=False,
-        roles=[r_web],
     )
-    db_session.add_all([u_super, u_web, u_hr, u_inactive])
+
+    users_list = [
+        u_super, u_web, u_hr, u_hradmin, u_hrexec, u_dept,
+        u_interviewer, u_viewer, u_inactive,
+    ]
+    db_session.add_all(users_list)
     db_session.commit()
 
     return {
         "password": password,
-        "users": {
-            u.email: u for u in [u_super, u_web, u_hr, u_inactive]
-        },
+        "users": {u.email: u for u in users_list},
+        "roles": roles,
     }

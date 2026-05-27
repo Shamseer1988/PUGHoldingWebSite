@@ -14,10 +14,18 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { JobApprovalActions } from "@/components/hr/job-approval-actions";
 import { JobApprovalBadge } from "@/components/hr/job-approval-badge";
+import {
+  PERM_HR_JOBS_APPROVE,
+  PERM_HR_JOBS_CREATE,
+  PERM_HR_JOBS_DELETE,
+  PERM_HR_JOBS_EDIT,
+  PERM_HR_JOBS_PUBLISH,
+} from "@/lib/hr/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +106,7 @@ const EMPTY_FORM: JobFormState = {
 };
 
 export default function HrJobsPage() {
+  const perms = usePermission();
   const [items, setItems] = React.useState<JobOpening[] | null>(null);
   const [editing, setEditing] = React.useState<JobOpening | null>(null);
   const [form, setForm] = React.useState<JobFormState>(EMPTY_FORM);
@@ -261,10 +270,12 @@ export default function HrJobsPage() {
       title="Job openings"
       description="Manage active, on-hold, and closed job postings."
       actions={
-        <Button onClick={openNew} size="sm" aria-label="Add a new job opening">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New job</span>
-        </Button>
+        perms.has(PERM_HR_JOBS_CREATE) ? (
+          <Button onClick={openNew} size="sm" aria-label="Add a new job opening">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">New job</span>
+          </Button>
+        ) : null
       }
     >
       <Toast message={toast} onClose={() => setToast(null)} />
@@ -412,6 +423,9 @@ export default function HrJobsPage() {
                       />
                       <JobApprovalActions
                         job={job}
+                        canApprove={perms.has(PERM_HR_JOBS_APPROVE)}
+                        canSubmit={perms.has(PERM_HR_JOBS_CREATE)}
+                        canPublish={perms.has(PERM_HR_JOBS_PUBLISH)}
                         onUpdated={(updated) => {
                           setItems((prev) =>
                             (prev ?? []).map((j) =>
@@ -459,23 +473,27 @@ export default function HrJobsPage() {
                             <PlayCircle className="h-4 w-4 text-emerald-600" />
                           </Button>
                         )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => openEdit(job)}
-                          aria-label={`Edit ${job.title}`}
-                        >
-                          <Edit3 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => remove(job)}
-                          aria-label={`Delete ${job.title}`}
-                          className="text-rose-600 hover:text-rose-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {perms.has(PERM_HR_JOBS_EDIT) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => openEdit(job)}
+                            aria-label={`Edit ${job.title}`}
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {perms.has(PERM_HR_JOBS_DELETE) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => remove(job)}
+                            aria-label={`Delete ${job.title}`}
+                            className="text-rose-600 hover:text-rose-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </>
                     )}
                   </TableCell>

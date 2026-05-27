@@ -17,7 +17,18 @@ import {
   X,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
 import { Logo } from "@/components/site/logo";
+import {
+  ANY_CANDIDATE_VIEW,
+  ANY_INTERVIEW_VIEW,
+  ANY_JOB_VIEW,
+  ANY_REPORT_VIEW,
+  PERM_HR_AUDIT_READ,
+  PERM_HR_DASHBOARD_VIEW,
+  PERM_HR_OFFERS_VIEW,
+  PERM_HR_USERS_MANAGE,
+} from "@/lib/hr/permissions";
 import { cn } from "@/lib/utils";
 
 interface NavGroup {
@@ -29,26 +40,49 @@ interface NavLink {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  badge?: string;
+  /** Permission gates — link is hidden when the user has none of them. */
+  anyOf: readonly string[];
 }
 
 const NAV: NavGroup[] = [
   {
     label: "Overview",
-    items: [{ label: "Dashboard", href: "/hr", icon: LayoutDashboard }],
+    items: [
+      {
+        label: "Dashboard",
+        href: "/hr",
+        icon: LayoutDashboard,
+        anyOf: [PERM_HR_DASHBOARD_VIEW],
+      },
+    ],
   },
   {
     label: "Recruitment",
     items: [
-      { label: "Job openings", href: "/hr/jobs", icon: Briefcase, badge: "Soon" },
-      { label: "Candidates", href: "/hr/candidates", icon: Users, badge: "Soon" },
+      {
+        label: "Job openings",
+        href: "/hr/jobs",
+        icon: Briefcase,
+        anyOf: ANY_JOB_VIEW,
+      },
+      {
+        label: "Candidates",
+        href: "/hr/candidates",
+        icon: Users,
+        anyOf: ANY_CANDIDATE_VIEW,
+      },
       {
         label: "Interviews",
         href: "/hr/interviews",
         icon: CalendarClock,
-        badge: "Soon",
+        anyOf: ANY_INTERVIEW_VIEW,
       },
-      { label: "Offers", href: "/hr/offers", icon: Handshake, badge: "Soon" },
+      {
+        label: "Offers",
+        href: "/hr/offers",
+        icon: Handshake,
+        anyOf: [PERM_HR_OFFERS_VIEW],
+      },
     ],
   },
   {
@@ -58,7 +92,7 @@ const NAV: NavGroup[] = [
         label: "Reports & export",
         href: "/hr/reports",
         icon: FileBarChart,
-        badge: "Soon",
+        anyOf: ANY_REPORT_VIEW,
       },
     ],
   },
@@ -69,9 +103,14 @@ const NAV: NavGroup[] = [
         label: "HR users & roles",
         href: "/hr/users",
         icon: UsersRound,
-        badge: "Soon",
+        anyOf: [PERM_HR_USERS_MANAGE],
       },
-      { label: "HR audit log", href: "/hr/audit", icon: History },
+      {
+        label: "HR audit log",
+        href: "/hr/audit",
+        icon: History,
+        anyOf: [PERM_HR_AUDIT_READ],
+      },
     ],
   },
 ];
@@ -83,6 +122,16 @@ interface HrSidebarProps {
 
 export function HrSidebar({ open, onClose }: HrSidebarProps) {
   const pathname = usePathname();
+  const perms = usePermission();
+
+  // Filter NAV groups + items based on the current user's permissions.
+  // A group with zero allowed items is hidden entirely.
+  const visibleNav = React.useMemo<NavGroup[]>(() => {
+    return NAV.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => perms.hasAny(item.anyOf)),
+    })).filter((group) => group.items.length > 0);
+  }, [perms]);
 
   React.useEffect(() => {
     if (open) onClose();
@@ -124,7 +173,7 @@ export function HrSidebar({ open, onClose }: HrSidebarProps) {
         </header>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {NAV.map((group) => (
+          {visibleNav.map((group) => (
             <div key={group.label} className="mb-6 last:mb-0">
               <p className="px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {group.label}
@@ -148,11 +197,6 @@ export function HrSidebar({ open, onClose }: HrSidebarProps) {
                       >
                         <Icon className="h-4 w-4 shrink-0" />
                         <span className="flex-1 truncate">{item.label}</span>
-                        {item.badge && (
-                          <span className="rounded-full bg-pug-gold-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-pug-gold-700 dark:text-pug-gold-300">
-                            {item.badge}
-                          </span>
-                        )}
                       </Link>
                     </li>
                   );

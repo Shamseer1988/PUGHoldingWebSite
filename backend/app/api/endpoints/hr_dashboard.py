@@ -14,7 +14,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_hr_admin
+from app.auth.dependencies import require_hr_admin, require_permission
+from app.auth.permissions import (
+    PERM_HR_AUDIT_READ,
+    PERM_HR_DASHBOARD_VIEW,
+)
 from app.core.database import get_db
 from app.models.auth import AuditLog, User
 from app.models.hr_ats import (
@@ -76,7 +80,10 @@ FUNNEL_STAGES: List[tuple[str, str]] = [
 
 
 @router.get("/dashboard", response_model=DashboardSummary)
-def hr_dashboard(db: Session = Depends(get_db)) -> DashboardSummary:
+def hr_dashboard(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_DASHBOARD_VIEW)),
+) -> DashboardSummary:
     now = datetime.now(timezone.utc)
     month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
 
@@ -234,6 +241,7 @@ def hr_dashboard(db: Session = Depends(get_db)) -> DashboardSummary:
 @router.get("/audit-logs", response_model=List[AuditEntryRead])
 def hr_audit_logs(
     db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_AUDIT_READ)),
     limit: int = Query(default=50, ge=1, le=200),
     action_prefix: Optional[str] = Query(default=None),
 ) -> List[AuditEntryRead]:

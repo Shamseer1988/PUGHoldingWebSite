@@ -16,7 +16,17 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import (
     get_current_user,
     get_request_context,
+    require_any_permission,
     require_hr_admin,
+    require_permission,
+)
+from app.auth.permissions import (
+    PERM_HR_INTERVIEWS_DELETE,
+    PERM_HR_INTERVIEWS_FEEDBACK,
+    PERM_HR_INTERVIEWS_RESCHEDULE,
+    PERM_HR_INTERVIEWS_SCHEDULE,
+    PERM_HR_INTERVIEWS_VIEW_ALL,
+    PERM_HR_INTERVIEWS_VIEW_MINE,
 )
 from app.core.database import get_db
 from app.models.auth import User
@@ -178,11 +188,21 @@ def list_interviews(
 ) -> List[InterviewListItem]:
     """List interviews with optional filters.
 
-    - HR/superuser: any filter combination.
-    - Anyone else: forced ``mine_only`` — only their own assignments.
+    - Users with ``hr:interviews:view_all`` see the whole table.
+    - Anyone else (Interviewers, Department Managers without view_all)
+      gets forced to ``mine_only`` — only their own assignments.
+    - Users with neither permission get 403.
     """
-    force_mine = not (actor.is_superuser or actor.has_scope("hr"))
-    if force_mine:
+    can_view_all = actor.is_superuser or actor.has_permission(
+        PERM_HR_INTERVIEWS_VIEW_ALL
+    )
+    can_view_mine = actor.has_permission(PERM_HR_INTERVIEWS_VIEW_MINE)
+    if not (can_view_all or can_view_mine):
+        raise HTTPException(
+            status_code=403,
+            detail="Requires hr:interviews:view_all or hr:interviews:view_mine",
+        )
+    if not can_view_all:
         mine_only = True
 
     stmt = (
@@ -286,7 +306,7 @@ def create_interview_endpoint(
     payload: InterviewCreate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     app = _get_application_or_404(db, payload.application_id)
 
@@ -445,7 +465,7 @@ def update_interview_endpoint(
     payload: InterviewUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_RESCHEDULE)),
 ) -> InterviewRead:
     interview = _get_interview_or_404(db, interview_id)
     updates = payload.model_dump(exclude_unset=True)
@@ -486,7 +506,11 @@ def change_status_endpoint(
     payload: InterviewStatusChange,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(
+        require_any_permission(
+            PERM_HR_INTERVIEWS_RESCHEDULE, PERM_HR_INTERVIEWS_FEEDBACK
+        )
+    ),
 ) -> InterviewRead:
     interview = _get_interview_or_404(db, interview_id)
     previous = interview.status
@@ -523,7 +547,7 @@ def delete_interview_endpoint(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_DELETE)),
 ):
     interview = _get_interview_or_404(db, interview_id)
     interview_id_val = interview.id
@@ -638,7 +662,7 @@ def send_interview_email(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     """Send (or re-send) the branded interview-scheduled email."""
     interview = _get_interview_or_404(db, interview_id)
@@ -680,7 +704,7 @@ def create_interview_meet(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     """Create (or recreate) a Google Meet link for an existing interview."""
     from app.services.google_calendar_service import create_interview_event
@@ -747,7 +771,7 @@ def resend_invitation(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     """Alias of send-email — kept separate for audit clarity."""
     return send_interview_email(interview_id, request, db, user)

@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
 import { BulkStatusModal } from "@/components/hr/bulk-status-modal";
 import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
 import {
@@ -36,6 +37,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import {
+  PERM_HR_CANDIDATES_EDIT,
+  PERM_HR_CANDIDATES_STATUS_UPDATE,
+} from "@/lib/hr/permissions";
 import type {
   BulkUploadResult,
   CandidateAdvancedFilters,
@@ -52,6 +57,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 
 export default function HrCandidatesPage() {
+  const perms = usePermission();
   const [items, setItems] = React.useState<CandidateListItem[] | null>(null);
   const [filters, setFilters] = React.useState<CandidateAdvancedFilters>({});
   const [filtersOpen, setFiltersOpen] = React.useState(false);
@@ -111,7 +117,8 @@ export default function HrCandidatesPage() {
       description="Every CV received from the public careers page or uploaded by HR."
       actions={
         <div className="flex items-center gap-2">
-          {selectedAppIds.size > 0 ? (
+          {selectedAppIds.size > 0 &&
+          perms.has(PERM_HR_CANDIDATES_STATUS_UPDATE) ? (
             <Button
               size="sm"
               onClick={() => setBulkStatusOpen(true)}
@@ -124,23 +131,27 @@ export default function HrCandidatesPage() {
               <span className="sm:hidden">{selectedAppIds.size}</span>
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setBulkOpen(true)}
-            aria-label="Bulk ZIP upload"
-          >
-            <Upload className="h-4 w-4" />
-            <span className="hidden sm:inline">Bulk ZIP</span>
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setSingleOpen(true)}
-            aria-label="Upload a single CV"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Upload CV</span>
-          </Button>
+          {perms.has(PERM_HR_CANDIDATES_EDIT) && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkOpen(true)}
+                aria-label="Bulk ZIP upload"
+              >
+                <Upload className="h-4 w-4" />
+                <span className="hidden sm:inline">Bulk ZIP</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setSingleOpen(true)}
+                aria-label="Upload a single CV"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Upload CV</span>
+              </Button>
+            </>
+          )}
         </div>
       }
     >

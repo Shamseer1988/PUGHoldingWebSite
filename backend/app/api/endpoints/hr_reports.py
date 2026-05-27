@@ -21,7 +21,15 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import (
     get_request_context,
+    require_any_permission,
     require_hr_admin,
+    require_permission,
+)
+from app.auth.permissions import (
+    PERM_HR_REPORTS_EXPORT,
+    PERM_HR_REPORTS_VIEW_ALL,
+    PERM_HR_REPORTS_VIEW_DEPT,
+    PERM_HR_REPORTS_VIEW_MINE,
 )
 from app.core.database import get_db
 from app.models.auth import User
@@ -47,8 +55,17 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 
 
+_REPORT_VIEW_DEP = require_any_permission(
+    PERM_HR_REPORTS_VIEW_ALL,
+    PERM_HR_REPORTS_VIEW_DEPT,
+    PERM_HR_REPORTS_VIEW_MINE,
+)
+
+
 @router.get("/types")
-def list_report_types() -> list[dict]:
+def list_report_types(
+    user: User = Depends(_REPORT_VIEW_DEP),
+) -> list[dict]:
     return [
         {
             "key": r.key,
@@ -61,7 +78,10 @@ def list_report_types() -> list[dict]:
 
 
 @router.get("/options/jobs")
-def job_options(db: Session = Depends(get_db)) -> list[dict]:
+def job_options(
+    db: Session = Depends(get_db),
+    user: User = Depends(_REPORT_VIEW_DEP),
+) -> list[dict]:
     return [
         {"slug": slug, "title": title, "department": department}
         for slug, title, department in collect_distinct_job_options(db)
@@ -69,7 +89,10 @@ def job_options(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/options/departments")
-def department_options(db: Session = Depends(get_db)) -> list[str]:
+def department_options(
+    db: Session = Depends(get_db),
+    user: User = Depends(_REPORT_VIEW_DEP),
+) -> list[str]:
     return collect_distinct_departments(db)
 
 
@@ -136,6 +159,7 @@ def get_report(
     report_type: str,
     filters: CandidateFilters = Depends(_filters_from_query),
     db: Session = Depends(get_db),
+    user: User = Depends(_REPORT_VIEW_DEP),
 ) -> dict:
     try:
         report = run_report(db, report_type, filters)
@@ -159,7 +183,7 @@ def export_report(
     format: str = Query(default="csv", pattern=r"^(csv|xlsx|pdf)$"),
     filters: CandidateFilters = Depends(_filters_from_query),
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_REPORTS_EXPORT)),
 ) -> StreamingResponse:
     try:
         report = run_report(db, report_type, filters)

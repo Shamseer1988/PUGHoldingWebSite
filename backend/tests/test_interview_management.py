@@ -558,12 +558,14 @@ def test_external_user_without_assignment_gets_empty_list(
         },
     )
 
-    # Website-scope user (not HR) sees only their own assignments.
+    # Website-scope user (no HR permissions at all) — after the Phase 1
+    # RBAC overhaul this is rejected with 403, not given an empty list.
+    # The old behavior leaked the existence of /hr/interviews to any
+    # logged-in admin; the new behavior keeps HR data strictly scoped.
     web_login = client.post(
         "/api/v1/admin/auth/login",
         json={"email": "webadmin@pug.example.com", "password": seed_auth["password"]},
     )
     web_headers = {"Authorization": f"Bearer {web_login.json()['access_token']}"}
     response = client.get(INTERVIEWS, headers=web_headers)
-    assert response.status_code == 200
-    assert response.json() == []
+    assert response.status_code == 403

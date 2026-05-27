@@ -101,6 +101,53 @@ def require_permission(permission_key: str) -> Callable[[User], User]:
     return _checker
 
 
+def require_any_permission(
+    *permission_keys: str,
+) -> Callable[[User], User]:
+    """Dependency factory: require at least one of the listed permission keys.
+
+    Useful when an endpoint serves multiple roles with overlapping needs
+    — e.g. interview listing is open to anyone with view_all OR view_mine,
+    and the endpoint then filters rows based on which they have.
+    """
+    keys = tuple(permission_keys)
+    if not keys:
+        raise ValueError("require_any_permission needs at least one key")
+
+    def _checker(user: User = Depends(get_current_user)) -> User:
+        if user.is_superuser:
+            return user
+        for key in keys:
+            if user.has_permission(key):
+                return user
+        raise _forbidden(
+            f"Requires one of: {', '.join(sorted(keys))}"
+        )
+
+    return _checker
+
+
+def require_all_permissions(
+    *permission_keys: str,
+) -> Callable[[User], User]:
+    """Dependency factory: require every listed permission key."""
+    keys = tuple(permission_keys)
+    if not keys:
+        raise ValueError("require_all_permissions needs at least one key")
+
+    def _checker(user: User = Depends(get_current_user)) -> User:
+        if user.is_superuser:
+            return user
+        missing = [k for k in keys if not user.has_permission(k)]
+        if missing:
+            raise _forbidden(
+                f"Missing permissions: {', '.join(missing)}"
+            )
+        return user
+
+    return _checker
+
+
 # Convenience pre-built dependencies for the two main surfaces.
 require_website_admin = require_scope(SCOPE_WEBSITE)
 require_hr_admin = require_scope(SCOPE_HR)

@@ -94,6 +94,10 @@ class User(Base, TimestampMixin):
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True)
     )
+    # Optional org-unit tag used by the Department Manager role for
+    # row-level scoping (jobs / candidates filtered to user.department).
+    # Free-form string matched against JobOpening.department.
+    department: Mapped[Optional[str]] = mapped_column(String(120))
 
     roles: Mapped[List["Role"]] = relationship(
         secondary=UserRole.__table__,

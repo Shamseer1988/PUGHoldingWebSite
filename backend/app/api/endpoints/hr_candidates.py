@@ -27,7 +27,21 @@ from fastapi import (
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, object_session
 
-from app.auth.dependencies import get_request_context, require_hr_admin
+from app.auth.dependencies import (
+    get_request_context,
+    require_any_permission,
+    require_hr_admin,
+    require_permission,
+)
+from app.auth.permissions import (
+    PERM_HR_CANDIDATES_DELETE,
+    PERM_HR_CANDIDATES_EDIT,
+    PERM_HR_CANDIDATES_SCORE_OVERRIDE,
+    PERM_HR_CANDIDATES_STATUS_UPDATE,
+    PERM_HR_CANDIDATES_VIEW_DEPT,
+    PERM_HR_CANDIDATES_VIEW_FULL,
+    PERM_HR_CANDIDATES_VIEW_LIST,
+)
 from app.core.database import get_db
 from app.models.auth import User
 from app.models.hr_ats import (
@@ -299,6 +313,11 @@ router = APIRouter(
 @router.get("", response_model=List[CandidateListItem])
 def list_candidates(
     db: Session = Depends(get_db),
+    user: User = Depends(
+        require_any_permission(
+            PERM_HR_CANDIDATES_VIEW_LIST, PERM_HR_CANDIDATES_VIEW_DEPT
+        )
+    ),
     include_archived: bool = Query(default=False),
     q: Optional[str] = Query(default=None, max_length=200),
     nationality: Optional[str] = Query(default=None, max_length=120),
@@ -326,6 +345,18 @@ def list_candidates(
     Accepts every Phase-16 filter; falls back to the previous behaviour
     when no extra params are supplied (only `q` + `include_archived`).
     """
+    # Department-scoped users (Department Manager) get their candidate
+    # list forced to their own org unit — even if they pass a ?department
+    # query parameter for a different one.
+    effective_department = department
+    if (
+        not user.is_superuser
+        and not user.has_permission(PERM_HR_CANDIDATES_VIEW_LIST)
+        and user.has_permission(PERM_HR_CANDIDATES_VIEW_DEPT)
+        and user.department
+    ):
+        effective_department = user.department
+
     filters = CandidateFilters(
         q=q,
         include_archived=include_archived,
@@ -341,7 +372,7 @@ def list_candidates(
         language=language,
         skill=skill,
         job_slug=job_slug,
-        department=department,
+        department=effective_department,
         status=status,
         score_min=score_min,
         score_max=score_max,
@@ -360,7 +391,7 @@ def list_candidates(
 def get_candidate(
     candidate_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_VIEW_FULL)),
 ) -> CandidateRead:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
@@ -381,7 +412,7 @@ def get_candidate(
 async def upload_candidate(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
     file: UploadFile = File(...),
     full_name: str = Form(..., min_length=1, max_length=255),
     email: Optional[str] = Form(default=None, max_length=255),
@@ -485,7 +516,7 @@ async def upload_candidate(
 async def bulk_upload_candidates(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
     file: UploadFile = File(..., description="ZIP archive of CV files"),
     job_slug: Optional[str] = Form(default=None, max_length=200),
 ) -> BulkUploadResult:
@@ -596,7 +627,7 @@ def update_candidate(
     payload: CandidateUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateRead:
     candidate = _get_candidate_or_404(db, candidate_id)
     updates = payload.model_dump(exclude_unset=True)
@@ -691,7 +722,7 @@ def update_extracted_data(
     payload: CandidateExtractedDataUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateExtractedData:
     candidate = _get_candidate_or_404(db, candidate_id)
     data = candidate.extracted_data
@@ -733,7 +764,7 @@ def reparse_candidate_cv_endpoint(
     candidate_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CvReparseResult:
     """Re-run the CV parser on the candidate's primary document.
 
@@ -844,7 +875,7 @@ def recompute_application_score(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateScoreRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     if app.job_opening is None:
@@ -892,7 +923,7 @@ def override_application_score(
     payload: CandidateScoreOverride,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_SCORE_OVERRIDE)),
 ) -> CandidateScoreRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     if app.score is None:
@@ -953,7 +984,7 @@ def clear_application_score_override(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_SCORE_OVERRIDE)),
 ) -> CandidateScoreRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     if app.score is None:
@@ -1027,7 +1058,7 @@ def generate_application_ai_review(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> AIReviewGenerateResult:
     app = _get_application_or_404(db, candidate_id, application_id)
     setting = db.get(AISetting, 1)
@@ -1090,7 +1121,7 @@ def delete_application_ai_review(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ):
     from fastapi import Response
 
@@ -1202,7 +1233,7 @@ def change_application_status(
     payload: CandidateStatusChange,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_STATUS_UPDATE)),
 ) -> CandidateRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     previous = app.status
@@ -1299,7 +1330,7 @@ def bulk_change_application_status(
     payload: BulkCandidateStatusChangeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_STATUS_UPDATE)),
 ) -> BulkCandidateStatusChangeResult:
     """Apply one status transition to many applications at once.
 
@@ -1514,7 +1545,7 @@ def run_application_auto_review(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateAutoReviewRead:
     """Run (or re-run) the auto-review engine on a single application."""
     from app.services import candidate_auto_review
