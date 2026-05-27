@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  BookOpen,
   Brain,
   Building2,
   ChevronLeft,
@@ -26,6 +27,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Tag,
   Users,
   X,
 } from "lucide-react";
@@ -77,6 +79,21 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Contact inbox", href: "/admin/inbox", icon: Inbox },
       { label: "Newsletter", href: "/admin/subscribers", icon: Mail },
+    ],
+  },
+  {
+    label: "Marketing",
+    items: [
+      {
+        label: "Offer campaigns",
+        href: "/admin/marketing/campaigns",
+        icon: Tag,
+      },
+      {
+        label: "Catalogues",
+        href: "/admin/marketing/catalogues",
+        icon: BookOpen,
+      },
     ],
   },
   {
