@@ -7,6 +7,8 @@ import {
   BarChart3,
   Brain,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   DatabaseBackup,
   ExternalLink,
   FileText,
@@ -120,9 +122,20 @@ const NAV: NavGroup[] = [
 interface AdminSidebarProps {
   open: boolean;
   onClose: () => void;
+  /** Desktop-only: when true, the sidebar shrinks to icon-only and
+   *  labels + group headings hide on lg+. Mobile drawer keeps full
+   *  labels regardless. */
+  collapsed?: boolean;
+  /** Callback for the in-sidebar chevron that flips collapsed. */
+  onToggleCollapsed?: () => void;
 }
 
-export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
+export function AdminSidebar({
+  open,
+  onClose,
+  collapsed = false,
+  onToggleCollapsed,
+}: AdminSidebarProps) {
   const pathname = usePathname();
   const { user } = useAuth();
   // System scope is granted by the explicit "system" scope or by the
@@ -164,13 +177,42 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border/60 bg-background transition-transform lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex flex-col border-r border-border/60 bg-background transition-[width,transform] duration-200 lg:translate-x-0",
+          // Mobile drawer is always full width; on lg+ width depends on collapsed.
+          "w-64",
+          collapsed && "lg:w-16",
           open ? "translate-x-0" : "-translate-x-full"
         )}
         aria-label="Website admin navigation"
       >
-        <header className="flex items-center justify-between border-b border-border/60 px-4 py-4">
-          <Logo size="sm" />
+        <header
+          className={cn(
+            "flex items-center border-b border-border/60 px-4 py-4",
+            collapsed
+              ? "justify-between lg:justify-center lg:px-2"
+              : "justify-between"
+          )}
+        >
+          <div className={cn(collapsed && "lg:hidden")}>
+            <Logo size="sm" />
+          </div>
+          {/* Desktop collapse toggle */}
+          {onToggleCollapsed && (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className="hidden h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:inline-flex"
+            >
+              {collapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
+            </button>
+          )}
+          {/* Mobile close */}
           <button
             type="button"
             onClick={onClose}
@@ -181,13 +223,28 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
           </button>
         </header>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav
+          className={cn(
+            "flex-1 overflow-y-auto py-4",
+            collapsed ? "px-2 lg:px-2" : "px-3"
+          )}
+        >
           {visibleGroups.map((group) => (
-            <div key={group.label} className="mb-6 last:mb-0">
-              <p className="px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <div
+              key={group.label}
+              className={cn("mb-6 last:mb-0", collapsed && "lg:mb-2")}
+            >
+              <p
+                className={cn(
+                  "px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
+                  collapsed && "lg:hidden"
+                )}
+              >
                 {group.label}
               </p>
-              <ul className="mt-2 space-y-0.5">
+              <ul
+                className={cn("space-y-0.5", collapsed ? "mt-1 lg:mt-0" : "mt-2")}
+              >
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   const active =
@@ -197,17 +254,31 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
                     <li key={item.href}>
                       <Link
                         href={item.href}
+                        title={collapsed ? item.label : undefined}
                         className={cn(
                           "group flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                           active
                             ? "bg-primary/10 text-primary"
-                            : "text-foreground/80 hover:bg-muted hover:text-foreground"
+                            : "text-foreground/80 hover:bg-muted hover:text-foreground",
+                          collapsed && "lg:justify-center lg:px-2"
                         )}
                       >
                         <Icon className="h-4 w-4 shrink-0" />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        <span
+                          className={cn(
+                            "flex-1 truncate",
+                            collapsed && "lg:hidden"
+                          )}
+                        >
+                          {item.label}
+                        </span>
                         {item.badge && (
-                          <span className="rounded-full bg-pug-gold-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-pug-gold-700 dark:text-pug-gold-300">
+                          <span
+                            className={cn(
+                              "rounded-full bg-pug-gold-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-pug-gold-700 dark:text-pug-gold-300",
+                              collapsed && "lg:hidden"
+                            )}
+                          >
                             {item.badge}
                           </span>
                         )}
@@ -224,10 +295,16 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
           <Link
             href="/"
             target="_blank"
-            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs text-muted-foreground hover:text-foreground"
+            title={collapsed ? "Visit public site" : undefined}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs text-muted-foreground hover:text-foreground",
+              collapsed && "lg:w-full lg:justify-center lg:px-2"
+            )}
           >
             <ExternalLink className="h-3.5 w-3.5" />
-            Visit public site
+            <span className={cn(collapsed && "lg:hidden")}>
+              Visit public site
+            </span>
           </Link>
         </footer>
       </aside>
@@ -235,13 +312,42 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
   );
 }
 
-export function AdminSidebarOpener({ onOpen }: { onOpen: () => void }) {
+/**
+ * Topbar hamburger. Visible on every breakpoint:
+ *  - On mobile (<lg): toggles the off-canvas drawer via ``onOpen``.
+ *  - On lg+ desktop: toggles the icons-only collapse via
+ *    ``onToggleCollapsed``.
+ *
+ * The two callbacks are independent so the shell can drive each
+ * state separately. The button picks at click time based on the
+ * Tailwind ``lg`` breakpoint (1024 px) so it always does the right
+ * thing for the current viewport.
+ */
+export function AdminSidebarOpener({
+  onOpen,
+  onToggleCollapsed,
+}: {
+  onOpen: () => void;
+  onToggleCollapsed?: () => void;
+}) {
+  function handleClick() {
+    if (
+      onToggleCollapsed &&
+      typeof window !== "undefined" &&
+      window.innerWidth >= 1024
+    ) {
+      onToggleCollapsed();
+    } else {
+      onOpen();
+    }
+  }
   return (
     <button
       type="button"
-      onClick={onOpen}
-      aria-label="Open sidebar"
-      className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted lg:hidden"
+      onClick={handleClick}
+      aria-label="Toggle sidebar"
+      title="Toggle sidebar"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted"
     >
       <MenuIcon className="h-5 w-5" />
     </button>

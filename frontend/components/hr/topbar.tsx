@@ -12,6 +12,8 @@ interface HrTopbarProps {
   title: string;
   description?: string;
   onOpenSidebar: () => void;
+  /** Desktop-only collapse toggle — see admin topbar for details. */
+  onToggleCollapsed?: () => void;
   actions?: React.ReactNode;
 }
 
@@ -19,6 +21,7 @@ export function HrTopbar({
   title,
   description,
   onOpenSidebar,
+  onToggleCollapsed,
   actions,
 }: HrTopbarProps) {
   const { user, logout } = useAuth();
@@ -35,7 +38,10 @@ export function HrTopbar({
 
   return (
     <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border/60 bg-background/85 px-4 py-3 backdrop-blur sm:px-6">
-      <HrSidebarOpener onOpen={onOpenSidebar} />
+      <HrSidebarOpener
+        onOpen={onOpenSidebar}
+        onToggleCollapsed={onToggleCollapsed}
+      />
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">
           {title}
