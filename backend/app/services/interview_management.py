@@ -220,6 +220,11 @@ def update_interview(
         interview.location_or_link = (value or "").strip() or None if isinstance(value, str) else value
     if "interviewer_id" in updates:
         interview.interviewer_id = updates["interviewer_id"]
+    if "reschedule_reason" in updates:
+        value = updates["reschedule_reason"]
+        interview.reschedule_reason = (
+            value.strip() if isinstance(value, str) and value.strip() else None
+        )
 
     # Re-validate the resulting state.
     _validate_basic(

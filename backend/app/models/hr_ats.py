@@ -788,6 +788,9 @@ class Interview(Base, TimestampMixin):
     candidate_email_override: Mapped[Optional[str]] = mapped_column(String(255))
     email_subject: Mapped[Optional[str]] = mapped_column(String(500))
     email_note: Mapped[Optional[str]] = mapped_column(Text)
+    # Phase 5 — captured by the reschedule dialog; surfaced in the
+    # rescheduled email and on the row.
+    reschedule_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     application: Mapped[CandidateJobApplication] = relationship(back_populates="interviews")
     feedback: Mapped[List["InterviewFeedback"]] = relationship(

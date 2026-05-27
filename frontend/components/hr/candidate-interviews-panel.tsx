@@ -295,6 +295,12 @@ function InterviewRow({
                     void loadDetail();
                     onChanged();
                   }}
+                  scheduleMeta={{
+                    scheduled_at: detail.scheduled_at,
+                    duration_minutes: detail.duration_minutes,
+                    mode: detail.mode,
+                    location_or_link: detail.location_or_link,
+                  }}
                 />
                 <span className="flex-1" />
                 <Button

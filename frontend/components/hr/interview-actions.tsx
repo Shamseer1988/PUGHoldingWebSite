@@ -10,8 +10,10 @@ import {
   UserX,
 } from "lucide-react";
 
+import { RescheduleInterviewDialog } from "@/components/hr/reschedule-interview-dialog";
 import { Button } from "@/components/ui/button";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import type { InterviewMode } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 
@@ -26,6 +28,20 @@ interface InterviewActionsProps {
    * candidate panel uses the full text labels (compact = false).
    */
   compact?: boolean;
+  /**
+   * Current schedule fields. When supplied (which is the normal case),
+   * the "Reschedule" button opens the rich RescheduleInterviewDialog
+   * that lets HR change date/time/mode/location and notify the
+   * candidate. Without this the button silently no-ops; the legacy
+   * status-only "rescheduled" path is no longer exposed since it
+   * doesn't change the actual schedule.
+   */
+  scheduleMeta?: {
+    scheduled_at: string;
+    duration_minutes: number;
+    mode: InterviewMode | string;
+    location_or_link: string | null;
+  };
 }
 
 /**
@@ -48,9 +64,11 @@ export function InterviewActions({
   status,
   onChanged,
   compact = false,
+  scheduleMeta,
 }: InterviewActionsProps) {
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = React.useState(false);
 
   async function changeStatus(next: string) {
     setBusy(next);
@@ -122,8 +140,16 @@ export function InterviewActions({
             compact={compact}
             icon={RefreshCw}
             label="Reschedule"
-            title="Mark as rescheduled — then create a new interview row with the new date"
-            onClick={() => changeStatus("rescheduled")}
+            title={
+              scheduleMeta
+                ? "Edit date, time, mode, location and optionally notify the candidate"
+                : "Mark as rescheduled (status-only — meta not available)"
+            }
+            onClick={() =>
+              scheduleMeta
+                ? setRescheduleOpen(true)
+                : changeStatus("rescheduled")
+            }
             busy={busy === "rescheduled"}
             disabled={busy !== null}
           />
@@ -147,6 +173,22 @@ export function InterviewActions({
         >
           {compact ? "Error" : error}
         </span>
+      )}
+      {rescheduleOpen && scheduleMeta && (
+        <RescheduleInterviewDialog
+          interview={{
+            id: interviewId,
+            scheduled_at: scheduleMeta.scheduled_at,
+            duration_minutes: scheduleMeta.duration_minutes,
+            mode: scheduleMeta.mode,
+            location_or_link: scheduleMeta.location_or_link,
+          }}
+          onClose={() => setRescheduleOpen(false)}
+          onSaved={() => {
+            setRescheduleOpen(false);
+            onChanged();
+          }}
+        />
       )}
     </div>
   );

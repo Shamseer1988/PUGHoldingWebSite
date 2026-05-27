@@ -141,6 +141,7 @@ def _serialize_interview(
         candidate_email_override=interview.candidate_email_override,
         email_subject=interview.email_subject,
         email_note=interview.email_note,
+        reschedule_reason=interview.reschedule_reason,
     )
 
 
@@ -472,9 +473,30 @@ def update_interview_endpoint(
 ) -> InterviewRead:
     interview = _get_interview_or_404(db, interview_id)
     updates = payload.model_dump(exclude_unset=True)
+    # Pull the two endpoint-only flags out of the updates dict before
+    # passing the rest to the service — they aren't column-backed.
+    send_email_now = bool(updates.pop("send_email_now", False))
+    if "reschedule_reason" in updates:
+        # reschedule_reason IS a column, keep it; just normalise empty -> None.
+        reason = updates.get("reschedule_reason")
+        updates["reschedule_reason"] = (
+            reason.strip() if isinstance(reason, str) and reason.strip() else None
+        )
+
     if not updates:
         users = _email_lookup(db, [interview.interviewer_id])
         return _serialize_interview(interview, users=users)
+
+    # Snapshot the fields that matter for the rescheduled email so the
+    # candidate can see old vs new in the notification.
+    old_scheduled_at = interview.scheduled_at
+    old_mode = interview.mode
+    old_location = interview.location_or_link
+    schedule_changed = (
+        "scheduled_at" in updates
+        and updates["scheduled_at"] is not None
+        and updates["scheduled_at"] != old_scheduled_at
+    )
 
     try:
         update_interview(db, interview=interview, updates=updates)
@@ -486,7 +508,11 @@ def update_interview_endpoint(
     ctx = get_request_context(request)
     record_audit(
         db,
-        action="hr.interview.update",
+        action=(
+            "hr.interview.reschedule"
+            if schedule_changed
+            else "hr.interview.update"
+        ),
         actor_id=user.id,
         actor_email=user.email,
         scope="hr",
@@ -494,11 +520,49 @@ def update_interview_endpoint(
         target_id=str(interview.id),
         ip_address=ctx["ip_address"],
         user_agent=ctx["user_agent"],
-        details={"fields": sorted(updates.keys())},
+        details={
+            "fields": sorted(updates.keys()),
+            "send_email_now": send_email_now,
+            **(
+                {
+                    "old_scheduled_at": old_scheduled_at.isoformat()
+                    if old_scheduled_at
+                    else None,
+                    "new_scheduled_at": interview.scheduled_at.isoformat()
+                    if interview.scheduled_at
+                    else None,
+                    "old_mode": old_mode,
+                    "new_mode": interview.mode,
+                    "old_location": old_location,
+                    "new_location": interview.location_or_link,
+                }
+                if schedule_changed
+                else {}
+            ),
+        },
         commit=False,
     )
     db.commit()
     db.refresh(interview)
+
+    # Fire-and-forget rescheduled email only when the schedule moved
+    # AND HR ticked the "Send updated email" checkbox. Other field-only
+    # edits stay silent.
+    if schedule_changed and send_email_now:
+        try:
+            from app.services import hr_notifications
+
+            hr_notifications.notify_interview_rescheduled(
+                interview_id=interview.id,
+                actor_id=user.id,
+            )
+        except Exception:  # pragma: no cover - notifications must never raise
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "interview-rescheduled notification failed"
+            )
+
     users = _email_lookup(db, [interview.interviewer_id])
     return _serialize_interview(interview, users=users)
 

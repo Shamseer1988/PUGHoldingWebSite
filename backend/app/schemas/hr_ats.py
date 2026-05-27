@@ -627,6 +627,11 @@ class InterviewUpdate(BaseModel):
     mode: Optional[str] = Field(default=None, pattern=INTERVIEW_MODE_PATTERN)
     location_or_link: Optional[str] = Field(default=None, max_length=500)
     interviewer_id: Optional[int] = None
+    # Phase 5 — captured by the reschedule dialog. When scheduled_at is
+    # included AND send_email_now=True the endpoint dispatches the
+    # branded "interview rescheduled" email automatically.
+    reschedule_reason: Optional[str] = Field(default=None, max_length=2000)
+    send_email_now: bool = False
 
 
 class InterviewStatusChange(BaseModel):
@@ -660,6 +665,8 @@ class InterviewRead(InterviewBase):
     candidate_email_override: Optional[str] = None
     email_subject: Optional[str] = None
     email_note: Optional[str] = None
+    # Phase 5
+    reschedule_reason: Optional[str] = None
 
 
 class InterviewListItem(BaseModel):

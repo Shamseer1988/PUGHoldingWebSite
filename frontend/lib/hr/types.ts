@@ -552,6 +552,21 @@ export interface Interview {
   created_at: string;
   updated_at: string;
   feedback: InterviewFeedback[];
+  reschedule_reason?: string | null;
+}
+
+export interface InterviewUpdatePayload {
+  round_name?: string;
+  round_number?: number;
+  scheduled_at?: string;
+  duration_minutes?: number;
+  mode?: InterviewMode | string;
+  location_or_link?: string | null;
+  interviewer_id?: number | null;
+  reschedule_reason?: string | null;
+  /** When true and scheduled_at changes, backend sends the
+   *  branded interview-rescheduled email automatically. */
+  send_email_now?: boolean;
 }
 
 export interface InterviewListRow {

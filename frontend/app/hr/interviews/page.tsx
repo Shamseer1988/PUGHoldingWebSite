@@ -265,6 +265,12 @@ export default function HrInterviewsPage() {
                       status={row.status}
                       onChanged={refresh}
                       compact
+                      scheduleMeta={{
+                        scheduled_at: row.scheduled_at,
+                        duration_minutes: row.duration_minutes,
+                        mode: row.mode,
+                        location_or_link: row.location_or_link,
+                      }}
                     />
                   </TableCell>
                 </TableRow>
