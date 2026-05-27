@@ -528,6 +528,47 @@ export interface RoleSummary {
   description: string | null;
 }
 
+
+// Phase 12 — full role-permission matrix payloads ----------------------------
+
+export interface PermissionInfo {
+  id: number;
+  key: string;
+  scope: Scope;
+  description: string | null;
+}
+
+
+export interface RoleDetail {
+  id: number;
+  name: string;
+  scope: Scope;
+  description: string | null;
+  permission_ids: number[];
+  permission_keys: string[];
+  user_count: number;
+}
+
+
+export interface RoleCreatePayload {
+  name: string;
+  scope: Scope;
+  description?: string | null;
+  permission_ids?: number[];
+}
+
+
+export interface RoleUpdatePayload {
+  name?: string;
+  scope?: Scope;
+  description?: string | null;
+}
+
+
+export interface RolePermissionUpdatePayload {
+  permission_ids: number[];
+}
+
 export interface AdminUser {
   id: number;
   email: string;
