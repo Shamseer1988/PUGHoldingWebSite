@@ -7,6 +7,7 @@ import {
   Bookmark,
   CheckCircle2,
   Loader2,
+  Pencil,
   Pin,
   PinOff,
   Plus,
@@ -91,6 +92,8 @@ function Body() {
   const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
+  // When non-null, the dialog opens in edit mode pre-populated with this row.
+  const [editing, setEditing] = React.useState<SavedSearch | null>(null);
   const [running, setRunning] = React.useState<number | null>(null);
   const [lastResult, setLastResult] = React.useState<RunResult | null>(null);
 
@@ -287,15 +290,27 @@ function Body() {
                         Run
                       </Button>
                       {row.is_owner && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => remove(row)}
-                          aria-label={`Delete ${row.name}`}
-                          className="text-rose-600 hover:text-rose-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setEditing(row)}
+                            aria-label={`Edit ${row.name}`}
+                            title="Edit"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => remove(row)}
+                            aria-label={`Delete ${row.name}`}
+                            title="Delete"
+                            className="text-rose-600 hover:text-rose-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </TableCell>
@@ -306,12 +321,19 @@ function Body() {
         </div>
       )}
 
-      {creating && (
-        <CreateDialog
-          onClose={() => setCreating(false)}
-          onCreated={(name) => {
+      {(creating || editing) && (
+        <SearchDialog
+          editing={editing}
+          onClose={() => {
             setCreating(false);
-            setToast(`Created "${name}".`);
+            setEditing(null);
+          }}
+          onSaved={(name, mode) => {
+            setCreating(false);
+            setEditing(null);
+            setToast(
+              mode === "create" ? `Created "${name}".` : `Updated "${name}".`
+            );
             void refresh();
           }}
           onError={(msg) => setError(msg)}
@@ -322,22 +344,34 @@ function Body() {
 }
 
 // ---------------------------------------------------------------------------
-// Create dialog
+// Create / Edit dialog
 // ---------------------------------------------------------------------------
 
-function CreateDialog({
+function SearchDialog({
+  editing,
   onClose,
-  onCreated,
+  onSaved,
   onError,
 }: {
+  editing: SavedSearch | null;
   onClose: () => void;
-  onCreated: (name: string) => void;
+  onSaved: (name: string, mode: "create" | "edit") => void;
   onError: (msg: string) => void;
 }) {
-  const [name, setName] = React.useState("");
-  const [description, setDescription] = React.useState("");
-  const [scope, setScope] = React.useState<SavedSearchScope>("private");
-  const [filtersJson, setFiltersJson] = React.useState("{}");
+  // Initial values come from ``editing`` when present, otherwise blank
+  // (create flow). Initialising via React.useState's lazy initializer
+  // means we don't re-prefill if the parent re-renders while the
+  // dialog is open.
+  const [name, setName] = React.useState(() => editing?.name ?? "");
+  const [description, setDescription] = React.useState(
+    () => editing?.description ?? ""
+  );
+  const [scope, setScope] = React.useState<SavedSearchScope>(
+    () => editing?.scope ?? "private"
+  );
+  const [filtersJson, setFiltersJson] = React.useState(() =>
+    editing ? JSON.stringify(editing.filters ?? {}, null, 2) : "{}"
+  );
   const [saving, setSaving] = React.useState(false);
 
   async function submit() {
@@ -356,14 +390,24 @@ function CreateDialog({
       return;
     }
     try {
-      await hrApi.post("/hr/saved-searches", {
-        name: name.trim(),
-        description: description.trim() || undefined,
-        scope,
-        filters,
-        pinned: false,
-      });
-      onCreated(name.trim());
+      if (editing) {
+        await hrApi.patch(`/hr/saved-searches/${editing.id}`, {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          scope,
+          filters,
+        });
+        onSaved(name.trim(), "edit");
+      } else {
+        await hrApi.post("/hr/saved-searches", {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          scope,
+          filters,
+          pinned: false,
+        });
+        onSaved(name.trim(), "create");
+      }
     } catch (err) {
       onError((err as HrApiError).message);
     } finally {
@@ -392,7 +436,9 @@ function CreateDialog({
         className="flex w-full max-w-lg flex-col bg-background shadow-2xl"
       >
         <header className="border-b border-border/60 px-5 py-3">
-          <h2 className="text-base font-semibold">New saved search</h2>
+          <h2 className="text-base font-semibold">
+            {editing ? `Edit "${editing.name}"` : "New saved search"}
+          </h2>
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <div className="space-y-1.5">
@@ -455,7 +501,7 @@ function CreateDialog({
           </Button>
           <Button type="submit" disabled={!canSubmit}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving ? "Saving…" : "Create"}
+            {saving ? "Saving…" : editing ? "Save changes" : "Create"}
           </Button>
         </footer>
       </form>

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Loader2,
+  Pencil,
   Plus,
   Star,
   Trash2,
@@ -81,6 +82,8 @@ function Body() {
   const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
+  // When non-null, the dialog opens in edit mode prefilled with this row.
+  const [editing, setEditing] = React.useState<ScorecardTemplate | null>(null);
   const [includeInactive, setIncludeInactive] = React.useState(false);
 
   React.useEffect(() => {
@@ -213,17 +216,31 @@ function Body() {
                     {t.dimensions.length}
                   </TableCell>
                   <TableCell className="text-right">
-                    {t.is_active && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deactivate(t)}
-                        className="text-rose-600 hover:text-rose-700"
-                        aria-label={`Archive ${t.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <div className="inline-flex items-center gap-1">
+                      {t.is_active && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setEditing(t)}
+                          aria-label={`Edit ${t.name}`}
+                          title="Edit"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {t.is_active && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => deactivate(t)}
+                          className="text-rose-600 hover:text-rose-700"
+                          aria-label={`Archive ${t.name}`}
+                          title="Archive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -232,12 +249,19 @@ function Body() {
         </div>
       )}
 
-      {creating && (
-        <CreateDialog
-          onClose={() => setCreating(false)}
-          onCreated={(name) => {
+      {(creating || editing) && (
+        <TemplateDialog
+          editing={editing}
+          onClose={() => {
             setCreating(false);
-            setToast(`Created "${name}".`);
+            setEditing(null);
+          }}
+          onSaved={(name, mode) => {
+            setCreating(false);
+            setEditing(null);
+            setToast(
+              mode === "create" ? `Created "${name}".` : `Updated "${name}".`
+            );
             void refresh();
           }}
           onError={setError}
@@ -248,28 +272,42 @@ function Body() {
 }
 
 // ---------------------------------------------------------------------------
-// Create dialog
+// Create / Edit dialog
 // ---------------------------------------------------------------------------
 
-function CreateDialog({
+function TemplateDialog({
+  editing,
   onClose,
-  onCreated,
+  onSaved,
   onError,
 }: {
+  editing: ScorecardTemplate | null;
   onClose: () => void;
-  onCreated: (name: string) => void;
+  onSaved: (name: string, mode: "create" | "edit") => void;
   onError: (msg: string) => void;
 }) {
-  const [name, setName] = React.useState("");
-  const [description, setDescription] = React.useState("");
-  const [scope, setScope] = React.useState<"global" | "job">("global");
-  const [jobId, setJobId] = React.useState("");
-  const [isDefault, setIsDefault] = React.useState(false);
-  const [dimensions, setDimensions] = React.useState<Dimension[]>([
-    { key: "system_design", label: "System design", max_score: 5, weight: 40 },
-    { key: "coding", label: "Coding", max_score: 5, weight: 40 },
-    { key: "communication", label: "Communication", max_score: 5, weight: 20 },
-  ]);
+  const [name, setName] = React.useState(() => editing?.name ?? "");
+  const [description, setDescription] = React.useState(
+    () => editing?.description ?? ""
+  );
+  const [scope, setScope] = React.useState<"global" | "job">(
+    () => editing?.scope ?? "global"
+  );
+  const [jobId, setJobId] = React.useState(() =>
+    editing?.job_opening_id != null ? String(editing.job_opening_id) : ""
+  );
+  const [isDefault, setIsDefault] = React.useState(
+    () => editing?.is_default ?? false
+  );
+  const [dimensions, setDimensions] = React.useState<Dimension[]>(() =>
+    editing?.dimensions && editing.dimensions.length > 0
+      ? editing.dimensions.map((d) => ({ ...d }))
+      : [
+          { key: "system_design", label: "System design", max_score: 5, weight: 40 },
+          { key: "coding", label: "Coding", max_score: 5, weight: 40 },
+          { key: "communication", label: "Communication", max_score: 5, weight: 20 },
+        ]
+  );
   const [saving, setSaving] = React.useState(false);
 
   const weightSum = dimensions.reduce((s, d) => s + (d.weight || 0), 0);
@@ -300,16 +338,21 @@ function CreateDialog({
   async function submit() {
     setSaving(true);
     try {
-      await hrApi.post(BASE, {
+      const payload = {
         name: name.trim(),
         description: description.trim() || undefined,
         scope,
         job_opening_id: scope === "job" ? Number(jobId) : null,
         dimensions,
-        is_active: true,
         is_default: isDefault,
-      });
-      onCreated(name.trim());
+      };
+      if (editing) {
+        await hrApi.patch(`${BASE}/${editing.id}`, payload);
+        onSaved(name.trim(), "edit");
+      } else {
+        await hrApi.post(BASE, { ...payload, is_active: true });
+        onSaved(name.trim(), "create");
+      }
     } catch (err) {
       onError((err as HrApiError).message);
     } finally {
@@ -332,7 +375,9 @@ function CreateDialog({
         className="flex w-full max-w-2xl flex-col bg-background shadow-2xl"
       >
         <header className="border-b border-border/60 px-5 py-3">
-          <h2 className="text-base font-semibold">New scorecard template</h2>
+          <h2 className="text-base font-semibold">
+            {editing ? `Edit "${editing.name}"` : "New scorecard template"}
+          </h2>
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <div className="space-y-1.5">
@@ -484,7 +529,11 @@ function CreateDialog({
           </Button>
           <Button type="submit" disabled={!canSubmit}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving ? "Saving…" : "Create template"}
+            {saving
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create template"}
           </Button>
         </footer>
       </form>
