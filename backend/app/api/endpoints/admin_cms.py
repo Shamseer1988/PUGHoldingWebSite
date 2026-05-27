@@ -662,11 +662,28 @@ def reply(
     failure never loses the admin's typed text. ``email_status`` flips
     from ``pending`` → ``sent`` / ``failed`` based on the send result.
     """
+    from app.models.cms import (
+        CONTACT_STATUS_PENDING_CUSTOMER,
+        SENDER_ADMIN,
+    )
+
     msg = _get_contact_or_404(db, message_id)
+
+    # What's the In-Reply-To for the new outbound? Prefer the most
+    # recent customer-side Message-ID we've seen (so the customer's
+    # email client groups our reply under their last email); fall
+    # back to our own previous outbound, then nothing (first reply).
+    prior_in_reply_to = (
+        msg.inbound_email_message_id or msg.outbound_email_message_id
+    )
+    prior_references: list[str] = []
+    if msg.outbound_email_message_id and msg.outbound_email_message_id != prior_in_reply_to:
+        prior_references.append(msg.outbound_email_message_id)
 
     reply_row = ContactReplyModel(
         contact_message_id=msg.id,
         direction="outbound",
+        sender_type=SENDER_ADMIN,
         admin_user_id=user.id,
         sender_name=user.full_name,
         sender_email=user.email,
@@ -679,8 +696,23 @@ def reply(
     db.flush()
 
     result = EmailService.send_contact_reply(
-        db, contact_message=msg, reply_body=payload.reply_body
+        db,
+        contact_message=msg,
+        reply_body=payload.reply_body,
+        admin_name=user.full_name,
+        in_reply_to=prior_in_reply_to,
+        references=prior_references,
     )
+
+    now = datetime.now(timezone.utc)
+    # Persist the threading headers regardless of success — the retry
+    # path uses message_id_override to reuse the same Message-ID on a
+    # second attempt so duplicate replies are detectable.
+    reply_row.email_message_id = result.message_id
+    reply_row.in_reply_to = result.in_reply_to
+    reply_row.references_header = result.references_header
+    if result.subject:
+        reply_row.subject = result.subject
 
     if result.success:
         reply_row.email_status = REPLY_STATUS_SENT
@@ -689,7 +721,13 @@ def reply(
         msg.is_replied = True
         msg.is_read = True
         msg.replied_by_id = user.id
-        msg.replied_at = result.sent_at or datetime.now(timezone.utc)
+        msg.replied_at = result.sent_at or now
+        # Move the conversation along the state machine: we've replied,
+        # so the ball is in the customer's court until they reply back.
+        msg.status = CONTACT_STATUS_PENDING_CUSTOMER
+        msg.last_message_at = result.sent_at or now
+        msg.last_admin_reply_at = result.sent_at or now
+        msg.outbound_email_message_id = result.message_id
     else:
         reply_row.email_status = REPLY_STATUS_FAILED
         reply_row.error_message = result.message
@@ -709,6 +747,7 @@ def reply(
             "reply_id": reply_row.id,
             "email_status": reply_row.email_status,
             "success": result.success,
+            "ticket_number": msg.ticket_number,
         },
     )
     db.commit()
@@ -735,17 +774,36 @@ def retry_reply(
     if msg is None:
         raise HTTPException(status_code=404, detail="Contact message not found")
 
+    from app.models.cms import CONTACT_STATUS_PENDING_CUSTOMER
+
     result = EmailService.send_contact_reply(
-        db, contact_message=msg, reply_body=reply_row.body
+        db,
+        contact_message=msg,
+        reply_body=reply_row.body,
+        admin_name=user.full_name,
+        in_reply_to=reply_row.in_reply_to,
+        references=(
+            [reply_row.references_header] if reply_row.references_header else []
+        ),
+        # Reuse the originally-generated Message-ID so a retried send
+        # is the same message as far as the recipient's mail client
+        # is concerned — they won't see two copies in their thread.
+        message_id_override=reply_row.email_message_id,
     )
+    now = datetime.now(timezone.utc)
     if result.success:
         reply_row.email_status = REPLY_STATUS_SENT
         reply_row.error_message = None
         reply_row.sent_at = result.sent_at
         msg.is_replied = True
         msg.replied_by_id = user.id
-        msg.replied_at = result.sent_at or datetime.now(timezone.utc)
+        msg.replied_at = result.sent_at or now
         msg.reply_body = reply_row.body
+        msg.status = CONTACT_STATUS_PENDING_CUSTOMER
+        msg.last_message_at = result.sent_at or now
+        msg.last_admin_reply_at = result.sent_at or now
+        if result.message_id and not msg.outbound_email_message_id:
+            msg.outbound_email_message_id = result.message_id
     else:
         reply_row.email_status = REPLY_STATUS_FAILED
         reply_row.error_message = result.message

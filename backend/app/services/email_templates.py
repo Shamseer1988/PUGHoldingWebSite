@@ -41,6 +41,8 @@ TPL_OFFER_ISSUED = "offer_issued"
 TPL_OFFER_ACCEPTED = "offer_accepted"
 TPL_OFFER_DECLINED = "offer_declined"
 TPL_OFFER_JOINED = "offer_joined"
+# Contact-inbox ticket reply (Phase B of the Contact-Us upgrade).
+TPL_CONTACT_REPLY = "contact_reply_branded"
 
 
 @dataclass(frozen=True)
@@ -745,6 +747,141 @@ def _r_offer_joined(ctx: Dict[str, Any]) -> RenderedEmail:
     return RenderedEmail(subject=subject, html=html, text=text)
 
 
+def _r_contact_reply(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Branded HTML email for an admin reply on a contact ticket.
+
+    Context keys (all optional except marked):
+      * customer_name *
+      * ticket_number *
+      * reply_body *           — admin-typed text, line breaks preserved
+      * admin_name             — used to sign the reply
+      * original_subject       — surfaced in the subject + header
+      * original_message       — included as a small quoted preview
+      * support_email          — "reply directly to" mailbox
+      * website_url            — footer link
+      * brand_logo_url
+      * email_footer_text
+    """
+    customer_name = ctx.get("customer_name") or "there"
+    ticket_number = ctx.get("ticket_number") or ""
+    reply_body = (ctx.get("reply_body") or "").strip()
+    admin_name = ctx.get("admin_name") or "Paris United Group support"
+    original_subject = (ctx.get("original_subject") or "your enquiry").strip()
+    original_message = (ctx.get("original_message") or "").strip()
+    support_email = ctx.get("support_email") or ""
+    website_url = ctx.get("website_url") or ""
+
+    title = "Reply from Paris United Group"
+    # Subject is built by the caller (it needs the ticket marker
+    # appended consistently); we still echo it here so the renderer
+    # can be used standalone in tests / previews.
+    if ticket_number:
+        subject = f"Re: {original_subject} [{ticket_number}]"
+    else:
+        subject = f"Re: {original_subject}"
+
+    ticket_chip = (
+        f'<span style="display:inline-block;background:#f6f3eb;'
+        f"border:1px solid #e4e0d6;border-radius:999px;padding:4px 10px;"
+        f'font-size:11px;letter-spacing:0.04em;color:#61736b;'
+        f'font-family:Inter,Arial,sans-serif;">Ticket {_esc(ticket_number)}</span>'
+        if ticket_number
+        else ""
+    )
+
+    reply_html_block = (
+        '<div style="background:#ffffff;border:1px solid #e4e0d6;'
+        "border-radius:8px;padding:18px 20px;margin:16px 0;line-height:1.6;"
+        'font-size:14px;color:#17382f;white-space:pre-wrap;">'
+        f"{_esc(reply_body)}"
+        "</div>"
+    )
+
+    signature_block = (
+        f'<p style="margin:0;padding:8px 0 0 0;color:#61736b;font-size:13px;">'
+        f"— {_esc(admin_name)}<br />"
+        f'<span style="color:#9a8f6e;">Paris United Group Holding</span></p>'
+    )
+
+    original_block = ""
+    if original_message:
+        original_block = (
+            '<details style="margin-top:24px;color:#61736b;font-size:12px;">'
+            "<summary style=\"cursor:pointer;font-weight:600;\">"
+            "Show your original message</summary>"
+            "<blockquote style=\"margin:8px 0 0;padding:8px 12px;"
+            "border-left:2px solid #e4e0d6;background:#fafaf6;white-space:pre-wrap;"
+            "font-size:12px;color:#61736b;\">"
+            f"{_esc(original_message)}"
+            "</blockquote></details>"
+        )
+
+    cta_text = "You can reply directly to this email to continue the conversation."
+    if support_email:
+        cta_block = (
+            f'<p style="margin:16px 0 0 0;font-size:13px;color:#61736b;">'
+            f"{_esc(cta_text)} Your reply will land back with our team at "
+            f'<a href="mailto:{_esc(support_email)}" '
+            f'style="color:#17382f;">{_esc(support_email)}</a>.'
+            f"</p>"
+        )
+    else:
+        cta_block = (
+            f'<p style="margin:16px 0 0 0;font-size:13px;color:#61736b;">'
+            f"{_esc(cta_text)}</p>"
+        )
+
+    body_html = (
+        f'<p style="margin:0 0 8px 0;font-size:15px;">Hi {_esc(customer_name)},</p>'
+        f'<p style="margin:0 0 4px 0;color:#61736b;font-size:13px;">'
+        f"Regarding: <strong style=\"color:#17382f;\">{_esc(original_subject)}</strong>"
+        f"</p>"
+        f"{ticket_chip}"
+        f"{reply_html_block}"
+        f"{signature_block}"
+        f"{cta_block}"
+        f"{original_block}"
+    )
+
+    footer = ctx.get("email_footer_text")
+    if not footer:
+        bits = ["© Paris United Group Holding."]
+        if support_email:
+            bits.append(f"Support: {support_email}.")
+        if website_url:
+            bits.append(website_url)
+        footer = " ".join(bits)
+
+    html = _wrap(
+        title=title,
+        body_html=body_html,
+        brand_logo_url=ctx.get("brand_logo_url"),
+        footer_text=footer,
+    )
+
+    # Plain-text fallback. Keep it short — the html copy is the
+    # primary surface, this is just for screen readers + clients
+    # that strip HTML.
+    text_lines = [
+        f"Hi {customer_name},",
+        "",
+        f"Regarding: {original_subject}",
+    ]
+    if ticket_number:
+        text_lines.append(f"Ticket: {ticket_number}")
+    text_lines.extend(["", reply_body, "", f"— {admin_name}", "Paris United Group Holding", ""])
+    text_lines.append(cta_text)
+    if support_email:
+        text_lines.append(f"Reply directly to {support_email}.")
+    if original_message:
+        text_lines.append("")
+        text_lines.append("--- Your original message ---")
+        text_lines.append(original_message)
+    text = "\n".join(text_lines)
+
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
 _RENDERERS = {
     TPL_JOB_SUBMITTED: _r_job_submitted,
     TPL_JOB_APPROVED: _r_job_approved,
@@ -766,6 +903,8 @@ _RENDERERS = {
     TPL_OFFER_ACCEPTED: _r_offer_accepted,
     TPL_OFFER_DECLINED: _r_offer_declined,
     TPL_OFFER_JOINED: _r_offer_joined,
+    # Contact ticket
+    TPL_CONTACT_REPLY: _r_contact_reply,
 }
 
 

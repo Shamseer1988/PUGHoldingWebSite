@@ -96,6 +96,27 @@ class Settings(BaseSettings):
     smtp_from_email: Optional[str] = Field(default=None)
     smtp_use_tls: bool = Field(default=True)
 
+    # --- Contact-ticket support mailbox ---
+    # Where customer replies land + where outbound replies set their
+    # Reply-To header so a "reply" from the inbox round-trips back
+    # into the IMAP processor. Independent of smtp_from_email so the
+    # "from" can be a noreply alias while replies route to support.
+    contact_reply_to_email: Optional[str] = Field(default=None)
+    contact_from_name: str = Field(default="Paris United Group")
+    contact_from_email: Optional[str] = Field(default=None)
+
+    # --- Inbound IMAP (Phase D — populated in a follow-up commit) ---
+    contact_inbound_enabled: bool = Field(default=False)
+    contact_inbound_host: Optional[str] = Field(default=None)
+    contact_inbound_port: int = Field(default=993)
+    contact_inbound_username: Optional[str] = Field(default=None)
+    contact_inbound_password: Optional[str] = Field(default=None)
+    contact_inbound_use_ssl: bool = Field(default=True)
+    contact_inbound_folder: str = Field(default="INBOX")
+    contact_inbound_processed_folder: Optional[str] = Field(default=None)
+    contact_inbound_error_folder: Optional[str] = Field(default=None)
+    contact_inbound_poll_interval_minutes: int = Field(default=5)
+
     @property
     def cors_origins(self) -> List[str]:
         """Return CORS origins parsed from a comma-separated env value.

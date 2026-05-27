@@ -304,11 +304,22 @@ def test_test_email_when_disabled_returns_friendly_message(client, seed_auth):
 
 
 def _seed_inbound(db_session: Session) -> ContactMessage:
+    # ticket_number + thread_token are NOT NULL after the contact-ticket
+    # schema upgrade; supply them via the same generators the public
+    # submit endpoint uses so the row is shaped identically to one
+    # created via the API.
+    from app.services.contact_threading import (
+        generate_thread_token,
+        generate_ticket_number,
+    )
+
     msg = ContactMessage(
         name="Jane Visitor",
         email="jane@example.com",
         subject="Pricing question",
         message="Hi, what is the price?",
+        ticket_number=generate_ticket_number(db_session),
+        thread_token=generate_thread_token(),
     )
     db_session.add(msg)
     db_session.commit()

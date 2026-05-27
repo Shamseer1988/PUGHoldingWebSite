@@ -733,9 +733,26 @@ def create_contact_message(
     *,
     request: Request,
 ):
-    from app.models.cms import ContactMessage
+    from datetime import datetime, timezone
+
+    from app.models.cms import (
+        CONTACT_STATUS_NEW,
+        ContactMessage,
+        ContactReply,
+        SENDER_CUSTOMER,
+    )
+    from app.services.contact_threading import (
+        generate_thread_token,
+        generate_ticket_number,
+    )
 
     ctx = get_request_context(request)
+    now = datetime.now(timezone.utc)
+    # Generate ticket id + thread token. Retry once on the (very
+    # unlikely) collision the unique index would catch.
+    ticket_number = generate_ticket_number(db, now=now)
+    thread_token = generate_thread_token()
+
     msg = ContactMessage(
         name=payload.name.strip(),
         email=str(payload.email).strip().lower(),
@@ -743,8 +760,31 @@ def create_contact_message(
         department=payload.department,
         subject=payload.subject,
         message=payload.message,
+        ticket_number=ticket_number,
+        thread_token=thread_token,
+        status=CONTACT_STATUS_NEW,
+        priority="normal",
+        source="website_contact",
+        last_message_at=now,
+        last_customer_reply_at=now,
     )
     db.add(msg)
+    db.flush()
+
+    # First "reply" row mirrors the inbound submission so the admin
+    # chat view renders the original message as a chat bubble.
+    db.add(
+        ContactReply(
+            contact_message_id=msg.id,
+            direction="inbound",
+            sender_type=SENDER_CUSTOMER,
+            sender_name=msg.name,
+            sender_email=msg.email,
+            subject=msg.subject,
+            body=msg.message,
+            email_status="received",
+        )
+    )
     db.flush()
 
     record_audit(
