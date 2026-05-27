@@ -428,7 +428,11 @@ class JobOpening(Base, TimestampMixin):
     archive_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     applications: Mapped[List["CandidateJobApplication"]] = relationship(
-        back_populates="job_opening", lazy="selectin"
+        # Default lazy="select": a job with thousands of applications
+        # shouldn't auto-load all rows on every job query. The handful
+        # of places that need them (candidate analytics, application
+        # listing) already use explicit selectinload/joinedload.
+        back_populates="job_opening",
     )
     approval_history: Mapped[List["JobApprovalHistory"]] = relationship(
         back_populates="job_opening",

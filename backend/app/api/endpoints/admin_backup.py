@@ -50,6 +50,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context, require_superuser
 from app.core.database import get_db
+from app.core.rate_limit import rate_limit_backup
 from app.models.auth import SCOPE_SYSTEM, User
 from app.services.audit_log import record_audit
 from app.services.db_backup import (
@@ -171,7 +172,7 @@ def backup_info(
     }
 
 
-@router.post("/download")
+@router.post("/download", dependencies=[Depends(rate_limit_backup)])
 def download_backup(
     request: Request,
     db: Session = Depends(get_db),
@@ -228,11 +229,23 @@ def download_backup(
             "Content-Disposition": f'attachment; filename="{target.name}"',
             "Content-Length": str(size),
             "X-Backup-Filename": target.name,
+            # The backup body is a full snapshot of the live DB; no
+            # cache anywhere — proxy, browser, or CDN — should ever
+            # hold it.
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            # Disable Nginx's internal proxy buffering so the stream
+            # flushes promptly on multi-hundred-MB dumps.
+            "X-Accel-Buffering": "no",
         },
     )
 
 
-@router.post("/restore", status_code=status.HTTP_200_OK)
+@router.post(
+    "/restore",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(rate_limit_backup)],
+)
 def restore_backup(
     request: Request,
     file: UploadFile = File(..., description="pg_dump custom-format (.dump) file"),
@@ -449,6 +462,9 @@ def safety_download(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(size),
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )
 

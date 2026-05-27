@@ -65,6 +65,13 @@ CV_PREVIEW_LIMIT_HOURLY: Tuple[int, int] = (30, 3600)
 AI_ASSISTANT_LIMIT: Tuple[int, int] = (10, 60)
 AI_ASSISTANT_LIMIT_HOURLY: Tuple[int, int] = (60, 3600)
 
+# Database backup + restore. Even though the endpoints are superuser-
+# only, a compromised admin account could otherwise loop multi-hundred-
+# MB pg_dump / pg_restore calls and exhaust disk + I/O. Conservative
+# ceiling: a real operator runs this a handful of times a day at most.
+BACKUP_LIMIT: Tuple[int, int] = (2, 60)
+BACKUP_LIMIT_HOURLY: Tuple[int, int] = (10, 3600)
+
 
 # --------------------------------------------------------------------------- #
 # In-memory sliding-window store.                                             #
@@ -165,6 +172,17 @@ def rate_limit_cv_preview(request: Request) -> None:
 
 def rate_limit_ai_assistant(request: Request) -> None:
     _enforce(request, "ai_assistant", AI_ASSISTANT_LIMIT, AI_ASSISTANT_LIMIT_HOURLY)
+
+
+def rate_limit_backup(request: Request) -> None:
+    """Limit per-IP calls to the destructive backup / restore routes.
+
+    Applied even though the underlying endpoints are superuser-only —
+    if an admin credential is compromised, this is the additional
+    speed-bump against an attacker queueing many large dumps in
+    parallel.
+    """
+    _enforce(request, "backup", BACKUP_LIMIT, BACKUP_LIMIT_HOURLY)
 
 
 def reset_rate_limits() -> None:

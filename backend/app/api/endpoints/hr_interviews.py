@@ -69,11 +69,13 @@ router = APIRouter(prefix="/hr/interviews", tags=["HR ATS - Interviews"])
 
 
 def _email_lookup(db: Session, user_ids: list[int]) -> dict[int, User]:
-    ids = [uid for uid in user_ids if uid]
-    if not ids:
-        return {}
-    rows = db.execute(select(User).where(User.id.in_(set(ids)))).scalars().all()
-    return {u.id: u for u in rows}
+    """Thin compatibility shim around the shared
+    :func:`app.services.user_lookup.users_by_id`. New code should
+    import the helper directly; this wrapper exists so the many
+    existing call sites in this module keep working."""
+    from app.services.user_lookup import users_by_id
+
+    return users_by_id(db, user_ids)
 
 
 def _latest_recommendation(interview: Interview) -> Optional[str]:

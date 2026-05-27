@@ -11,8 +11,11 @@
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import (
     APIRouter,
@@ -669,6 +672,7 @@ def update_candidate(
     # Phase 12: when scoring inputs change, re-run the engine on each
     # application that has an open job opening (manual overrides are
     # preserved by upsert_score).
+    score_recompute_failed = False
     if changed and _changes_affect_score(changed):
         for app in candidate.applications:
             if app.job_opening is None:
@@ -676,8 +680,18 @@ def update_candidate(
             try:
                 result = compute_score(candidate=candidate, job=app.job_opening)
                 upsert_score(db, application=app, result=result)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                # Don't fail the whole PATCH — score is derivable and
+                # the HR user can request a manual recompute — but do
+                # surface that something went wrong so the UI can
+                # flag the candidate row.
+                score_recompute_failed = True
+                logger.warning(
+                    "Score recompute failed for candidate=%s application=%s: %r",
+                    candidate.id,
+                    app.id,
+                    exc,
+                )
 
     if changed:
         ctx = get_request_context(request)
@@ -1288,13 +1302,13 @@ def _serialize_history(
 
 
 def _email_lookup(db: Session, user_ids: List[int]) -> dict[int, str]:
-    if not user_ids:
-        return {}
-    rows = (
-        db.execute(select(User.id, User.email).where(User.id.in_(set(user_ids))))
-        .all()
-    )
-    return {uid: email for uid, email in rows}
+    """Thin compatibility shim around the shared
+    :func:`app.services.user_lookup.emails_by_id`. Kept so existing call
+    sites in this module don't all need to be rewritten — new code
+    should import from ``app.services.user_lookup`` directly."""
+    from app.services.user_lookup import emails_by_id
+
+    return emails_by_id(db, user_ids)
 
 
 @router.get("/workflow/meta", response_model=StatusPipelineMeta)
