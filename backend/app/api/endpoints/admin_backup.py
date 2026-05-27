@@ -362,6 +362,18 @@ def restore_backup(
             )
 
         # --- 4. The actual restore (atomic via --single-transaction) ---
+        # Free up our SQLAlchemy connection pool so pg_restore can take
+        # the exclusive locks it needs against the tables it's about to
+        # drop + recreate. Without this dispose, pg_restore --clean
+        # blocks indefinitely on DROP TABLE waiting for our own
+        # FastAPI worker's pooled connections to release the locks.
+        # The pool transparently refills on the next ORM query
+        # (e.g. the success-audit call below).
+        from app.core.database import engine as _engine
+
+        db.close()
+        _engine.dispose()
+
         try:
             run_pg_restore(upload_path)
         except BackupError as exc:

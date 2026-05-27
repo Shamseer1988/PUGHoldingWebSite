@@ -251,6 +251,13 @@ def run_pg_restore(source_path: Path) -> None:
     Uses ``--clean --if-exists`` so a non-empty target is overwritten,
     and ``--single-transaction`` so a partial failure rolls the DB back
     to its pre-restore state instead of leaving it half-applied.
+
+    Sets ``PGOPTIONS=-c lock_timeout=30000`` so if another connection
+    (most commonly: our own FastAPI worker's connection pool) is still
+    holding locks on the tables we're trying to drop, pg_restore
+    surfaces a clean error after 30 seconds instead of blocking
+    indefinitely. The caller is expected to dispose the SQLAlchemy
+    engine before invoking this — see admin_backup.restore_backup.
     """
     if not tools_available():
         raise BackupError(
@@ -270,10 +277,14 @@ def run_pg_restore(source_path: Path) -> None:
         "--single-transaction",
         str(source_path),
     ]
+    env = _env_with_pgpassword(cfg)
+    # 30s lock_timeout — turns "stuck waiting forever" into a fast,
+    # diagnosable failure that names the conflicting connection.
+    env["PGOPTIONS"] = "-c lock_timeout=30000 -c statement_timeout=0"
     try:
         result = subprocess.run(
             cmd,
-            env=_env_with_pgpassword(cfg),
+            env=env,
             capture_output=True,
             timeout=PG_RESTORE_TIMEOUT_SEC,
             check=False,
