@@ -268,6 +268,67 @@ def get_offer_status_history(
     return [OfferStatusHistoryRead.model_validate(h) for h in offer.status_history]
 
 
+@router.get("/{offer_id}/pdf")
+def download_offer_letter_pdf(
+    offer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_OFFERS_VIEW)),
+):
+    """Render the offer letter as a single PDF and stream it back.
+
+    Feature F3. Anyone with hr:offers:view can download — the letter
+    contains the candidate's personal data but is already exposed in
+    the JSON detail endpoint, so PDF is just a presentation layer.
+
+    The render is logged to the audit trail (the PDF reveals the full
+    offer terms, so we want to know who downloaded it and when).
+    """
+    from fastapi.responses import Response as FastResponse
+
+    from app.services.offer_pdf import (
+        build_offer_letter_pdf,
+        offer_pdf_filename,
+    )
+
+    offer = _get_or_404(db, offer_id)
+    application = offer.application
+    if application is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Offer is not attached to an application — cannot render letter.",
+        )
+    candidate = application.candidate
+    job = application.job_opening
+
+    pdf_bytes = build_offer_letter_pdf(offer, candidate, job)
+    filename = offer_pdf_filename(offer, candidate)
+
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.offer.letter_pdf.download",
+        offer_id=offer.id,
+        details={
+            "candidate_id": candidate.id,
+            "size_bytes": len(pdf_bytes),
+            "filename": filename,
+        },
+    )
+    db.commit()
+
+    return FastResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Create / update draft
 # ---------------------------------------------------------------------------

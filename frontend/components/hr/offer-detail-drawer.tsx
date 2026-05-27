@@ -6,6 +6,7 @@ import {
   Ban,
   CheckCircle2,
   Edit3,
+  FileDown,
   Loader2,
   Send,
   TrendingUp,
@@ -488,12 +489,15 @@ function OfferContent({
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Offer content
         </p>
-        {canEdit && !editing && (
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-            <Edit3 className="h-3.5 w-3.5" />
-            Edit
-          </Button>
-        )}
+        <div className="inline-flex items-center gap-2">
+          <DownloadLetterButton offerId={offer.id} />
+          {canEdit && !editing && (
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              <Edit3 className="h-3.5 w-3.5" />
+              Edit
+            </Button>
+          )}
+        </div>
       </header>
 
       {!editing ? (
@@ -709,5 +713,51 @@ function OfferHistorySection({
         ))}
       </ol>
     </section>
+  );
+}
+
+
+function DownloadLetterButton({ offerId }: { offerId: number }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function handleClick() {
+    setBusy(true);
+    setError(null);
+    try {
+      await hrApi.downloadFile(
+        `/hr/offers/${offerId}/pdf`,
+        `offer_letter_${offerId}.pdf`,
+        "GET"
+      );
+    } catch (err) {
+      setError((err as HrApiError).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="inline-flex flex-col items-end">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleClick}
+        disabled={busy}
+        title="Download as PDF"
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <FileDown className="h-3.5 w-3.5" />
+        )}
+        Letter PDF
+      </Button>
+      {error && (
+        <span className="mt-1 text-[10px] text-rose-600" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }
