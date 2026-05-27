@@ -335,11 +335,19 @@ def upgrade() -> None:
             sa.text("DELETE FROM role_permissions WHERE role_id = :rid"),
             {"rid": role_id},
         )
-        rows = [
-            {"role_id": role_id, "permission_id": perm_id_map[key]}
-            for key in perm_keys
-            if key in perm_id_map
-        ]
+        # Dedupe the permission ids per role: HR_ROLES["Super Admin"]
+        # uses ``_all_keys() + ("hr:users:manage",)`` and the trailing
+        # explicit entry is also already in ``_all_keys()``. Without
+        # this guard the bulk_insert below trips the
+        # role_permissions_pkey unique constraint.
+        seen_pids: set[int] = set()
+        rows: list[dict] = []
+        for key in perm_keys:
+            pid = perm_id_map.get(key)
+            if pid is None or pid in seen_pids:
+                continue
+            seen_pids.add(pid)
+            rows.append({"role_id": role_id, "permission_id": pid})
         if rows:
             role_perm_t = sa.table(
                 "role_permissions",
