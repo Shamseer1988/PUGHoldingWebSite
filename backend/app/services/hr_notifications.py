@@ -33,13 +33,22 @@ from app.models.hr_ats import (
     CandidateJobApplication,
     EmailLog,
     Interview,
+    InterviewFeedback,
     JobOpening,
+    OfferTracking,
 )
 from app.services.email import EmailResult, EmailService
 from app.services.email_templates import (
     RenderedEmail,
     TPL_CANDIDATE_APPLICATION_RECEIVED,
     TPL_CANDIDATE_REJECTED,
+    TPL_INTERVIEW_FEEDBACK_SUBMITTED,
+    TPL_OFFER_ACCEPTED,
+    TPL_OFFER_APPROVAL_REQUESTED,
+    TPL_OFFER_APPROVED,
+    TPL_OFFER_DECLINED,
+    TPL_OFFER_ISSUED,
+    TPL_OFFER_JOINED,
     TPL_CANDIDATE_SELECTED,
     TPL_CANDIDATE_SHORTLISTED,
     TPL_INTERVIEW_CANCELLED,
@@ -533,6 +542,184 @@ def notify_interview_cancelled(
         interview_id=interview_id,
         actor_id=actor_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — interview feedback + offer-lifecycle dispatchers.
+# ---------------------------------------------------------------------------
+
+
+def notify_interview_feedback_submitted(
+    *, feedback_id: int, actor_id: Optional[int] = None
+) -> None:
+    """Internal email to HR Manager / Executive when an interviewer
+    submits feedback for a round. Audience: hr_notification_emails
+    list from EmailSetting."""
+
+    def _build(db: Session) -> Optional[dict]:
+        fb = db.get(InterviewFeedback, feedback_id)
+        if fb is None or fb.interview is None:
+            return None
+        iv = fb.interview
+        candidate = iv.application.candidate if iv.application else None
+        job = iv.application.job_opening if iv.application else None
+        settings = EmailService.get_or_create_settings(db)
+        to_emails = _normalize_emails(settings.hr_notification_emails)
+        if not to_emails:
+            return None
+        ctx: Dict[str, Any] = {
+            "candidate_name": candidate.full_name if candidate else "",
+            "job_title": job.title if job else "",
+            "round_name": iv.round_name,
+            "interviewer_email": _actor_email(db, fb.submitted_by_id) or "",
+            "recommendation": fb.recommendation or "submitted",
+            "rating": fb.rating,
+        }
+        return {
+            "template_key": TPL_INTERVIEW_FEEDBACK_SUBMITTED,
+            "to_emails": to_emails,
+            "context": ctx,
+            "related_type": "interview_feedback",
+            "related_id": str(feedback_id),
+            "actor_id": actor_id,
+            "check_feature_flag": "interview_email_enabled",
+        }
+
+    _dispatch(_build)
+
+
+def _offer_ctx(offer: OfferTracking) -> Dict[str, Any]:
+    """Shared context for every offer-related template."""
+    app = offer.application
+    candidate = app.candidate if app else None
+    job = app.job_opening if app else None
+    return {
+        "candidate_name": candidate.full_name if candidate else "",
+        "candidate_email": candidate.email if candidate else "",
+        "job_title": job.title if job else "",
+        "position": offer.position,
+        "salary_offered": offer.salary_offered,
+        "joining_date": (
+            offer.joining_date.isoformat() if offer.joining_date else None
+        ),
+        "offer_letter_number": offer.offer_letter_number,
+        "work_location": offer.work_location,
+        "decline_reason": offer.decline_reason,
+        "joined_at": (
+            offer.joined_at.strftime("%Y-%m-%d")
+            if offer.joined_at
+            else None
+        ),
+    }
+
+
+def _offer_internal_email(
+    *,
+    template_key: str,
+    offer_id: int,
+    actor_id: Optional[int],
+) -> None:
+    """Internal (HR-facing) offer email — sends to the
+    hr_notification_emails list. Used by approval-requested /
+    approved / accepted / declined / joined templates."""
+
+    def _build(db: Session) -> Optional[dict]:
+        offer = db.get(OfferTracking, offer_id)
+        if offer is None:
+            return None
+        settings = EmailService.get_or_create_settings(db)
+        to_emails = _normalize_emails(settings.hr_notification_emails)
+        if not to_emails:
+            return None
+        ctx = _offer_ctx(offer)
+        ctx["actor_email"] = _actor_email(db, actor_id)
+        return {
+            "template_key": template_key,
+            "to_emails": to_emails,
+            "context": ctx,
+            "related_type": "offer",
+            "related_id": str(offer_id),
+            "actor_id": actor_id,
+            "check_feature_flag": "offer_email_enabled",
+        }
+
+    _dispatch(_build)
+
+
+def notify_offer_approval_requested(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_APPROVAL_REQUESTED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_approved(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_APPROVED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_accepted(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_ACCEPTED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_declined(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_DECLINED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_joined(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_JOINED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_issued(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    """Candidate-facing offer letter notification. Goes to the
+    candidate's email rather than the internal HR list."""
+
+    def _build(db: Session) -> Optional[dict]:
+        offer = db.get(OfferTracking, offer_id)
+        if offer is None or offer.application is None:
+            return None
+        candidate = offer.application.candidate
+        if candidate is None or not candidate.email:
+            return None
+        return {
+            "template_key": TPL_OFFER_ISSUED,
+            "to_emails": [candidate.email],
+            "context": _offer_ctx(offer),
+            "related_type": "offer",
+            "related_id": str(offer_id),
+            "actor_id": actor_id,
+            "check_feature_flag": "offer_email_enabled",
+        }
+
+    _dispatch(_build)
 
 
 def _interview_email(

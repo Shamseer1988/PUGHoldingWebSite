@@ -33,6 +33,14 @@ TPL_CANDIDATE_SELECTED = "candidate_selected"
 TPL_INTERVIEW_SCHEDULED = "interview_scheduled"
 TPL_INTERVIEW_RESCHEDULED = "interview_rescheduled"
 TPL_INTERVIEW_CANCELLED = "interview_cancelled"
+# Phase 11 — interview-feedback + full offer-lifecycle notifications.
+TPL_INTERVIEW_FEEDBACK_SUBMITTED = "interview_feedback_submitted"
+TPL_OFFER_APPROVAL_REQUESTED = "offer_approval_requested"
+TPL_OFFER_APPROVED = "offer_approved"
+TPL_OFFER_ISSUED = "offer_issued"
+TPL_OFFER_ACCEPTED = "offer_accepted"
+TPL_OFFER_DECLINED = "offer_declined"
+TPL_OFFER_JOINED = "offer_joined"
 
 
 @dataclass(frozen=True)
@@ -513,6 +521,230 @@ def _r_interview_cancelled(ctx: Dict[str, Any]) -> RenderedEmail:
     return RenderedEmail(subject=subject, html=html, text=text)
 
 
+# ---------------------------------------------------------------------------
+# Phase 11 — interview feedback + offer lifecycle templates
+# ---------------------------------------------------------------------------
+
+
+def _r_interview_feedback_submitted(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Internal email to HR Manager / Executive when an interviewer
+    submits feedback. Tells them which round, the recommendation, and
+    where to read the full notes."""
+    candidate_name = ctx.get("candidate_name", "the candidate")
+    job_title = ctx.get("job_title", "the role")
+    round_name = ctx.get("round_name", "")
+    interviewer = ctx.get("interviewer_email", "the interviewer")
+    recommendation = ctx.get("recommendation", "submitted")
+    rating = ctx.get("rating")
+    subject = f"[PUG] Interview feedback submitted — {candidate_name} ({job_title})"
+    body = (
+        f"<p>Hi team,</p>"
+        f"<p><strong>{_esc(interviewer)}</strong> just submitted feedback for "
+        f"<strong>{_esc(candidate_name)}</strong> after the "
+        f"<strong>{_esc(round_name)}</strong> round of <strong>{_esc(job_title)}</strong>.</p>"
+        + _kv("Recommendation", str(recommendation))
+        + (_kv("Rating", f"{rating} / 5") if rating else "")
+        + "<p>Open the interview in the HR portal to read the full feedback.</p>"
+        + "<p>— The PUG HR system</p>"
+    )
+    html = _wrap(
+        title="Interview feedback submitted",
+        body_html=body,
+        **_ctx(TPL_INTERVIEW_FEEDBACK_SUBMITTED, ctx),
+    )
+    text = (
+        f"{interviewer} submitted feedback for {candidate_name} "
+        f"after the {round_name} round of {job_title}.\n"
+        f"Recommendation: {recommendation}\n"
+        + (f"Rating: {rating} / 5\n" if rating else "")
+        + "Open the HR portal for the full notes.\n"
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
+def _r_offer_approval_requested(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Internal email to HR Manager when HR Admin submits an offer for
+    approval. Includes the candidate / role / salary so the manager
+    can decide without opening the portal."""
+    candidate_name = ctx.get("candidate_name", "the candidate")
+    job_title = ctx.get("job_title", "the role")
+    salary = ctx.get("salary_offered")
+    joining_date = ctx.get("joining_date")
+    subject = f"[PUG] Offer needs approval — {candidate_name} ({job_title})"
+    body = (
+        f"<p>Hi HR Manager,</p>"
+        f"<p>An offer for <strong>{_esc(candidate_name)}</strong> "
+        f"({_esc(job_title)}) is waiting for your approval.</p>"
+        + (_kv("Salary", str(salary)) if salary else "")
+        + (_kv("Joining date", str(joining_date)) if joining_date else "")
+        + "<p>Approve, request changes, or reject in the HR portal under "
+        + "<strong>Offers → Pending approval</strong>.</p>"
+        + "<p>— The PUG HR system</p>"
+    )
+    html = _wrap(
+        title="Offer needs approval",
+        body_html=body,
+        **_ctx(TPL_OFFER_APPROVAL_REQUESTED, ctx),
+    )
+    text = (
+        f"Offer for {candidate_name} ({job_title}) is waiting for approval.\n"
+        + (f"Salary: {salary}\n" if salary else "")
+        + (f"Joining date: {joining_date}\n" if joining_date else "")
+        + "Approve in the HR portal under Offers → Pending approval.\n"
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
+def _r_offer_approved(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Internal email to HR Admin telling them an offer is cleared to
+    issue."""
+    candidate_name = ctx.get("candidate_name", "the candidate")
+    job_title = ctx.get("job_title", "the role")
+    actor_email = ctx.get("actor_email", "an HR Manager")
+    subject = f"[PUG] Offer approved — {candidate_name} ({job_title})"
+    body = (
+        f"<p>Hi HR team,</p>"
+        f"<p><strong>{_esc(actor_email)}</strong> approved the offer for "
+        f"<strong>{_esc(candidate_name)}</strong> ({_esc(job_title)}). "
+        f"You can now issue the offer letter to the candidate.</p>"
+        + "<p>— The PUG HR system</p>"
+    )
+    html = _wrap(
+        title="Offer approved",
+        body_html=body,
+        **_ctx(TPL_OFFER_APPROVED, ctx),
+    )
+    text = (
+        f"{actor_email} approved the offer for {candidate_name} ({job_title}). "
+        f"Ready to issue.\n"
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
+def _r_offer_issued(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Candidate-facing offer letter notification. Carries position +
+    salary + joining date + the offer-letter reference number."""
+    candidate_name = ctx.get("candidate_name", "there")
+    job_title = ctx.get("job_title", "the role")
+    position = ctx.get("position") or job_title
+    salary = ctx.get("salary_offered")
+    joining_date = ctx.get("joining_date")
+    letter_no = ctx.get("offer_letter_number")
+    work_location = ctx.get("work_location")
+    subject = f"[PUG] Your offer letter — {job_title}"
+    body = (
+        f"<p>Dear {_esc(candidate_name)},</p>"
+        f"<p>Congratulations! We're pleased to extend an offer for the "
+        f"<strong>{_esc(position)}</strong> position at Paris United Group "
+        f"Holding.</p>"
+        + (_kv("Offer letter number", str(letter_no)) if letter_no else "")
+        + (_kv("Salary offered", str(salary)) if salary else "")
+        + (_kv("Joining date", str(joining_date)) if joining_date else "")
+        + (_kv("Work location", str(work_location)) if work_location else "")
+        + "<p>Please review and respond to HR with your decision. We're "
+        + "looking forward to having you on board.</p>"
+        + "<p>Warm regards,<br/>The PUG HR Team</p>"
+    )
+    html = _wrap(
+        title="Your offer letter",
+        body_html=body,
+        **_ctx(TPL_OFFER_ISSUED, ctx),
+    )
+    text = (
+        f"Dear {candidate_name},\n\n"
+        f"We're pleased to extend an offer for the {position} position.\n"
+        + (f"Letter no: {letter_no}\n" if letter_no else "")
+        + (f"Salary: {salary}\n" if salary else "")
+        + (f"Joining date: {joining_date}\n" if joining_date else "")
+        + (f"Work location: {work_location}\n" if work_location else "")
+        + "\nPlease respond to HR with your decision.\n\n"
+        + "— The PUG HR Team"
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
+def _r_offer_accepted(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Internal email to HR team after HR records a candidate's
+    acceptance. Surfaces the joining date so they can prep onboarding."""
+    candidate_name = ctx.get("candidate_name", "the candidate")
+    job_title = ctx.get("job_title", "the role")
+    joining_date = ctx.get("joining_date")
+    subject = f"[PUG] Offer accepted — {candidate_name} ({job_title})"
+    body = (
+        f"<p>Good news — <strong>{_esc(candidate_name)}</strong> accepted "
+        f"the offer for <strong>{_esc(job_title)}</strong>.</p>"
+        + (
+            _kv("Joining date", str(joining_date))
+            if joining_date
+            else "<p>No joining date confirmed yet — follow up with the candidate.</p>"
+        )
+        + "<p>Kick off the onboarding workflow when ready.</p>"
+        + "<p>— The PUG HR system</p>"
+    )
+    html = _wrap(
+        title="Offer accepted",
+        body_html=body,
+        **_ctx(TPL_OFFER_ACCEPTED, ctx),
+    )
+    text = (
+        f"{candidate_name} accepted the offer for {job_title}.\n"
+        + (f"Joining date: {joining_date}\n" if joining_date else "")
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
+def _r_offer_declined(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Internal email to HR team when HR records a candidate decline."""
+    candidate_name = ctx.get("candidate_name", "the candidate")
+    job_title = ctx.get("job_title", "the role")
+    reason = ctx.get("decline_reason") or "No reason recorded."
+    subject = f"[PUG] Offer declined — {candidate_name} ({job_title})"
+    body = (
+        f"<p><strong>{_esc(candidate_name)}</strong> declined the offer for "
+        f"<strong>{_esc(job_title)}</strong>.</p>"
+        + _kv("Reason", str(reason))
+        + "<p>Consider re-engaging the waiting list for this role.</p>"
+        + "<p>— The PUG HR system</p>"
+    )
+    html = _wrap(
+        title="Offer declined",
+        body_html=body,
+        **_ctx(TPL_OFFER_DECLINED, ctx),
+    )
+    text = (
+        f"{candidate_name} declined the offer for {job_title}.\n"
+        f"Reason: {reason}\n"
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
+def _r_offer_joined(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Internal email to HR team when HR marks the candidate as joined."""
+    candidate_name = ctx.get("candidate_name", "the candidate")
+    job_title = ctx.get("job_title", "the role")
+    joined_at = ctx.get("joined_at")
+    subject = f"[PUG] Candidate joined — {candidate_name} ({job_title})"
+    body = (
+        f"<p>🎉 <strong>{_esc(candidate_name)}</strong> joined as "
+        f"<strong>{_esc(job_title)}</strong>"
+        + (f" on <strong>{_esc(str(joined_at))}</strong>" if joined_at else "")
+        + ".</p>"
+        + "<p>Recruitment status has been updated to <code>joined</code>.</p>"
+        + "<p>— The PUG HR system</p>"
+    )
+    html = _wrap(
+        title="Candidate joined",
+        body_html=body,
+        **_ctx(TPL_OFFER_JOINED, ctx),
+    )
+    text = (
+        f"{candidate_name} joined as {job_title}"
+        + (f" on {joined_at}" if joined_at else "")
+        + ".\n"
+    )
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
 _RENDERERS = {
     TPL_JOB_SUBMITTED: _r_job_submitted,
     TPL_JOB_APPROVED: _r_job_approved,
@@ -526,6 +758,14 @@ _RENDERERS = {
     TPL_INTERVIEW_SCHEDULED: _r_interview_scheduled,
     TPL_INTERVIEW_RESCHEDULED: _r_interview_rescheduled,
     TPL_INTERVIEW_CANCELLED: _r_interview_cancelled,
+    # Phase 11
+    TPL_INTERVIEW_FEEDBACK_SUBMITTED: _r_interview_feedback_submitted,
+    TPL_OFFER_APPROVAL_REQUESTED: _r_offer_approval_requested,
+    TPL_OFFER_APPROVED: _r_offer_approved,
+    TPL_OFFER_ISSUED: _r_offer_issued,
+    TPL_OFFER_ACCEPTED: _r_offer_accepted,
+    TPL_OFFER_DECLINED: _r_offer_declined,
+    TPL_OFFER_JOINED: _r_offer_joined,
 }
 
 

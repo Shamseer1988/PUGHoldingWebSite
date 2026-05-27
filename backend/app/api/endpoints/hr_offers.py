@@ -367,6 +367,9 @@ def submit_for_approval_endpoint(
     _audit(db, user, request, action="hr.offer.submit_approval", offer_id=offer.id)
     db.commit()
     db.refresh(offer)
+    _notify_safe(
+        "notify_offer_approval_requested", offer_id=offer.id, actor_id=user.id
+    )
     return _serialize_offer(offer)
 
 
@@ -393,6 +396,7 @@ def approve_offer_endpoint(
     _audit(db, user, request, action="hr.offer.approve", offer_id=offer.id)
     db.commit()
     db.refresh(offer)
+    _notify_safe("notify_offer_approved", offer_id=offer.id, actor_id=user.id)
     return _serialize_offer(offer)
 
 
@@ -492,6 +496,11 @@ def respond_offer_endpoint(
     )
     db.commit()
     db.refresh(offer)
+    _notify_safe(
+        "notify_offer_accepted" if payload.accepted else "notify_offer_declined",
+        offer_id=offer.id,
+        actor_id=user.id,
+    )
     return _serialize_offer(offer)
 
 
@@ -517,6 +526,7 @@ def mark_joined_endpoint(
     _audit(db, user, request, action="hr.offer.mark_joined", offer_id=offer.id)
     db.commit()
     db.refresh(offer)
+    _notify_safe("notify_offer_joined", offer_id=offer.id, actor_id=user.id)
     return _serialize_offer(offer)
 
 

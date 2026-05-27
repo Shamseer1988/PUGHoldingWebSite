@@ -718,6 +718,24 @@ def submit_feedback_endpoint(
     )
     db.commit()
     db.refresh(fb)
+
+    # Phase 11 — internal email to HR Manager / Executive so they
+    # know feedback is in and can act on it (move to next round /
+    # close the loop). Fire-and-forget; failures never break the
+    # response.
+    try:
+        from app.services import hr_notifications
+
+        hr_notifications.notify_interview_feedback_submitted(
+            feedback_id=fb.id, actor_id=actor.id
+        )
+    except Exception:  # pragma: no cover - notifications must never raise
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "interview-feedback-submitted notification failed"
+        )
+
     users = _email_lookup(db, [fb.submitted_by_id])
     return _serialize_feedback(fb, users=users)
 

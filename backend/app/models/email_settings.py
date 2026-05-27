@@ -73,6 +73,11 @@ class EmailSetting(Base):
     job_approval_email_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    # Phase 11 — master mute for the full offer email stream
+    # (approval-requested, approved, issued, accepted, declined, joined).
+    offer_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     brand_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
     email_footer_text: Mapped[Optional[str]] = mapped_column(Text)
 
