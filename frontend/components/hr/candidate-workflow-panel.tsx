@@ -7,6 +7,7 @@ import {
   Ban,
   Briefcase,
   CheckCircle2,
+  Handshake,
   History,
   Loader2,
   MoveRight,
@@ -14,12 +15,15 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
+import { CreateOfferDialog } from "@/components/hr/create-offer-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { PERM_HR_OFFERS_CREATE } from "@/lib/hr/permissions";
 import type {
   Candidate,
   CandidateApplicationSummary,
@@ -219,6 +223,11 @@ function ApplicationWorkflowRow({
         </p>
       )}
 
+      <OfferShortcut
+        application={application}
+        onChanged={onChanged}
+      />
+
       {!noMoves && (
         <form
           onSubmit={(e) => {
@@ -373,6 +382,59 @@ function ApplicationWorkflowRow({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Offer shortcut. Visible only when the application is in an
+// offer-eligible status AND the user has hr:offers:create.
+// ---------------------------------------------------------------------------
+
+
+function OfferShortcut({
+  application,
+  onChanged,
+}: {
+  application: CandidateApplicationSummary;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  // The "one offer per application" rule is enforced server-side
+  // (409 if an offer exists); the button just shows eligibility based
+  // on the recruitment status.
+  const eligible =
+    application.status === "recommended_for_offer" ||
+    application.status === "selected";
+  const perms = usePermission();
+  if (!eligible || !perms.has(PERM_HR_OFFERS_CREATE)) return null;
+  return (
+    <div className="border-t border-border/60 bg-primary/5 px-4 py-3 text-xs">
+      <p className="font-medium">Ready for an offer?</p>
+      <p className="mt-0.5 text-muted-foreground">
+        This candidate is at <code>{application.status}</code>. Draft an
+        offer to start the approval &amp; issue workflow.
+      </p>
+      <div className="mt-2">
+        <Button size="sm" onClick={() => setOpen(true)}>
+          <Handshake className="h-3.5 w-3.5" />
+          Draft offer
+        </Button>
+      </div>
+      {open && (
+        <CreateOfferDialog
+          applicationId={application.id}
+          defaults={{
+            position: application.job_title ?? undefined,
+          }}
+          onClose={() => setOpen(false)}
+          onCreated={() => {
+            setOpen(false);
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

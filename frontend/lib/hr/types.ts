@@ -38,11 +38,130 @@ export interface InterviewSummary {
 
 export type OfferStatus =
   | "draft"
+  | "pending_approval"
+  | "approved"
   | "sent"
   | "accepted"
   | "declined"
   | "withdrawn"
-  | "joined";
+  | "joined"
+  | "not_joined";
+
+export type OfferApprovalStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected";
+
+export type OfferJoiningStatus = "pending" | "joined" | "not_joined";
+
+
+// Phase 6 — offer detail row returned by /hr/offers
+export interface Offer {
+  id: number;
+  application_id: number;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  job_title: string | null;
+  job_slug: string | null;
+  department: string | null;
+
+  // Editable content
+  position: string | null;
+  salary_offered: number | null;
+  allowances: string | null;
+  joining_date: string | null;
+  probation_period: string | null;
+  reporting_manager: string | null;
+  work_location: string | null;
+  benefits_summary: string | null;
+  offer_letter_number: string | null;
+  attachment_url: string | null;
+  remarks: string | null;
+
+  // Lifecycle
+  status: OfferStatus | string;
+  approval_status: OfferApprovalStatus | string;
+
+  created_by_id: number | null;
+  approved_by_id: number | null;
+  approved_at: string | null;
+  rejected_by_id: number | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  issued_by_id: number | null;
+  issued_at: string | null;
+  withdrawn_by_id: number | null;
+  withdrawn_at: string | null;
+  withdrawn_reason: string | null;
+  sent_at: string | null;
+  responded_at: string | null;
+  accepted_at: string | null;
+  declined_at: string | null;
+  decline_reason: string | null;
+
+  joining_status: OfferJoiningStatus | string | null;
+  joined_at: string | null;
+  not_joined_reason: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+
+export interface OfferStatusHistoryItem {
+  id: number;
+  offer_id: number;
+  action: string;
+  old_status: string | null;
+  new_status: string | null;
+  actor_id: number | null;
+  actor_email: string | null;
+  remarks: string | null;
+  created_at: string;
+}
+
+
+export interface OfferStats {
+  pending_approval: number;
+  approved: number;
+  sent: number;
+  accepted: number;
+  declined: number;
+  withdrawn: number;
+  joined: number;
+  not_joined: number;
+}
+
+
+export interface OfferCreatePayload {
+  application_id: number;
+  position?: string;
+  salary_offered?: number | null;
+  allowances?: string | null;
+  joining_date?: string | null;
+  probation_period?: string | null;
+  reporting_manager?: string | null;
+  work_location?: string | null;
+  benefits_summary?: string | null;
+  remarks?: string | null;
+}
+
+
+export interface OfferUpdatePayload {
+  position?: string | null;
+  salary_offered?: number | null;
+  allowances?: string | null;
+  joining_date?: string | null;
+  probation_period?: string | null;
+  reporting_manager?: string | null;
+  work_location?: string | null;
+  benefits_summary?: string | null;
+  offer_letter_number?: string | null;
+  attachment_url?: string | null;
+  remarks?: string | null;
+}
 
 export interface OfferSummary {
   id: number;

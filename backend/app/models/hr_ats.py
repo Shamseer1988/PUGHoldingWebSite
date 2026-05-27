@@ -126,19 +126,43 @@ INTERVIEW_STATUSES = (
 )
 
 # Offer status
+# Offer status enum.
+#
+# Phase 6 added pending_approval / approved / not_joined and kept the
+# legacy OFFER_SENT meaning "issued to candidate" so older rows keep
+# working. The state machine in app/services/offers.py enforces the
+# allowed transitions.
 OFFER_DRAFT = "draft"
-OFFER_SENT = "sent"
+OFFER_PENDING_APPROVAL = "pending_approval"
+OFFER_APPROVED = "approved"
+OFFER_SENT = "sent"  # alias of "issued" for backwards compatibility
 OFFER_ACCEPTED = "accepted"
 OFFER_DECLINED = "declined"
 OFFER_WITHDRAWN = "withdrawn"
 OFFER_JOINED = "joined"
+OFFER_NOT_JOINED = "not_joined"
+
+# Approval-status sub-state (mirrors job approval workflow).
+OFFER_APPROVAL_DRAFT = "draft"
+OFFER_APPROVAL_PENDING = "pending_approval"
+OFFER_APPROVAL_APPROVED = "approved"
+OFFER_APPROVAL_REJECTED = "rejected"
+
+# Joining-status tracker (set after candidate accepts).
+OFFER_JOINING_PENDING = "pending"
+OFFER_JOINING_JOINED = "joined"
+OFFER_JOINING_NOT_JOINED = "not_joined"
+
 OFFER_STATUSES = (
     OFFER_DRAFT,
+    OFFER_PENDING_APPROVAL,
+    OFFER_APPROVED,
     OFFER_SENT,
     OFFER_ACCEPTED,
     OFFER_DECLINED,
     OFFER_WITHDRAWN,
     OFFER_JOINED,
+    OFFER_NOT_JOINED,
 )
 
 # AI recommendation
@@ -843,10 +867,20 @@ class OfferTracking(Base, TimestampMixin):
         unique=True,
     )
 
+    # Offer content -------------------------------------------------------
+    position: Mapped[Optional[str]] = mapped_column(String(200))
     salary_offered: Mapped[Optional[int]] = mapped_column(Integer)
+    allowances: Mapped[Optional[str]] = mapped_column(Text)
     joining_date: Mapped[Optional[date]] = mapped_column(Date)
+    probation_period: Mapped[Optional[str]] = mapped_column(String(80))
+    reporting_manager: Mapped[Optional[str]] = mapped_column(String(255))
+    work_location: Mapped[Optional[str]] = mapped_column(String(255))
     benefits_summary: Mapped[Optional[str]] = mapped_column(Text)
+    offer_letter_number: Mapped[Optional[str]] = mapped_column(String(80))
+    attachment_url: Mapped[Optional[str]] = mapped_column(String(500))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Top-level lifecycle status (Phase 6 — see OFFER_STATUSES enum).
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -854,15 +888,82 @@ class OfferTracking(Base, TimestampMixin):
         server_default=OFFER_DRAFT,
         index=True,
     )
+    # Phase-6 sub-state cluster mirroring job-approval semantics.
+    approval_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=OFFER_APPROVAL_DRAFT,
+        server_default=OFFER_APPROVAL_DRAFT,
+    )
+    approved_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text)
+    issued_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    withdrawn_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    withdrawn_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    withdrawn_reason: Mapped[Optional[str]] = mapped_column(Text)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    declined_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     decline_reason: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Joining-status tracker — set after candidate accepts.
+    joining_status: Mapped[Optional[str]] = mapped_column(String(32))
+    joined_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    not_joined_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     created_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
 
     application: Mapped[CandidateJobApplication] = relationship(back_populates="offer")
+    status_history: Mapped[List["OfferStatusHistory"]] = relationship(
+        back_populates="offer",
+        cascade="all, delete-orphan",
+        order_by="OfferStatusHistory.created_at.desc()",
+        lazy="selectin",
+    )
+
+
+class OfferStatusHistory(Base):
+    """Audit row for every OfferTracking transition (Phase 6)."""
+
+    __tablename__ = "hr_offer_status_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    offer_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_offer_tracking.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    old_status: Mapped[Optional[str]] = mapped_column(String(32))
+    new_status: Mapped[Optional[str]] = mapped_column(String(32))
+    actor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    actor_email: Mapped[Optional[str]] = mapped_column(String(255))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+
+    offer: Mapped[OfferTracking] = relationship(back_populates="status_history")
 
 
 # ---------------------------------------------------------------------------

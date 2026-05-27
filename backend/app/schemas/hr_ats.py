@@ -1,7 +1,7 @@
 """Pydantic schemas for the HR ATS Job Opening surface (Phase 9)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -915,3 +915,123 @@ class InterviewEmailFields(BaseModel):
     email_note: Optional[str] = Field(default=None, max_length=4000)
     send_email_now: bool = False
     create_google_meet: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Offer schemas
+# ---------------------------------------------------------------------------
+
+
+class OfferBase(BaseModel):
+    """Editable offer content. Used by create + update."""
+
+    position: Optional[str] = Field(default=None, max_length=200)
+    salary_offered: Optional[int] = Field(default=None, ge=0)
+    allowances: Optional[str] = Field(default=None, max_length=4000)
+    joining_date: Optional[date] = None
+    probation_period: Optional[str] = Field(default=None, max_length=80)
+    reporting_manager: Optional[str] = Field(default=None, max_length=255)
+    work_location: Optional[str] = Field(default=None, max_length=255)
+    benefits_summary: Optional[str] = Field(default=None, max_length=4000)
+    offer_letter_number: Optional[str] = Field(default=None, max_length=80)
+    attachment_url: Optional[str] = Field(default=None, max_length=500)
+    remarks: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferCreate(OfferBase):
+    """POST /hr/offers body. Must reference an existing application."""
+
+    application_id: int
+
+
+class OfferUpdate(OfferBase):
+    """PATCH /hr/offers/{id} body — every field optional."""
+
+
+class OfferActionRequest(BaseModel):
+    """Plain action payload — used by submit-approval / approve /
+    withdraw / issue / mark_joined etc. Carries an optional remark."""
+
+    remarks: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferRejectRequest(BaseModel):
+    remarks: str = Field(min_length=4, max_length=4000)
+
+
+class OfferResponseRequest(BaseModel):
+    """HR records candidate's response."""
+
+    accepted: bool
+    decline_reason: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferMarkNotJoinedRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferStatusHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    offer_id: int
+    action: str
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+    actor_id: Optional[int] = None
+    actor_email: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: datetime
+
+
+class OfferRead(OfferBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    candidate_id: Optional[int] = None
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    job_title: Optional[str] = None
+    job_slug: Optional[str] = None
+    department: Optional[str] = None
+
+    status: str
+    approval_status: str
+
+    created_by_id: Optional[int] = None
+    approved_by_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    rejected_by_id: Optional[int] = None
+    rejected_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    issued_by_id: Optional[int] = None
+    issued_at: Optional[datetime] = None
+    withdrawn_by_id: Optional[int] = None
+    withdrawn_at: Optional[datetime] = None
+    withdrawn_reason: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    declined_at: Optional[datetime] = None
+    decline_reason: Optional[str] = None
+
+    joining_status: Optional[str] = None
+    joined_at: Optional[datetime] = None
+    not_joined_reason: Optional[str] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class OfferSummaryStats(BaseModel):
+    """Dashboard cards for /hr/offers — one row per pipeline bucket."""
+
+    pending_approval: int = 0
+    approved: int = 0
+    sent: int = 0
+    accepted: int = 0
+    declined: int = 0
+    withdrawn: int = 0
+    joined: int = 0
+    not_joined: int = 0
