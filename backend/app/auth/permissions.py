@@ -92,6 +92,15 @@ PERM_HR_AUDIT_READ = "hr:audit:read"
 PERM_HR_USERS_MANAGE = "hr:users:manage"  # super admin only
 
 
+# Marketing — Digital Offers & Catalogues module --------------------------
+# Lives under the website scope (any user with SCOPE_WEBSITE who holds
+# these keys can manage campaigns / catalogues). The two keys are kept
+# separate so future roles can split content authoring from campaign
+# scheduling.
+PERM_MARKETING_CAMPAIGNS_MANAGE = "marketing:campaigns:manage"
+PERM_MARKETING_CATALOGUES_MANAGE = "marketing:catalogues:manage"
+
+
 # ---------------------------------------------------------------------------
 # Permission descriptors — keep in lockstep with the constants above
 # ---------------------------------------------------------------------------

@@ -62,3 +62,9 @@ reportlab==4.2.5
 # (future) nightly automatic database backups. Runs in-process
 # inside the FastAPI lifespan; no external broker required.
 APScheduler==3.10.4
+
+# Digital Offers / Catalogue module — PDF -> WebP page rendering.
+# PyMuPDF is the fastest pure-Python PDF rasteriser (faster than
+# pdf2image which shells out to Poppler) and doesn't require a system
+# binary, so it works on any container we deploy to.
+PyMuPDF==1.24.10

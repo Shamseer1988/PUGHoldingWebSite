@@ -9,9 +9,11 @@ from app.api.endpoints import (
     admin_backup,
     admin_cms,
     admin_email_settings,
+    admin_marketing,
     admin_seo,
     admin_users,
     health,
+    marketing_public,
     hr_auth,
     hr_candidates,
     hr_dashboard,
@@ -35,6 +37,8 @@ api_router.include_router(admin_ai.router)
 api_router.include_router(admin_email_settings.router)
 api_router.include_router(admin_users.router)
 api_router.include_router(admin_backup.router)
+api_router.include_router(admin_marketing.router)
+api_router.include_router(marketing_public.router)
 api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)
 api_router.include_router(hr_jobs.router)

@@ -44,6 +44,12 @@ from app.models.hr_ats import (
     JobRevision,
     OfferTracking,
 )
+from app.models.marketing import (
+    Catalogue,
+    CataloguePage,
+    CatalogueViewEvent,
+    OfferCampaign,
+)
 from app.models.seo import (
     SeoSetting,
     SeoVerification,
@@ -89,6 +95,11 @@ __all__ = [
     "JobOpening",
     "JobRevision",
     "OfferTracking",
+    # Marketing — Digital Offers & Catalogues
+    "Catalogue",
+    "CataloguePage",
+    "CatalogueViewEvent",
+    "OfferCampaign",
     # SEO
     "SeoSetting",
     "SeoVerification",
