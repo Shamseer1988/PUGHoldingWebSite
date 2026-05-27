@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bookmark,
   Briefcase,
   CalendarClock,
   ExternalLink,
@@ -82,6 +83,12 @@ const NAV: NavGroup[] = [
         href: "/hr/offers",
         icon: Handshake,
         anyOf: [PERM_HR_OFFERS_VIEW],
+      },
+      {
+        label: "Talent pool",
+        href: "/hr/talent-pool",
+        icon: Bookmark,
+        anyOf: ANY_CANDIDATE_VIEW,
       },
     ],
   },

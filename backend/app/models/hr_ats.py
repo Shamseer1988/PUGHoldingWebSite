@@ -1350,3 +1350,73 @@ class CandidateAutoReview(Base, TimestampMixin):
     reviewed_by_system: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+
+
+# ---------------------------------------------------------------------------
+# Saved candidate searches / talent pool (Feature F1)
+# ---------------------------------------------------------------------------
+
+
+SAVED_SEARCH_SCOPE_PRIVATE = "private"
+SAVED_SEARCH_SCOPE_TEAM = "team"
+SAVED_SEARCH_SCOPES = (SAVED_SEARCH_SCOPE_PRIVATE, SAVED_SEARCH_SCOPE_TEAM)
+
+
+class SavedCandidateSearch(Base, TimestampMixin):
+    """A reusable candidate-list filter configuration.
+
+    Each saved search captures the exact JSON shape of
+    :class:`app.services.candidate_search.CandidateFilters` so that
+    re-running it produces the same candidate set the user saw when
+    they created it (modulo new applicants that came in since).
+
+    Scope:
+      * ``private`` — only the owner can see / run / edit.
+      * ``team``    — visible to anyone with the candidate-list
+                       permission; only the owner can edit / delete.
+
+    Owner is a SET NULL FK so deactivating a user doesn't cascade
+    delete their saved-search library — a successor admin can claim
+    the row by editing it.
+    """
+
+    __tablename__ = "hr_saved_candidate_searches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Stored verbatim as a JSON object matching CandidateFilters. We
+    # don't normalize into columns because the filter surface evolves
+    # over time and the alternative is a migration every time a new
+    # filter is added.
+    filters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    scope: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SAVED_SEARCH_SCOPE_PRIVATE,
+        server_default=SAVED_SEARCH_SCOPE_PRIVATE,
+        index=True,
+    )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    # Bookkeeping — surfaced in the UI so users see which searches are
+    # actively useful and which are stale.
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_result_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id", "name", name="uq_hr_saved_searches_owner_name"
+        ),
+        CheckConstraint(
+            _enum_in_clause("scope", SAVED_SEARCH_SCOPES),
+            name="ck_hr_saved_searches_scope",
+        ),
+    )
