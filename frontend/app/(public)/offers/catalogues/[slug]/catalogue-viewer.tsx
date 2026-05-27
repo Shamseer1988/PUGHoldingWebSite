@@ -21,6 +21,7 @@ import type {
   CatalogueDetail,
   CataloguePage,
 } from "@/lib/admin/marketing-types";
+import { resolveAssetUrl } from "@/lib/public-api";
 import {
   catalogueDownloadUrl,
   detectDevice,
@@ -348,7 +349,7 @@ function PageImage({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={page.image_url}
+        src={resolveAssetUrl(page.image_url) ?? ""}
         alt={`Page ${page.page_number}`}
         className="h-full w-full object-contain"
         loading="lazy"
@@ -418,7 +419,7 @@ function MobileScroller({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={p.image_url}
+              src={resolveAssetUrl(p.image_url) ?? ""}
               alt={`Page ${p.page_number}`}
               className="h-full w-full object-contain"
               loading="lazy"
@@ -482,7 +483,7 @@ function ThumbnailStrip({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={p.thumbnail_url}
+                src={resolveAssetUrl(p.thumbnail_url) ?? ""}
                 alt=""
                 className="h-24 w-auto bg-white object-cover"
                 loading="lazy"

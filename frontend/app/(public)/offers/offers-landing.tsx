@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import type { OfferIndexCampaign, OffersIndex } from "@/lib/public-offers";
+import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 
@@ -332,7 +333,7 @@ function CampaignCard({
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={cover}
+            src={resolveAssetUrl(cover) ?? ""}
             alt={campaign.title}
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"

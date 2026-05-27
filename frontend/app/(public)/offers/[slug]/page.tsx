@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, BookOpen, MapPin } from "lucide-react";
 
 import type { Catalogue } from "@/lib/admin/marketing-types";
+import { resolveAssetUrl } from "@/lib/public-api";
 import { getCampaignBySlug } from "@/lib/public-offers";
 
 
@@ -62,7 +63,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
         {campaign.banner_image_url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={campaign.banner_image_url}
+            src={resolveAssetUrl(campaign.banner_image_url) ?? ""}
             alt=""
             className="absolute inset-0 h-full w-full object-cover opacity-30 mix-blend-screen"
             aria-hidden
@@ -136,7 +137,7 @@ function CatalogueCard({ catalogue }: { catalogue: Catalogue }) {
         {catalogue.cover_image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={catalogue.cover_image_url}
+            src={resolveAssetUrl(catalogue.cover_image_url) ?? ""}
             alt={catalogue.title}
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"

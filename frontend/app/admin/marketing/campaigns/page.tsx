@@ -37,6 +37,7 @@ import type {
   OfferCampaignCreate,
   OfferCampaignUpdate,
 } from "@/lib/admin/marketing-types";
+import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 
@@ -202,7 +203,7 @@ export default function CampaignsPage() {
                       {row.banner_image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={row.banner_image_url}
+                          src={resolveAssetUrl(row.banner_image_url) ?? ""}
                           alt=""
                           className="h-10 w-16 shrink-0 rounded object-cover"
                         />
@@ -584,7 +585,7 @@ function CampaignDrawer({
                   <div className="flex items-center gap-3 rounded-md border border-border/60 p-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={bannerUrl}
+                      src={resolveAssetUrl(bannerUrl) ?? bannerUrl}
                       alt="Banner"
                       className="h-16 w-32 rounded object-cover"
                     />

@@ -693,4 +693,106 @@ def catalogue_analytics(
     )
 
 
+# ---------------------------------------------------------------------------
+# PDF Compressor — admin utility
+# ---------------------------------------------------------------------------
+
+# Generous cap on the source PDF — much higher than the catalogue
+# upload limit because the whole point of compression is to bring
+# oversized originals back under that limit.
+MAX_COMPRESS_INPUT_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+@router.post("/pdf-compressor")
+def compress_pdf_endpoint(
+    file: UploadFile = File(..., description="PDF source to compress"),
+    preset: str = Form(default="balanced"),
+    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+) -> Response:
+    """Compress an uploaded PDF and stream the result back.
+
+    Preset = one of ``high`` / ``balanced`` / ``aggressive``
+    (see ``app.services.pdf_compressor.PRESETS``). The compressed
+    bytes never touch disk — they're built in memory and returned
+    directly to the caller, who downloads the file to their local
+    PC and re-uploads it via the regular catalogue upload flow.
+
+    Surfaces three diagnostic headers so the frontend can show a
+    "saved 73%" badge after the round-trip:
+
+        X-Original-Size
+        X-Compressed-Size
+        X-Reduction-Pct      (0-100)
+    """
+    from app.services.pdf_compressor import (
+        PRESETS,
+        PdfCompressionError,
+        compress_pdf,
+    )
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are accepted.",
+        )
+    chosen = PRESETS.get(preset.strip().lower())
+    if chosen is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown preset '{preset}'. Use one of: {sorted(PRESETS)}",
+        )
+
+    pdf_bytes = file.file.read()
+    if len(pdf_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty PDF.")
+    if len(pdf_bytes) > MAX_COMPRESS_INPUT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Source PDF exceeds the "
+                f"{MAX_COMPRESS_INPUT_BYTES // (1024 * 1024)} MB cap."
+            ),
+        )
+
+    try:
+        compressed, stats = compress_pdf(pdf_bytes, preset=chosen)
+    except PdfCompressionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    reduction_pct = max(0, round(stats.reduction_ratio * 100))
+    out_name = _compressed_filename(file.filename)
+
+    return Response(
+        content=compressed,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{out_name}"',
+            "Content-Length": str(len(compressed)),
+            "X-Original-Size": str(stats.original_size_bytes),
+            "X-Compressed-Size": str(stats.compressed_size_bytes),
+            "X-Reduction-Pct": str(reduction_pct),
+            "X-Page-Count": str(stats.page_count),
+            "X-Preset": stats.preset_name,
+            # CORS — expose the X-* headers so fetch can read them
+            # client-side (they're hidden by default for cross-origin
+            # responses).
+            "Access-Control-Expose-Headers": (
+                "X-Original-Size, X-Compressed-Size, X-Reduction-Pct, "
+                "X-Page-Count, X-Preset, Content-Disposition"
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _compressed_filename(original: str) -> str:
+    """Produce a friendly output filename: 'flyer.pdf' -> 'flyer_compressed.pdf'."""
+    base = original.strip()
+    if base.lower().endswith(".pdf"):
+        stem = base[:-4]
+    else:
+        stem = base
+    return f"{stem}_compressed.pdf"
+
+
 __all__ = ["router"]

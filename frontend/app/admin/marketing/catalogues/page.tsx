@@ -42,6 +42,7 @@ import type {
   CatalogueUpdate,
   OfferCampaign,
 } from "@/lib/admin/marketing-types";
+import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 
@@ -248,7 +249,7 @@ export default function CataloguesPage() {
                       {row.cover_image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={row.cover_image_url}
+                          src={resolveAssetUrl(row.cover_image_url) ?? ""}
                           alt=""
                           className="h-14 w-10 shrink-0 rounded object-cover shadow-sm"
                         />
@@ -991,7 +992,7 @@ function CatalogueDetailDrawer({
                 {detail.pages.map((p) => (
                   <a
                     key={p.page_number}
-                    href={p.image_url}
+                    href={resolveAssetUrl(p.image_url) ?? p.image_url}
                     target="_blank"
                     rel="noreferrer"
                     className="group block overflow-hidden rounded-md border border-border/60 bg-background"
@@ -999,7 +1000,7 @@ function CatalogueDetailDrawer({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={p.thumbnail_url}
+                      src={resolveAssetUrl(p.thumbnail_url) ?? ""}
                       alt={`Page ${p.page_number}`}
                       className="aspect-[2/3] w-full object-cover transition-transform group-hover:scale-[1.02]"
                     />
