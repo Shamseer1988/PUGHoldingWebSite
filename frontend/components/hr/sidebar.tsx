@@ -13,6 +13,7 @@ import {
   Handshake,
   History,
   LayoutDashboard,
+  Mailbox,
   Menu as MenuIcon,
   Users,
   UsersRound,
@@ -30,6 +31,7 @@ import {
   PERM_HR_DASHBOARD_VIEW,
   PERM_HR_INTERVIEWS_SCHEDULE,
   PERM_HR_OFFERS_VIEW,
+  PERM_HR_REPORTS_VIEW_ALL,
   PERM_HR_USERS_MANAGE,
 } from "@/lib/hr/permissions";
 import { cn } from "@/lib/utils";
@@ -102,6 +104,14 @@ const NAV: NavGroup[] = [
         href: "/hr/reports",
         icon: FileBarChart,
         anyOf: ANY_REPORT_VIEW,
+      },
+      {
+        label: "Scheduled digests",
+        href: "/hr/scheduled-reports",
+        icon: Mailbox,
+        // Same permission as the manual-run endpoints — Super Admin,
+        // HR Admin, HR Manager, HR Executive, HR Viewer all hold this.
+        anyOf: [PERM_HR_REPORTS_VIEW_ALL],
       },
     ],
   },
