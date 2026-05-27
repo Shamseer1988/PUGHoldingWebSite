@@ -243,6 +243,11 @@ export interface JobOpening {
   published_at?: string | null;
   active_revision_id?: number | null;
   has_pending_revision?: boolean;
+  // Phase-8 archive cluster
+  is_archived?: boolean;
+  archived_at?: string | null;
+  archived_by_id?: number | null;
+  archive_reason?: string | null;
 }
 
 export interface JobApprovalHistoryItem {

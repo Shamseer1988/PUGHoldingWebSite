@@ -57,6 +57,7 @@ from app.models.hr_ats import (
     OfferTracking,
 )
 from app.schemas.hr_ats import (
+    ArchiveRequest,
     AIReviewGenerateResult,
     ApplicationSubmissionResponse,
     BulkCandidateStatusChangeRequest,
@@ -694,6 +695,90 @@ _SCORING_RELEVANT_FIELDS = {
 
 def _changes_affect_score(changed: list[str]) -> bool:
     return any(field in _SCORING_RELEVANT_FIELDS for field in changed)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Archive / unarchive (soft delete)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{candidate_id}/archive", response_model=CandidateRead)
+def archive_candidate(
+    candidate_id: int,
+    payload: ArchiveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_DELETE)),
+) -> CandidateRead:
+    """Soft-archive a candidate. Records who/when/why and hides them
+    from default list queries (HR can include via include_archived=true).
+    Restricted to hr:candidates:delete (HR Manager + Super Admin)."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.is_archived:
+        raise HTTPException(
+            status_code=409, detail="Candidate is already archived."
+        )
+    candidate.is_archived = True
+    candidate.archived_at = datetime.now(timezone.utc)
+    candidate.archived_by_id = user.id
+    candidate.archive_reason = payload.reason
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.archive",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate",
+        target_id=str(candidate.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"reason": payload.reason},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(candidate)
+    return _serialize_candidate(candidate, actor=user)
+
+
+@router.post("/{candidate_id}/unarchive", response_model=CandidateRead)
+def unarchive_candidate(
+    candidate_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_DELETE)),
+) -> CandidateRead:
+    """Restore a soft-archived candidate."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if not candidate.is_archived:
+        raise HTTPException(status_code=409, detail="Candidate is not archived.")
+    candidate.is_archived = False
+    candidate.archived_at = None
+    candidate.archived_by_id = None
+    candidate.archive_reason = None
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.unarchive",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate",
+        target_id=str(candidate.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(candidate)
+    return _serialize_candidate(candidate, actor=user)
 
 
 @router.get(

@@ -105,8 +105,11 @@ export const hrApi = {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   },
-  delete<T = void>(path: string) {
-    return request<T>(path, { method: "DELETE" });
+  delete<T = void>(path: string, body?: unknown) {
+    return request<T>(path, {
+      method: "DELETE",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
   },
   postMultipart,
 };

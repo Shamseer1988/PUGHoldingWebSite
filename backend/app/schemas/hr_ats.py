@@ -918,6 +918,30 @@ class InterviewEmailFields(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Phase 8 — Archive / soft-delete request shapes
+# ---------------------------------------------------------------------------
+
+
+class ArchiveRequest(BaseModel):
+    """Soft-archive payload used by /hr/jobs/{id}/archive and
+    /hr/candidates/{id}/archive. The reason is mandatory and lands on
+    the archive_reason column + the audit log."""
+
+    reason: str = Field(min_length=4, max_length=2000)
+
+
+class DeleteRequest(BaseModel):
+    """Optional reason payload accepted by DELETE endpoints.
+
+    The body is optional (the FastAPI dependency tolerates an empty
+    request), but when supplied the reason is stored in the audit
+    log row's details JSON so compliance reports can see why a
+    record was hard-deleted."""
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+# ---------------------------------------------------------------------------
 # Phase 6 — Offer schemas
 # ---------------------------------------------------------------------------
 

@@ -377,6 +377,17 @@ class JobOpening(Base, TimestampMixin):
     )
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     active_revision_id: Mapped[Optional[int]] = mapped_column(Integer)
+    # Phase 8 — soft-archive cluster. Hard delete is restricted to
+    # Super Admin via the existing hr:jobs:delete permission; HR
+    # Manager uses archive instead so audit history is preserved.
+    is_archived: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    archived_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    archive_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     applications: Mapped[List["CandidateJobApplication"]] = relationship(
         back_populates="job_opening", lazy="selectin"
@@ -439,6 +450,12 @@ class Candidate(Base, TimestampMixin):
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false", index=True
     )
+    # Phase 8 — archive audit cluster (is_archived already existed)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    archived_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    archive_reason: Mapped[Optional[str]] = mapped_column(Text)
     source: Mapped[Optional[str]] = mapped_column(String(32))
 
     created_by_id: Mapped[Optional[int]] = mapped_column(

@@ -87,6 +87,8 @@ def _apply_dept_scope(stmt, user: User):
         return stmt.where(JobOpening.department == user.department)
     return stmt
 from app.schemas.hr_ats import (
+    ArchiveRequest,
+    DeleteRequest,
     JobApprovalActionRequest,
     JobApprovalHistoryRead,
     JobApprovalRejectRequest,
@@ -151,9 +153,14 @@ def list_jobs(
     department: Optional[str] = None,
     company: Optional[str] = None,
     q: Optional[str] = Query(default=None, max_length=200),
+    include_archived: bool = Query(default=False),
 ) -> List[JobOpeningRead]:
     stmt = select(JobOpening).order_by(desc(JobOpening.posted_at), JobOpening.id)
     stmt = _apply_dept_scope(stmt, user)
+    # Phase 8 — archived jobs hidden from the default list. HR can pass
+    # ?include_archived=true to see them (e.g. for the archive browser).
+    if not include_archived:
+        stmt = stmt.where(JobOpening.is_archived.is_(False))
     if job_status:
         stmt = stmt.where(JobOpening.status == job_status)
     if approval_status:
@@ -360,13 +367,18 @@ def hold_job(
 def delete_job(
     job_id: int,
     request: Request,
+    payload: Optional[DeleteRequest] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_JOBS_DELETE)),
 ) -> Response:
+    """Hard-delete a job. Restricted to hr:jobs:delete (HR Manager +
+    Super Admin per the default role matrix). HR users should
+    normally archive instead — see POST /hr/jobs/{id}/archive."""
     job = db.get(JobOpening, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    reason = payload.reason if payload else None
     db.delete(job)
     _audit(
         db,
@@ -374,10 +386,68 @@ def delete_job(
         request,
         action="hr.job.delete",
         target_id=job_id,
-        details={"slug": job.slug, "title": job.title},
+        details={"slug": job.slug, "title": job.title, "reason": reason},
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{job_id}/archive", response_model=JobOpeningRead)
+def archive_job(
+    job_id: int,
+    payload: ArchiveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_DELETE)),
+) -> JobOpeningRead:
+    """Soft-archive: flips is_archived=True, records who/when/why,
+    and hides the job from default listing queries. Preserves all
+    history. Use unarchive to restore."""
+    job = _get_or_404(db, job_id)
+    if job.is_archived:
+        raise HTTPException(status_code=409, detail="Job is already archived.")
+    job.is_archived = True
+    job.archived_at = datetime.now(timezone.utc)
+    job.archived_by_id = user.id
+    job.archive_reason = payload.reason
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.archive",
+        target_id=job_id,
+        details={"reason": payload.reason},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
+
+
+@router.post("/{job_id}/unarchive", response_model=JobOpeningRead)
+def unarchive_job(
+    job_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_DELETE)),
+) -> JobOpeningRead:
+    """Restore a soft-archived job."""
+    job = _get_or_404(db, job_id)
+    if not job.is_archived:
+        raise HTTPException(status_code=409, detail="Job is not archived.")
+    job.is_archived = False
+    job.archived_at = None
+    job.archived_by_id = None
+    job.archive_reason = None
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.unarchive",
+        target_id=job_id,
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
 
 
 # ---------------------------------------------------------------------------

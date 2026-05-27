@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import {
+  Archive,
+  ArchiveRestore,
   Briefcase,
   CheckCircle2,
   Edit3,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { usePermission } from "@/components/auth/permission";
+import { ConfirmReasonDialog } from "@/components/hr/confirm-reason-dialog";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { JobApprovalActions } from "@/components/hr/job-approval-actions";
@@ -240,20 +243,31 @@ export default function HrJobsPage() {
     }
   }
 
-  async function remove(job: JobOpening) {
-    if (
-      !confirm(
-        `Delete “${job.title}”? This removes the job permanently and cannot be undone.`
-      )
-    )
-      return;
-    try {
-      await hrApi.delete(`/hr/jobs/${job.id}`);
+  // Phase 8 — destructive actions go through a reason-capturing modal
+  // rather than a browser confirm(). The reason is sent in the request
+  // body and recorded on the audit row.
+  const [confirmJob, setConfirmJob] = React.useState<
+    | { job: JobOpening; action: "delete" | "archive" | "unarchive" }
+    | null
+  >(null);
+
+  async function performJobAction(
+    job: JobOpening,
+    action: "delete" | "archive" | "unarchive",
+    reason: string,
+  ): Promise<void> {
+    if (action === "delete") {
+      await hrApi.delete(`/hr/jobs/${job.id}`, { reason });
       setToast("Job deleted.");
-      await refresh();
-    } catch (err) {
-      setError((err as HrApiError).message);
+    } else if (action === "archive") {
+      await hrApi.post(`/hr/jobs/${job.id}/archive`, { reason });
+      setToast("Job archived.");
+    } else {
+      await hrApi.post(`/hr/jobs/${job.id}/unarchive`, {});
+      setToast("Job restored.");
     }
+    setConfirmJob(null);
+    await refresh();
   }
 
   // Derive filter dropdown options from the current list.
@@ -484,12 +498,42 @@ export default function HrJobsPage() {
                             <Edit3 className="h-4 w-4" />
                           </Button>
                         )}
+                        {perms.has(PERM_HR_JOBS_DELETE) && !job.is_archived && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() =>
+                              setConfirmJob({ job, action: "archive" })
+                            }
+                            aria-label={`Archive ${job.title}`}
+                            title="Archive (soft-delete, keeps history)"
+                            className="text-amber-600 hover:text-amber-700"
+                          >
+                            <Archive className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {perms.has(PERM_HR_JOBS_DELETE) && job.is_archived && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() =>
+                              setConfirmJob({ job, action: "unarchive" })
+                            }
+                            aria-label={`Restore ${job.title}`}
+                            title="Restore from archive"
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
+                          </Button>
+                        )}
                         {perms.has(PERM_HR_JOBS_DELETE) && (
                           <Button
                             size="icon"
                             variant="ghost"
-                            onClick={() => remove(job)}
+                            onClick={() =>
+                              setConfirmJob({ job, action: "delete" })
+                            }
                             aria-label={`Delete ${job.title}`}
+                            title="Hard delete (cannot be undone)"
                             className="text-rose-600 hover:text-rose-700"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -515,6 +559,38 @@ export default function HrJobsPage() {
         saving={saving}
         editingJob={editing}
       />
+
+      {confirmJob && (
+        <ConfirmReasonDialog
+          title={
+            confirmJob.action === "delete"
+              ? `Delete "${confirmJob.job.title}" permanently?`
+              : confirmJob.action === "archive"
+                ? `Archive "${confirmJob.job.title}"?`
+                : `Restore "${confirmJob.job.title}" from archive?`
+          }
+          description={
+            confirmJob.action === "delete"
+              ? "Hard delete cannot be undone. The job and its history are removed. Prefer Archive unless the row is truly invalid (test data, duplicate, etc.)."
+              : confirmJob.action === "archive"
+                ? "Archive hides the job from default listings but keeps all candidates, applications, and audit history. Use Restore to bring it back."
+                : "Restore makes the job visible in default listings again."
+          }
+          confirmLabel={
+            confirmJob.action === "delete"
+              ? "Delete permanently"
+              : confirmJob.action === "archive"
+                ? "Archive"
+                : "Restore"
+          }
+          tone={confirmJob.action === "delete" ? "danger" : "default"}
+          requireReason={confirmJob.action !== "unarchive"}
+          onConfirm={(reason) =>
+            performJobAction(confirmJob.job, confirmJob.action, reason)
+          }
+          onClose={() => setConfirmJob(null)}
+        />
+      )}
     </HrShell>
   );
 }
