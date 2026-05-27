@@ -90,6 +90,17 @@ class ReportType:
 
 REPORT_TYPES: List[ReportType] = [
     ReportType(
+        key="candidate_full_export",
+        title="HR Candidate Report",
+        description=(
+            "All candidates with the full master profile + recruitment"
+            " status + latest interview + latest offer. The headline"
+            " HR export — use the standard filters to slice by job,"
+            " status, salary band, etc."
+        ),
+        icon="FileSpreadsheet",
+    ),
+    ReportType(
         key="shortlist",
         title="Shortlist report",
         description=(
@@ -1135,7 +1146,173 @@ def skills_gap_report(db: Session, filters: CandidateFilters) -> Report:
     )
 
 
+def candidate_full_export_report(
+    db: Session, filters: CandidateFilters
+) -> Report:
+    """The headline 'HR Candidate Report' (Phase 7) — every column HR
+    needs in one sheet, respecting the standard filter bundle.
+
+    Columns match the master phase-plan spec (23 columns). Each row is
+    one application; a candidate with multiple applications appears
+    once per application so HR can sort by job/status without losing
+    detail.
+    """
+    rows: List[List[object]] = []
+    summary_total = 0
+
+    for row in search_candidates(db, filters):
+        candidate = row.candidate
+        # If this candidate has no applications (rare — bulk-uploaded
+        # but never linked), emit a single row so they still appear.
+        applications = list(candidate.applications) or [None]
+        for app in applications:
+            summary_total += 1
+            job = app.job_opening if app is not None else None
+            latest_interview = None
+            interview_status = ""
+            interview_date = ""
+            interviewer = ""
+            recommendation = ""
+            if app is not None and app.interviews:
+                # Pick the most-recently-scheduled interview.
+                latest_interview = sorted(
+                    app.interviews,
+                    key=lambda iv: iv.scheduled_at or datetime.min,
+                    reverse=True,
+                )[0]
+                interview_status = latest_interview.status or ""
+                interview_date = (
+                    latest_interview.scheduled_at.strftime("%Y-%m-%d %H:%M")
+                    if latest_interview.scheduled_at
+                    else ""
+                )
+                if latest_interview.feedback:
+                    recommendation = (
+                        latest_interview.feedback[0].recommendation or ""
+                    )
+
+            offer_status = ""
+            if app is not None and app.offer is not None:
+                offer_status = app.offer.status
+
+            cv_link = ""
+            primary_doc = None
+            if candidate.documents:
+                # documents is a list; pick the primary
+                primary_doc = next(
+                    (d for d in candidate.documents if d.is_primary),
+                    candidate.documents[0],
+                )
+            if primary_doc is not None:
+                cv_link = primary_doc.file_path
+
+            education = ""
+            if candidate.extracted_data and candidate.extracted_data.education:
+                # Education is JSON — take the first entry's degree+institution.
+                first = candidate.extracted_data.education
+                if isinstance(first, list) and first:
+                    first = first[0]
+                    education = " · ".join(
+                        str(v) for v in (
+                            first.get("degree") if isinstance(first, dict) else None,
+                            first.get("institution") if isinstance(first, dict) else None,
+                        ) if v
+                    )
+
+            skills_text = ""
+            if candidate.extracted_data and candidate.extracted_data.skills:
+                if isinstance(candidate.extracted_data.skills, list):
+                    skills_text = ", ".join(candidate.extracted_data.skills)
+                else:
+                    skills_text = str(candidate.extracted_data.skills)
+
+            rows.append(
+                [
+                    candidate.id,
+                    job.title if job else "",
+                    job.department if job else "",
+                    candidate.full_name,
+                    candidate.email or "",
+                    candidate.mobile or "",
+                    candidate.nationality or "",
+                    candidate.current_location or "",
+                    candidate.visa_status or "",
+                    candidate.total_experience_years
+                    if candidate.total_experience_years is not None
+                    else "",
+                    education,
+                    skills_text,
+                    candidate.current_company or "",
+                    candidate.expected_salary
+                    if candidate.expected_salary is not None
+                    else "",
+                    candidate.notice_period or "",
+                    (
+                        app.applied_at.strftime("%Y-%m-%d")
+                        if app and app.applied_at
+                        else (
+                            candidate.created_at.strftime("%Y-%m-%d")
+                            if candidate.created_at
+                            else ""
+                        )
+                    ),
+                    _status_label(app.status) if app else "",
+                    interview_status,
+                    offer_status,
+                    interview_date,
+                    interviewer,  # Empty for now; interviewer email lookup
+                                  # would require a per-row user join — keep
+                                  # the export fast.
+                    recommendation,
+                    cv_link,
+                    "",  # Remarks — application-level remarks live in the
+                         # history table, not on a denormalised column. The
+                         # master plan calls this out; HR can add it later
+                         # via a separate column extension.
+                ]
+            )
+
+    return Report(
+        type="candidate_full_export",
+        title="HR Candidate Report",
+        description=(
+            "Master candidate export with recruitment / interview / "
+            "offer status — one row per application."
+        ),
+        generated_at=_now(),
+        columns=[
+            "Candidate ID",
+            "Job Title",
+            "Department",
+            "Candidate Name",
+            "Email",
+            "Phone",
+            "Nationality",
+            "Current Location",
+            "Visa Status",
+            "Experience",
+            "Qualification",
+            "Skills",
+            "Current Employer",
+            "Expected Salary",
+            "Notice Period",
+            "Application Date",
+            "Recruitment Status",
+            "Interview Status",
+            "Offer Status",
+            "Interview Date",
+            "Interviewer",
+            "Final Recommendation",
+            "CV File Link",
+            "Remarks",
+        ],
+        rows=rows,
+        summary={"total_rows": summary_total},
+    )
+
+
 _RUNNERS: Dict[str, ReportRunner] = {
+    "candidate_full_export": candidate_full_export_report,
     "shortlist": shortlist_report,
     "job_wise_summary": job_wise_summary_report,
     "interview_status": interview_status_report,

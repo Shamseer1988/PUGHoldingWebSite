@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   CheckCircle2,
   ExternalLink,
+  FileSpreadsheet,
   FileUp,
   Filter,
   Loader2,
@@ -36,10 +37,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { loadSession } from "@/lib/auth";
+import { env } from "@/lib/env";
 import { hrApi, HrApiError } from "@/lib/hr/api";
 import {
   PERM_HR_CANDIDATES_EDIT,
   PERM_HR_CANDIDATES_STATUS_UPDATE,
+  PERM_HR_REPORTS_EXPORT,
 } from "@/lib/hr/permissions";
 import type {
   BulkUploadResult,
@@ -71,6 +75,7 @@ export default function HrCandidatesPage() {
     new Set(),
   );
   const [bulkStatusOpen, setBulkStatusOpen] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
 
   React.useEffect(() => {
     refresh();
@@ -89,6 +94,59 @@ export default function HrCandidatesPage() {
       setItems(await hrApi.get<CandidateListItem[]>(url));
     } catch (err) {
       setError((err as HrApiError).message);
+    }
+  }
+
+  async function exportXlsx() {
+    // Phase 7 — comprehensive candidate export. Re-uses the same
+    // CandidateFilters bundle the table is filtering by so HR exports
+    // exactly what they're looking at. Uses raw fetch because hrApi
+    // expects JSON; xlsx needs a binary download path.
+    setExporting(true);
+    setError(null);
+    try {
+      const params = filtersToQueryParams(filters);
+      params.set("format", "xlsx");
+      const session = loadSession("hr");
+      if (!session) throw new Error("Sign in expired. Please log in again.");
+      const response = await fetch(
+        `${env.apiBaseUrl}/hr/reports/candidate_full_export/export?${params.toString()}`,
+        { headers: { Authorization: `Bearer ${session.accessToken}` } },
+      );
+      if (!response.ok) {
+        let detail = `Export failed (${response.status})`;
+        try {
+          const body = await response.json();
+          if (typeof body?.detail === "string") detail = body.detail;
+        } catch {
+          /* swallow */
+        }
+        throw new Error(detail);
+      }
+      const blob = await response.blob();
+      const stamp = new Date()
+        .toISOString()
+        .slice(0, 16)
+        .replace(/[-T:]/g, "")
+        .replace(/(\d{8})(\d{4})/, "$1_$2");
+      const fallback = `HR_Candidate_Report_${stamp}.xlsx`;
+      const filename =
+        response.headers
+          .get("Content-Disposition")
+          ?.match(/filename="?([^";]+)"?/)?.[1] ?? fallback;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setToast("Excel exported.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -131,6 +189,22 @@ export default function HrCandidatesPage() {
               <span className="sm:hidden">{selectedAppIds.size}</span>
             </Button>
           ) : null}
+          {perms.has(PERM_HR_REPORTS_EXPORT) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void exportXlsx()}
+              disabled={exporting}
+              aria-label="Export current filter to Excel"
+            >
+              {exporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">Export Excel</span>
+            </Button>
+          )}
           {perms.has(PERM_HR_CANDIDATES_EDIT) && (
             <>
               <Button
