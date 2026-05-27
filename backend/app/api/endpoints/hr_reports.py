@@ -40,7 +40,11 @@ from app.services.candidate_search import (
     collect_distinct_job_options,
 )
 from app.services.hr_export import export_csv, export_pdf, export_xlsx
-from app.services.hr_reports import REPORT_TYPES, run_report
+from app.services.hr_reports import (
+    REPORT_TYPES,
+    available_reports_for_scope,
+    run_report,
+)
 
 
 router = APIRouter(
@@ -62,18 +66,36 @@ _REPORT_VIEW_DEP = require_any_permission(
 )
 
 
+def _effective_scope(user: User) -> str:
+    """Phase 9 — resolve the highest report scope the user holds.
+
+    Returns 'all' / 'dept' / 'mine' / 'none'. Used by the /types
+    endpoint to filter the report catalog and by /{type} to enforce
+    that the user can actually run the requested key.
+    """
+    if user.is_superuser or user.has_permission(PERM_HR_REPORTS_VIEW_ALL):
+        return "all"
+    if user.has_permission(PERM_HR_REPORTS_VIEW_DEPT):
+        return "dept"
+    if user.has_permission(PERM_HR_REPORTS_VIEW_MINE):
+        return "mine"
+    return "none"
+
+
 @router.get("/types")
 def list_report_types(
     user: User = Depends(_REPORT_VIEW_DEP),
 ) -> list[dict]:
+    scope = _effective_scope(user)
     return [
         {
             "key": r.key,
             "title": r.title,
             "description": r.description,
             "icon": r.icon,
+            "min_scope": r.min_scope,
         }
-        for r in REPORT_TYPES
+        for r in available_reports_for_scope(scope)
     ]
 
 
@@ -154,6 +176,25 @@ def _filters_from_query(
 # ---------------------------------------------------------------------------
 
 
+def _assert_can_run(user: User, report_type: str) -> None:
+    """Phase 9 — enforce that the user's scope covers this report's
+    min_scope. Stops a user with only view_mine from calling an
+    all-scope report by typing the URL."""
+    rt = next((r for r in REPORT_TYPES if r.key == report_type), None)
+    if rt is None:
+        raise HTTPException(status_code=404, detail=f"Unknown report: {report_type}")
+    scope = _effective_scope(user)
+    allowed = [r.key for r in available_reports_for_scope(scope)]
+    if report_type not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Report '{report_type}' requires {rt.min_scope}-scope access"
+                f" — your effective scope is '{scope}'."
+            ),
+        )
+
+
 @router.get("/{report_type}")
 def get_report(
     report_type: str,
@@ -161,8 +202,9 @@ def get_report(
     db: Session = Depends(get_db),
     user: User = Depends(_REPORT_VIEW_DEP),
 ) -> dict:
+    _assert_can_run(user, report_type)
     try:
-        report = run_report(db, report_type, filters)
+        report = run_report(db, report_type, filters, actor_id=user.id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
@@ -185,8 +227,9 @@ def export_report(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_REPORTS_EXPORT)),
 ) -> StreamingResponse:
+    _assert_can_run(user, report_type)
     try:
-        report = run_report(db, report_type, filters)
+        report = run_report(db, report_type, filters, actor_id=user.id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
