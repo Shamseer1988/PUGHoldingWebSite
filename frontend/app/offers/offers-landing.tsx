@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
+  BookOpen,
   Flame,
   MapPin,
   Search,
@@ -13,7 +14,11 @@ import {
   Zap,
 } from "lucide-react";
 
-import type { OfferIndexCampaign, OffersIndex } from "@/lib/public-offers";
+import type {
+  OfferIndexCampaign,
+  OffersIndex,
+  OffersIndexCatalogue,
+} from "@/lib/public-offers";
 import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
@@ -159,35 +164,64 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
       )}
 
       {/* ----- All campaigns ----- */}
-      <SectionBlock
-        eyebrow="All offers"
-        icon={Tag}
-        title="Every active campaign."
-      >
-        {index.all_campaigns.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border/60 bg-background p-12 text-center text-sm text-muted-foreground">
-            No active offers right now.{" "}
-            {(currentBranch || searchInput) && (
-              <>
-                Try clearing the{" "}
-                {[
-                  currentBranch && "branch",
-                  searchInput && "search",
-                ]
-                  .filter(Boolean)
-                  .join(" + ")}{" "}
-                filter.
-              </>
-            )}
-          </div>
-        ) : (
+      {index.all_campaigns.length > 0 && (
+        <SectionBlock
+          eyebrow="All offers"
+          icon={Tag}
+          title="Every active campaign."
+        >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {index.all_campaigns.map((c) => (
               <CampaignCard key={c.slug} campaign={c} />
             ))}
           </div>
+        </SectionBlock>
+      )}
+
+      {/* ----- Standalone catalogues ----- */}
+      {index.standalone_catalogues.length > 0 && (
+        <SectionBlock
+          eyebrow="Catalogues"
+          icon={BookOpen}
+          title="Individual catalogues."
+          subtitle="Standalone flyers not yet part of a campaign — open one to start flipping pages."
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {index.standalone_catalogues.map((c) => (
+              <CatalogueCard key={c.slug} catalogue={c} />
+            ))}
+          </div>
+        </SectionBlock>
+      )}
+
+      {/* ----- Global empty state ----- */}
+      {index.all_campaigns.length === 0 &&
+        index.standalone_catalogues.length === 0 && (
+          <SectionBlock
+            eyebrow="Nothing yet"
+            icon={Tag}
+            title="No active offers."
+          >
+            <div className="rounded-2xl border border-dashed border-border/60 bg-background p-12 text-center text-sm text-muted-foreground">
+              {currentBranch || searchInput ? (
+                <>
+                  No offers match your{" "}
+                  {[currentBranch && "branch", searchInput && "search"]
+                    .filter(Boolean)
+                    .join(" + ")}{" "}
+                  filter. Try clearing it to see everything.
+                </>
+              ) : (
+                <>
+                  Check back soon — new flyers go up every week. If
+                  you&apos;re an admin, upload a catalogue and toggle
+                  the parent campaign to <strong>Active</strong> to see
+                  it here.
+                </>
+              )}
+            </div>
+          </SectionBlock>
         )}
-      </SectionBlock>
     </main>
   );
 }
@@ -385,6 +419,51 @@ function CampaignCard({
           {campaign.catalogue_count === 1 ? "" : "s"} ·
           <span className="ml-1 inline-flex items-center gap-1 font-medium text-primary">
             Open
+            <ArrowRight className="h-3 w-3" />
+          </span>
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+
+function CatalogueCard({ catalogue }: { catalogue: OffersIndexCatalogue }) {
+  // Standalone catalogue card — links straight into the viewer.
+  return (
+    <Link
+      href={`/offers/catalogues/${catalogue.slug}`}
+      className="group block overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:shadow-lg"
+    >
+      <div className="relative aspect-[3/4] overflow-hidden bg-muted">
+        {catalogue.cover_image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={resolveAssetUrl(catalogue.cover_image_url) ?? ""}
+            alt={catalogue.title}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+            <BookOpen className="h-10 w-10 opacity-40" />
+          </div>
+        )}
+      </div>
+      <div className="space-y-1 p-4">
+        <h3 className="line-clamp-2 text-base font-semibold leading-snug">
+          {catalogue.title}
+        </h3>
+        {catalogue.description && (
+          <p className="line-clamp-2 text-xs text-muted-foreground">
+            {catalogue.description}
+          </p>
+        )}
+        <p className="pt-1 text-xs text-muted-foreground">
+          {catalogue.page_count} page
+          {catalogue.page_count === 1 ? "" : "s"} ·
+          <span className="ml-1 inline-flex items-center gap-1 font-medium text-primary">
+            Open viewer
             <ArrowRight className="h-3 w-3" />
           </span>
         </p>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { CatalogueViewer } from "@/app/(public)/offers/catalogues/[slug]/catalogue-viewer";
+import { CatalogueViewer } from "@/app/offers/catalogues/[slug]/catalogue-viewer";
 import { getCatalogueBySlug } from "@/lib/public-offers";
 
 

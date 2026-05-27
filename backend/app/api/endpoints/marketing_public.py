@@ -39,6 +39,7 @@ from app.schemas.marketing import (
     CatalogueViewLog,
     OffersIndex,
     OffersIndexCampaign,
+    OffersIndexCatalogue,
 )
 
 
@@ -182,6 +183,45 @@ def list_offers(
     killer = [c for c in cards if c.is_killer_offer]
     flash = [c for c in cards if c.is_flash_sale]
 
+    # Standalone catalogues — active+ready catalogues that nobody
+    # attached to a campaign yet. We still want them browsable so the
+    # public surface degrades gracefully when an operator uploads a
+    # catalogue without picking a campaign.
+    standalone_stmt = (
+        select(Catalogue)
+        .where(
+            Catalogue.campaign_id.is_(None),
+            Catalogue.is_active.is_(True),
+            Catalogue.processing_status == CATALOGUE_READY,
+        )
+        .order_by(
+            Catalogue.is_featured.desc(),
+            Catalogue.sort_order.asc(),
+            desc(Catalogue.created_at),
+        )
+        .limit(24)
+    )
+    # Light text filter mirrors the campaign search so the catalogues
+    # land in the same result set when the user types a keyword.
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        standalone_stmt = standalone_stmt.where(
+            or_(
+                func.lower(Catalogue.title).like(needle),
+                func.lower(Catalogue.description).like(needle),
+            )
+        )
+    standalone = [
+        OffersIndexCatalogue(
+            slug=c.slug,
+            title=c.title,
+            description=c.description,
+            cover_image_url=c.cover_image_url,
+            page_count=c.page_count,
+        )
+        for c in db.execute(standalone_stmt).scalars()
+    ]
+
     # Branch facet — pull every distinct branch from the surfaced
     # set so the filter only shows options that actually have content.
     branches = sorted({c.branch for c in cards if c.branch})
@@ -191,6 +231,7 @@ def list_offers(
         killer_offers=killer[:8],
         flash_sales=flash[:8],
         all_campaigns=cards,
+        standalone_catalogues=standalone,
         branches=branches,
     )
 

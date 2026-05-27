@@ -223,6 +223,20 @@ class OffersIndexCampaign(BaseModel):
     cover_image_url: Optional[str]
 
 
+class OffersIndexCatalogue(BaseModel):
+    """One row in the public /offers landing list — catalogue card,
+    rendered for active+ready catalogues that aren't attached to any
+    campaign yet (so they don't disappear from the public surface)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    slug: str
+    title: str
+    description: Optional[str]
+    cover_image_url: Optional[str]
+    page_count: int
+
+
 class OffersIndex(BaseModel):
     """Whole landing-page payload — everything the /offers page needs
     in one round-trip."""
@@ -231,6 +245,7 @@ class OffersIndex(BaseModel):
     killer_offers: List[OffersIndexCampaign] = Field(default_factory=list)
     flash_sales: List[OffersIndexCampaign] = Field(default_factory=list)
     all_campaigns: List[OffersIndexCampaign] = Field(default_factory=list)
+    standalone_catalogues: List[OffersIndexCatalogue] = Field(default_factory=list)
     branches: List[str] = Field(default_factory=list)
 
 

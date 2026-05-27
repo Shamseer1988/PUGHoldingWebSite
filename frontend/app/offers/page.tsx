@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { OffersLanding } from "@/app/(public)/offers/offers-landing";
+import { OffersLanding } from "@/app/offers/offers-landing";
 import { getOffersIndex } from "@/lib/public-offers";
 
 

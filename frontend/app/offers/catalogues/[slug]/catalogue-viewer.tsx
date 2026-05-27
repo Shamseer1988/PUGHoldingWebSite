@@ -170,11 +170,17 @@ export function CatalogueViewer({ catalogue }: Props) {
   const isSinglePage = isMobile || index === 0 || rightPage === undefined;
 
   return (
+    <>
     <main
       ref={containerRef}
       className={cn(
-        "relative flex min-h-screen flex-col bg-pug-green-800 text-pug-gold-50",
-        fullscreen && "h-screen"
+        // Fill the viewport minus the layout's sticky top bar so the
+        // viewer is perfectly framed without forcing scroll to see
+        // the entire spread.
+        "relative flex flex-col bg-pug-green-800 text-pug-gold-50",
+        // ``3.5rem`` = layout top-bar height. Fullscreen mode bumps to
+        // the full viewport once the Fullscreen API takes over.
+        fullscreen ? "h-screen" : "h-[calc(100vh-3.5rem)]"
       )}
     >
       {/* ----- Top bar ----- */}
@@ -193,7 +199,14 @@ export function CatalogueViewer({ catalogue }: Props) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{catalogue.title}</p>
           <p className="text-[11px] text-pug-gold-200/70">
-            {pageCount} page{pageCount === 1 ? "" : "s"}
+            {isMobile
+              ? `Page ${index + 1} of ${pageCount}`
+              : isSinglePage
+                ? `Page ${index + 1} of ${pageCount}`
+                : `Pages ${index + 1}–${Math.min(
+                    index + 2,
+                    pageCount
+                  )} of ${pageCount}`}
           </p>
         </div>
         <div className="hidden gap-1 sm:flex">
@@ -289,6 +302,122 @@ export function CatalogueViewer({ catalogue }: Props) {
         </div>
       )}
     </main>
+
+    {/* ----- Info / actions panel — below the immersive viewer.
+        Scrolls into view; gives the customer description, metadata
+        and clear share / download CTAs without cluttering the
+        main spread. */}
+    <CatalogueInfoPanel
+      catalogue={catalogue}
+      shareUrl={shareUrl}
+      onCopy={copyLink}
+    />
+    </>
+  );
+}
+
+
+function CatalogueInfoPanel({
+  catalogue,
+  shareUrl,
+  onCopy,
+}: {
+  catalogue: CatalogueDetail;
+  shareUrl: string;
+  onCopy: () => void;
+}) {
+  const sizeMb =
+    catalogue.file_size_bytes != null
+      ? (catalogue.file_size_bytes / (1024 * 1024)).toFixed(1)
+      : null;
+  const whatsAppUrl = `https://wa.me/?text=${encodeURIComponent(shareUrl)}`;
+  return (
+    <section className="border-t border-border/60 bg-background">
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          About this catalogue
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">
+          {catalogue.title}
+        </h2>
+        {catalogue.description && (
+          <p className="mt-3 max-w-3xl whitespace-pre-line text-sm leading-relaxed text-muted-foreground sm:text-base">
+            {catalogue.description}
+          </p>
+        )}
+
+        {/* Metadata strip */}
+        <div className="mt-5 flex flex-wrap gap-2 text-xs">
+          <InfoChip label="Pages">{catalogue.page_count}</InfoChip>
+          {sizeMb && <InfoChip label="Size">{sizeMb} MB</InfoChip>}
+          <InfoChip label="Views">
+            {catalogue.view_count.toLocaleString()}
+          </InfoChip>
+          <InfoChip label="Updated">
+            {new Date(catalogue.updated_at).toLocaleDateString(undefined, {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })}
+          </InfoChip>
+        </div>
+
+        {/* Action row — chunky, touch-friendly */}
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Link
+            href={catalogueDownloadUrl(catalogue.id)}
+            target="_blank"
+            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <Download className="h-4 w-4 text-primary" />
+            Download PDF
+          </Link>
+          <a
+            href={whatsAppUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full bg-emerald-500"
+            />
+            Share on WhatsApp
+          </a>
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <Copy className="h-4 w-4 text-primary" />
+            Copy link
+          </button>
+        </div>
+
+        <p className="mt-8 text-xs text-muted-foreground">
+          Tip: tap the maximise icon at the top-right for fullscreen,
+          or use the keyboard ← / → arrows to flip pages.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+
+function InfoChip({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className="font-medium text-foreground">{children}</span>
+    </span>
   );
 }
 

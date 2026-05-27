@@ -37,11 +37,20 @@ export interface OfferIndexCampaign {
   cover_image_url: string | null;
 }
 
+export interface OffersIndexCatalogue {
+  slug: string;
+  title: string;
+  description: string | null;
+  cover_image_url: string | null;
+  page_count: number;
+}
+
 export interface OffersIndex {
   featured: OfferIndexCampaign[];
   killer_offers: OfferIndexCampaign[];
   flash_sales: OfferIndexCampaign[];
   all_campaigns: OfferIndexCampaign[];
+  standalone_catalogues: OffersIndexCatalogue[];
   branches: string[];
 }
 
@@ -103,6 +112,7 @@ export async function getOffersIndex(query?: {
       killer_offers: [],
       flash_sales: [],
       all_campaigns: [],
+      standalone_catalogues: [],
       branches: [],
     }
   );
