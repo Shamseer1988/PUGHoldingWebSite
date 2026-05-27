@@ -4,7 +4,7 @@ Revision ID: 20260527_0002
 Revises: 20260527_0001
 Create Date: 2026-05-27
 
-Phase 2 of the HR module overhaul. The ``job_openings`` row already
+Phase 2 of the HR module overhaul. The ``hr_job_openings`` row already
 links to a ``hr_job_approval_history`` audit table, but the master
 phase plan also wants five denormalised columns on the job itself so
 queries like "every job published in May" or "every job currently
@@ -47,9 +47,9 @@ NEW_COLS = (
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    existing = {col["name"] for col in inspector.get_columns("job_openings")}
+    existing = {col["name"] for col in inspector.get_columns("hr_job_openings")}
 
-    with op.batch_alter_table("job_openings") as batch:
+    with op.batch_alter_table("hr_job_openings") as batch:
         for name, type_, nullable in NEW_COLS:
             if name in existing:
                 continue
@@ -60,7 +60,7 @@ def upgrade() -> None:
     # the dialect doesn't support it — the columns still work as
     # nullable ints; production Postgres adds the FKs properly.
     if bind.dialect.name != "sqlite":
-        with op.batch_alter_table("job_openings") as batch:
+        with op.batch_alter_table("hr_job_openings") as batch:
             batch.create_foreign_key(
                 "fk_job_openings_changes_requested_by",
                 "users",
@@ -81,14 +81,14 @@ def downgrade() -> None:
     bind = op.get_bind()
 
     if bind.dialect.name != "sqlite":
-        with op.batch_alter_table("job_openings") as batch:
+        with op.batch_alter_table("hr_job_openings") as batch:
             for name in ("fk_job_openings_changes_requested_by", "fk_job_openings_published_by"):
                 try:
                     batch.drop_constraint(name, type_="foreignkey")
                 except Exception:
                     pass
 
-    with op.batch_alter_table("job_openings") as batch:
+    with op.batch_alter_table("hr_job_openings") as batch:
         for name, _, _ in NEW_COLS:
             try:
                 batch.drop_column(name)

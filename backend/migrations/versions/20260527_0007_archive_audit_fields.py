@@ -70,12 +70,12 @@ def _drop_cols(table: str, cols: tuple) -> None:
 
 
 def upgrade() -> None:
-    _add_cols("job_openings", JOB_NEW_COLS)
+    _add_cols("hr_job_openings", JOB_NEW_COLS)
     _add_cols("hr_candidates", CAND_NEW_COLS)
 
     bind = op.get_bind()
     if bind.dialect.name != "sqlite":
-        with op.batch_alter_table("job_openings") as batch:
+        with op.batch_alter_table("hr_job_openings") as batch:
             try:
                 batch.create_foreign_key(
                     "fk_job_openings_archived_by",
@@ -102,7 +102,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name != "sqlite":
-        with op.batch_alter_table("job_openings") as batch:
+        with op.batch_alter_table("hr_job_openings") as batch:
             try:
                 batch.drop_constraint(
                     "fk_job_openings_archived_by", type_="foreignkey"
@@ -117,4 +117,4 @@ def downgrade() -> None:
             except Exception:
                 pass
     _drop_cols("hr_candidates", CAND_NEW_COLS)
-    _drop_cols("job_openings", JOB_NEW_COLS)
+    _drop_cols("hr_job_openings", JOB_NEW_COLS)
