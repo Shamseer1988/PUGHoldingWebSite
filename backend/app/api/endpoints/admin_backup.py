@@ -233,7 +233,7 @@ def download_backup(
 
 
 @router.post("/restore", status_code=status.HTTP_200_OK)
-async def restore_backup(
+def restore_backup(
     request: Request,
     file: UploadFile = File(..., description="pg_dump custom-format (.dump) file"),
     confirm_db_name: str = Form(
@@ -271,7 +271,9 @@ async def restore_backup(
     except BackupError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    if (confirm_db_name or "").strip() != cfg.database:
+    # Tolerant compare: both sides stripped so a stray trailing space
+    # in the confirmation textbox doesn't bounce a legitimate restore.
+    if (confirm_db_name or "").strip() != cfg.database.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -286,10 +288,15 @@ async def restore_backup(
 
     try:
         # --- 1. Stream upload to disk, capped at MAX_RESTORE_BYTES ---
+        # We use the synchronous ``file.file`` SpooledTemporaryFile API
+        # rather than ``await file.read(...)`` because this endpoint is
+        # ``def`` (not async). Running blocking pg_restore on the event
+        # loop would freeze every other request for the duration.
         total = 0
+        upload_stream = file.file
         with open(upload_path, "wb") as out:
             while True:
-                chunk = await file.read(1024 * 1024)
+                chunk = upload_stream.read(1024 * 1024)
                 if not chunk:
                     break
                 total += len(chunk)

@@ -413,7 +413,7 @@ def get_candidate(
     response_model=ApplicationSubmissionResponse,
     status_code=201,
 )
-async def upload_candidate(
+def upload_candidate(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
@@ -430,7 +430,11 @@ async def upload_candidate(
     visa_status: Optional[str] = Form(default=None, max_length=120),
     job_slug: Optional[str] = Form(default=None, max_length=200),
 ) -> ApplicationSubmissionResponse:
-    payload = await file.read()
+    # Sync def so the blocking ingest path (file hashing, CV storage,
+    # SQLAlchemy commit) runs in FastAPI's thread pool instead of
+    # blocking the event loop. ``file.file`` is a synchronous
+    # SpooledTemporaryFile so we don't need ``await file.read()``.
+    payload = file.file.read()
     try:
         meta = store_cv_bytes(payload, file.filename or "cv", file.content_type)
     except CvUploadError as exc:
@@ -517,7 +521,7 @@ async def upload_candidate(
     response_model=BulkUploadResult,
     status_code=201,
 )
-async def bulk_upload_candidates(
+def bulk_upload_candidates(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
@@ -526,11 +530,13 @@ async def bulk_upload_candidates(
 ) -> BulkUploadResult:
     """Extract every supported CV from a ZIP and create candidates.
 
-    Phase 10 creates placeholder candidates named after the file stem.
-    Phase 11's CV parser will backfill actual extracted_data (name,
-    email, mobile, skills, etc.) for each one.
+    Each candidate is wrapped in a SAVEPOINT (``db.begin_nested``) so a
+    mid-loop failure (corrupted file, SQLAlchemy IntegrityError, etc.)
+    rolls back ONLY that candidate's writes instead of poisoning the
+    whole batch. The audit row reflects the partial result.
     """
-    payload = await file.read()
+    # Sync def — see upload_candidate above for the rationale.
+    payload = file.file.read()
     try:
         bundle = extract_cvs_from_zip(payload)
     except CvUploadError as exc:
@@ -540,6 +546,7 @@ async def bulk_upload_candidates(
     created_count = 0
     matched_count = 0
     duplicate_app_count = 0
+    failed_count = 0
     candidate_ids: List[int] = []
 
     for meta in bundle.files:
@@ -555,21 +562,33 @@ async def bulk_upload_candidates(
             source=SOURCE_BULK_UPLOAD,
         )
 
+        # SAVEPOINT per row so a bad CV doesn't poison the rest of the
+        # batch. If ingest raises, the savepoint rolls back and the
+        # outer transaction stays viable for the next iteration.
         try:
-            result = ingest_candidate_application(
-                db,
-                form=form,
-                file_meta=meta,
-                uploaded_by_id=user.id,
-                created_by_id=user.id,
-            )
+            with db.begin_nested():
+                result = ingest_candidate_application(
+                    db,
+                    form=form,
+                    file_meta=meta,
+                    uploaded_by_id=user.id,
+                    created_by_id=user.id,
+                )
         except DuplicateApplicationError:
-            db.rollback()
             duplicate_app_count += 1
             skipped.append(
                 BulkUploadSkip(
                     name=meta.original_name,
                     reason="Duplicate application for this job (skipped)",
+                )
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 — surface as a row-level skip
+            failed_count += 1
+            skipped.append(
+                BulkUploadSkip(
+                    name=meta.original_name,
+                    reason=f"Ingest failed: {type(exc).__name__}",
                 )
             )
             continue
@@ -596,6 +615,7 @@ async def bulk_upload_candidates(
             "created_candidates": created_count,
             "matched_existing_candidates": matched_count,
             "duplicate_applications_skipped": duplicate_app_count,
+            "ingest_failed_count": failed_count,
             "skipped_count": len(skipped),
             "job_slug": job_slug,
         },

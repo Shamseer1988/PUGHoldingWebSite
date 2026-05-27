@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.api import api_router
 from app.core.cache_headers import PublicCacheHeadersMiddleware
-from app.core.config import get_settings
+from app.core.config import ensure_production_safety, get_settings
 
 
 @asynccontextmanager
@@ -32,6 +32,9 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Refuse to boot in production with a weak secret key or missing
+    # CORS allowlist. No-op outside production.
+    ensure_production_safety(settings)
 
     app = FastAPI(
         title=settings.app_name,

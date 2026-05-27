@@ -19,6 +19,18 @@ load_dotenv()
 
 DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 
+# The historic "default" secret key shipped with the repo. We keep it
+# referenced here so the production validator in ``ensure_production_safety``
+# can detect when an operator forgot to set ``SECRET_KEY`` and fail
+# fast instead of signing JWTs with a publicly-known value.
+INSECURE_DEFAULT_SECRET_KEY = "change-me-to-a-strong-random-secret"
+MIN_SECRET_KEY_LENGTH = 32
+
+
+class InsecureConfigurationError(RuntimeError):
+    """Raised at boot when the production environment is missing a
+    required hardening setting (e.g. real SECRET_KEY or CORS allowlist)."""
+
 
 class Settings(BaseSettings):
     """Strongly-typed application settings."""
@@ -38,7 +50,12 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000)
 
     # --- Security ---
-    secret_key: str = Field(default="change-me-to-a-strong-random-secret")
+    # We keep the insecure default so local dev + the test suite "just
+    # work" out of the box. Production deployments MUST override
+    # SECRET_KEY — ``ensure_production_safety()`` (called from
+    # ``create_app``) refuses to boot if the default leaks into a
+    # production environment.
+    secret_key: str = Field(default=INSECURE_DEFAULT_SECRET_KEY)
     access_token_expire_minutes: int = Field(default=60)
     refresh_token_expire_days: int = Field(default=7)
     algorithm: str = Field(default="HS256")
@@ -103,3 +120,45 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def ensure_production_safety(settings: Settings) -> None:
+    """Fail fast at boot when a production deployment is missing the
+    minimum security configuration.
+
+    Called from :func:`app.main.create_app`. Outside production we just
+    return — the default secret + permissive CORS make local dev + the
+    test suite frictionless.
+    """
+    if settings.app_env.lower() != "production":
+        return
+
+    problems: list[str] = []
+
+    if (
+        not settings.secret_key
+        or settings.secret_key == INSECURE_DEFAULT_SECRET_KEY
+        or len(settings.secret_key) < MIN_SECRET_KEY_LENGTH
+    ):
+        problems.append(
+            f"SECRET_KEY must be set to a unique value of at least "
+            f"{MIN_SECRET_KEY_LENGTH} characters in production."
+        )
+
+    raw_cors = os.getenv("CORS_ORIGINS")
+    if not raw_cors:
+        problems.append(
+            "CORS_ORIGINS must be set explicitly in production — "
+            "the localhost defaults are dev-only."
+        )
+    elif raw_cors.strip() == "*":
+        problems.append(
+            "CORS_ORIGINS=* is forbidden in production — list the exact "
+            "front-end origins instead."
+        )
+
+    if problems:
+        raise InsecureConfigurationError(
+            "Refusing to start the API in production with insecure "
+            "configuration:\n  - " + "\n  - ".join(problems)
+        )

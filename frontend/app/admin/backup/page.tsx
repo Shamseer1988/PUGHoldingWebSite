@@ -341,6 +341,14 @@ function RestoreCard({
   const [file, setFile] = React.useState<File | null>(null);
   const [confirm, setConfirm] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  // Ref to the <input type="file"> so we can clear its value via the
+  // ref rather than a stale document.getElementById lookup.
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  // Latch so a second click during in-flight submit is a no-op even if
+  // ``busy`` hasn't yet propagated through React's render cycle (the
+  // sequence between click and useState commit is what made the prior
+  // implementation racy on the destructive endpoint).
+  const inflightRef = React.useRef(false);
 
   const expected = info.database_name ?? "";
   const sizeMb = file ? (file.size / (1024 * 1024)).toFixed(1) : null;
@@ -351,26 +359,33 @@ function RestoreCard({
 
   async function submit() {
     if (!file) return;
+    // Synchronous gate against double-fire. ``busy`` going true is the
+    // visible signal; ``inflightRef`` is the structural one that wins
+    // races between two rapid clicks.
+    if (inflightRef.current) return;
+    inflightRef.current = true;
     setBusy(true);
+    // Clear the typed confirmation up-front so even if the user clicks
+    // again before the request resolves, ``nameMatches`` is already
+    // false and ``canSubmit`` blocks the second submit.
+    setConfirm("");
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("confirm_db_name", confirm.trim());
+      fd.append("confirm_db_name", expected);
       const res = await adminApi.postMultipart<RestoreResponse>(
         "/admin/backup/restore",
         fd
       );
       onSuccess(res.message);
-      // Reset the form so a repeat restore needs explicit re-confirmation.
-      setFile(null);
-      setConfirm("");
-      const input = document.getElementById(
-        "restore-file"
-      ) as HTMLInputElement | null;
-      if (input) input.value = "";
     } catch (err) {
       onError((err as AdminApiError).message);
     } finally {
+      // Reset everything BEFORE releasing the busy flag so the button
+      // can't re-enable while the form still holds the prior file.
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      inflightRef.current = false;
       setBusy(false);
     }
   }
@@ -415,6 +430,7 @@ function RestoreCard({
           </Label>
           <Input
             id="restore-file"
+            ref={fileInputRef}
             type="file"
             accept=".dump,application/octet-stream"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}

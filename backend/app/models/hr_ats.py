@@ -33,6 +33,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -59,6 +60,7 @@ JOB_STATUS_OPEN = "open"
 JOB_STATUS_ON_HOLD = "on_hold"
 JOB_STATUS_CLOSED = "closed"
 JOB_STATUSES = (JOB_STATUS_OPEN, JOB_STATUS_ON_HOLD, JOB_STATUS_CLOSED)
+JOB_STATUSES = (JOB_STATUS_OPEN, JOB_STATUS_ON_HOLD, JOB_STATUS_CLOSED)
 
 # Employment type
 EMPLOYMENT_FULL_TIME = "full_time"
@@ -83,6 +85,27 @@ STATUS_JOINED = "joined"
 STATUS_NOT_JOINED = "not_joined"
 STATUS_REJECTED = "rejected"
 STATUS_BLACKLISTED = "blacklisted"
+
+# Every legal value of CandidateJobApplication.status. Used both for the
+# state-machine guard in the service layer and the CHECK constraint
+# enforced at the database level.
+RECRUITMENT_STATUSES = (
+    STATUS_CV_RECEIVED,
+    STATUS_AI_REVIEWED,
+    STATUS_HR_REVIEW_PENDING,
+    STATUS_SHORTLISTED,
+    STATUS_FIRST_INTERVIEW,
+    STATUS_TECHNICAL_INTERVIEW,
+    STATUS_FINAL_INTERVIEW,
+    STATUS_WAITING_LIST,
+    STATUS_RECOMMENDED_FOR_OFFER,
+    STATUS_SELECTED,
+    STATUS_OFFER_SENT,
+    STATUS_JOINED,
+    STATUS_NOT_JOINED,
+    STATUS_REJECTED,
+    STATUS_BLACKLISTED,
+)
 
 APPLICATION_STATUSES = (
     STATUS_CV_RECEIVED,
@@ -147,6 +170,12 @@ OFFER_APPROVAL_DRAFT = "draft"
 OFFER_APPROVAL_PENDING = "pending_approval"
 OFFER_APPROVAL_APPROVED = "approved"
 OFFER_APPROVAL_REJECTED = "rejected"
+OFFER_APPROVAL_STATUSES = (
+    OFFER_APPROVAL_DRAFT,
+    OFFER_APPROVAL_PENDING,
+    OFFER_APPROVAL_APPROVED,
+    OFFER_APPROVAL_REJECTED,
+)
 
 # Joining-status tracker (set after candidate accepts).
 OFFER_JOINING_PENDING = "pending"
@@ -280,6 +309,15 @@ CALENDAR_PROVIDER_GOOGLE = "google"
 CALENDAR_PROVIDERS = (CALENDAR_PROVIDER_NONE, CALENDAR_PROVIDER_GOOGLE)
 
 
+def _enum_in_clause(column: str, values: tuple[str, ...]) -> str:
+    """Build a SQL ``column IN ('a', 'b', ...)`` predicate from a tuple of
+    string enum values. Used by every status CHECK constraint below so
+    the list of valid states lives in exactly one place (the enum tuple)
+    and the database refuses to persist anything else."""
+    quoted = ", ".join(f"'{v}'" for v in values)
+    return f"{column} IN ({quoted})"
+
+
 # ---------------------------------------------------------------------------
 # Job opening
 # ---------------------------------------------------------------------------
@@ -409,6 +447,21 @@ class JobOpening(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
         lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", JOB_STATUSES),
+            name="ck_hr_jobs_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("approval_status", APPROVAL_STATUSES),
+            name="ck_hr_jobs_approval_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("publish_status", PUBLISH_STATUSES),
+            name="ck_hr_jobs_publish_status",
+        ),
     )
 
 
@@ -641,6 +694,10 @@ class CandidateJobApplication(Base, TimestampMixin):
         UniqueConstraint(
             "candidate_id", "job_opening_id", name="uq_hr_applications_candidate_job"
         ),
+        CheckConstraint(
+            _enum_in_clause("status", RECRUITMENT_STATUSES),
+            name="ck_hr_applications_status",
+        ),
     )
 
 
@@ -841,6 +898,17 @@ class Interview(Base, TimestampMixin):
         lazy="selectin",
     )
 
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", INTERVIEW_STATUSES),
+            name="ck_hr_interviews_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("mode", INTERVIEW_MODES),
+            name="ck_hr_interviews_mode",
+        ),
+    )
+
 
 class InterviewFeedback(Base, TimestampMixin):
     __tablename__ = "hr_interview_feedback"
@@ -951,6 +1019,17 @@ class OfferTracking(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="OfferStatusHistory.created_at.desc()",
         lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", OFFER_STATUSES),
+            name="ck_hr_offers_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("approval_status", OFFER_APPROVAL_STATUSES),
+            name="ck_hr_offers_approval_status",
+        ),
     )
 
 
