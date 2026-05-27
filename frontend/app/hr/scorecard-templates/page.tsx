@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  ArchiveRestore,
   CheckCircle2,
   ClipboardList,
   Loader2,
@@ -119,6 +120,19 @@ function Body() {
     }
   }
 
+  async function unarchive(row: ScorecardTemplate) {
+    try {
+      // Soft archive is reversible — flipping is_active back to true
+      // returns the template to the active picker without touching any
+      // submitted scorecard rows that referenced it.
+      await hrApi.patch(`${BASE}/${row.id}`, { is_active: true });
+      setToast(`Restored "${row.name}".`);
+      await refresh();
+    } catch (err) {
+      setError((err as HrApiError).message);
+    }
+  }
+
   return (
     <HrShell
       title="Scorecard templates"
@@ -217,27 +231,38 @@ function Body() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex items-center gap-1">
-                      {t.is_active && (
+                      {t.is_active ? (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setEditing(t)}
+                            aria-label={`Edit ${t.name}`}
+                            title="Edit"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deactivate(t)}
+                            className="text-rose-600 hover:text-rose-700"
+                            aria-label={`Archive ${t.name}`}
+                            title="Archive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : (
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() => setEditing(t)}
-                          aria-label={`Edit ${t.name}`}
-                          title="Edit"
+                          onClick={() => unarchive(t)}
+                          className="text-emerald-700 hover:text-emerald-800"
+                          aria-label={`Restore ${t.name}`}
+                          title="Restore from archive"
                         >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {t.is_active && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => deactivate(t)}
-                          className="text-rose-600 hover:text-rose-700"
-                          aria-label={`Archive ${t.name}`}
-                          title="Archive"
-                        >
-                          <Trash2 className="h-4 w-4" />
+                          <ArchiveRestore className="h-4 w-4" />
                         </Button>
                       )}
                     </div>
