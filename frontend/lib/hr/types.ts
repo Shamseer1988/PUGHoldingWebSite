@@ -116,6 +116,12 @@ export interface JobOpening {
   rejected_by_id?: number | null;
   rejected_at?: string | null;
   approval_remarks?: string | null;
+  // Phase-2 denormalised audit columns
+  changes_requested_by_id?: number | null;
+  changes_requested_at?: string | null;
+  changes_requested_notes?: string | null;
+  published_by_id?: number | null;
+  published_at?: string | null;
   active_revision_id?: number | null;
   has_pending_revision?: boolean;
 }

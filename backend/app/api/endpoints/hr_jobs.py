@@ -609,6 +609,87 @@ def list_revisions(
     return [JobRevisionRead.model_validate(r) for r in job.revisions]
 
 
+@router.post(
+    "/{job_id}/revisions/{revision_id}/approve",
+    response_model=JobOpeningRead,
+)
+def approve_revision_endpoint(
+    job_id: int,
+    revision_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
+) -> JobOpeningRead:
+    """Approve a specific pending revision — applies the payload to the
+    live job. Requires hr:jobs:approve. Self-approval guard applies:
+    the manager who submitted the original job (or revision) cannot
+    approve their own changes."""
+    job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
+
+    revision = next(
+        (r for r in job.revisions if r.id == revision_id), None
+    )
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    remarks = (payload.remarks if payload else None)
+    approval.approve_revision(db, revision=revision, actor=user, remarks=remarks)
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.revision.approve",
+        target_id=job.id,
+        details={"revision_id": revision_id, "remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
+
+
+@router.post(
+    "/{job_id}/revisions/{revision_id}/reject",
+    response_model=JobOpeningRead,
+)
+def reject_revision_endpoint(
+    job_id: int,
+    revision_id: int,
+    payload: JobApprovalRejectRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
+) -> JobOpeningRead:
+    """Reject a specific pending revision — discards the payload, the
+    live job stays unchanged. Requires hr:jobs:approve and a remarks
+    string (min 4 chars, enforced by the JobApprovalRejectRequest
+    schema)."""
+    job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
+
+    revision = next(
+        (r for r in job.revisions if r.id == revision_id), None
+    )
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    approval.reject_revision(
+        db, revision=revision, actor=user, remarks=payload.remarks
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.revision.reject",
+        target_id=job.id,
+        details={"revision_id": revision_id, "remarks": payload.remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------

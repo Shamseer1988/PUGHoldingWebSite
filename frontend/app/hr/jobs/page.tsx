@@ -19,6 +19,7 @@ import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { JobApprovalActions } from "@/components/hr/job-approval-actions";
 import { JobApprovalBadge } from "@/components/hr/job-approval-badge";
+import { JobApprovalTimeline } from "@/components/hr/job-approval-timeline";
 import {
   PERM_HR_JOBS_APPROVE,
   PERM_HR_JOBS_CREATE,
@@ -512,6 +513,7 @@ export default function HrJobsPage() {
         onClose={() => setOpen(false)}
         onSave={save}
         saving={saving}
+        editingJob={editing}
       />
     </HrShell>
   );
@@ -525,6 +527,7 @@ function JobDrawer({
   onClose,
   onSave,
   saving,
+  editingJob,
 }: {
   open: boolean;
   title: string;
@@ -533,12 +536,26 @@ function JobDrawer({
   onClose: () => void;
   onSave: () => void;
   saving: boolean;
+  /**
+   * The job being edited (null when creating new). Used to:
+   *  - render the JobApprovalTimeline at the bottom of the drawer
+   *  - show a "this edit will require re-approval" warning when the
+   *    job is already approved.
+   */
+  editingJob: JobOpening | null;
 }) {
   if (!open) return null;
 
   function set<K extends keyof JobFormState>(k: K, v: JobFormState[K]) {
     onChange({ ...form, [k]: v });
   }
+
+  // Re-approval warning fires when editing an approved job; the
+  // backend will route the changes through a JobRevision rather than
+  // mutating the live job, so HR knows the edit won't be public until
+  // the manager approves the revision.
+  const showReapprovalWarning =
+    editingJob !== null && editingJob.approval_status === "approved";
 
   return (
     <div role="dialog" aria-modal="true" className="fixed inset-0 z-40 flex">
@@ -764,6 +781,32 @@ function JobDrawer({
                 placeholder="Arabic, GCC experience"
               />
             </Field>
+
+            {showReapprovalWarning && (
+              <div
+                role="status"
+                className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300"
+              >
+                <p className="font-semibold">
+                  Editing an approved job — re-approval required.
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  This job is already <strong>approved &amp; live</strong>.
+                  Saving will create a pending revision; the public site
+                  keeps showing the current version until an HR Manager
+                  approves the revision.
+                </p>
+              </div>
+            )}
+
+            {editingJob && (
+              <section className="rounded-md border border-border/60 bg-background/40 p-3">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Approval timeline
+                </h3>
+                <JobApprovalTimeline jobId={editingJob.id} />
+              </section>
+            )}
           </div>
 
           <footer className="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3">

@@ -331,6 +331,20 @@ class JobOpening(Base, TimestampMixin):
     )
     rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     approval_remarks: Mapped[Optional[str]] = mapped_column(Text)
+    # Phase-2 denormalised audit columns. Populated by the corresponding
+    # endpoint handler (request_revision / publish / unpublish) so listing
+    # screens can sort + filter without joining hr_job_approval_history.
+    changes_requested_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    changes_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    changes_requested_notes: Mapped[Optional[str]] = mapped_column(Text)
+    published_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     active_revision_id: Mapped[Optional[int]] = mapped_column(Integer)
 
     applications: Mapped[List["CandidateJobApplication"]] = relationship(

@@ -98,6 +98,12 @@ class JobOpeningRead(JobOpeningBase):
     rejected_by_id: Optional[int] = None
     rejected_at: Optional[datetime] = None
     approval_remarks: Optional[str] = None
+    # Phase-2 denormalised audit columns
+    changes_requested_by_id: Optional[int] = None
+    changes_requested_at: Optional[datetime] = None
+    changes_requested_notes: Optional[str] = None
+    published_by_id: Optional[int] = None
+    published_at: Optional[datetime] = None
     active_revision_id: Optional[int] = None
     has_pending_revision: bool = False
 
