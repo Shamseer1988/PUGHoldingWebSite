@@ -103,8 +103,11 @@ class TestProfileText:
 
 
 class TestQueryEmbeddingNoAi:
-    def test_returns_none_when_ai_disabled(self):
-        # In the test env, ai_enabled is False -> no embedding.
+    def test_returns_none_when_ai_disabled(self, monkeypatch):
+        # Force ai-not-configured regardless of what's in the developer's
+        # local .env. The point of this test is the "AI off -> None"
+        # branch, not the live provider call.
+        monkeypatch.setattr(ss, "_ai_configured", lambda: False)
         assert ss.compute_query_embedding("Hello world") is None
 
 
@@ -199,8 +202,16 @@ class TestEndpoint:
         assert r.status_code == 401
 
     def test_503_when_ai_not_configured(
-        self, client: TestClient, seed_auth
+        self, client: TestClient, seed_auth, monkeypatch
     ):
+        # Force the "AI off" path regardless of the developer's local
+        # .env. Patches both layers: the gate inside
+        # compute_query_embedding and the imported binding seen by
+        # the endpoint (which does ``from app.services.semantic_search
+        # import semantic_search_candidates`` at request time).
+        from app.services import semantic_search as ss
+
+        monkeypatch.setattr(ss, "_ai_configured", lambda: False)
         headers = _login(client, "hr@pug.example.com", seed_auth["password"])
         r = client.post(
             BASE, headers=headers, json={"query": "python developer"}

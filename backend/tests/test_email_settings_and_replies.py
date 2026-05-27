@@ -101,7 +101,21 @@ def test_crypto_decrypt_invalid_token_returns_none():
 # ---------------------------------------------------------------------------
 
 
-def test_email_settings_get_creates_singleton(client, seed_auth, db_session: Session):
+def test_email_settings_get_creates_singleton(
+    client, seed_auth, db_session: Session, monkeypatch
+):
+    # Force an empty SMTP env so this test is hermetic against a
+    # developer-supplied .env that ships real credentials. ``Settings``
+    # is lru-cached, so ``monkeypatch.delenv`` alone wouldn't work —
+    # we blank the smtp_* attributes on the cached singleton instead.
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "smtp_password", None, raising=False)
+    monkeypatch.setattr(settings, "smtp_username", None, raising=False)
+    monkeypatch.setattr(settings, "smtp_host", None, raising=False)
+    monkeypatch.setattr(settings, "smtp_from_email", None, raising=False)
+
     headers = _login_super(client, seed_auth)
     response = client.get(EMAIL, headers=headers)
     assert response.status_code == 200

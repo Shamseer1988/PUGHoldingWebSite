@@ -190,9 +190,21 @@ class TestRestore:
         # Pretend the env is Postgres so we get past the early gate
         # and exercise the confirmation check itself.
         from app.api.endpoints import admin_backup as ep
+        from app.services.db_backup import DbConnection
 
         monkeypatch.setattr(ep, "is_postgres", lambda: True)
         monkeypatch.setattr(ep, "tools_available", lambda: True)
+        # Pin the resolved connection so this test is hermetic — a
+        # developer-supplied .env with a different POSTGRES_DB doesn't
+        # leak in and silently match the typed confirmation.
+        monkeypatch.setattr(
+            ep,
+            "resolve_connection",
+            lambda: DbConnection(
+                user="t", password=None, host="h", port="5432",
+                database="pug_holding_test_fixture",
+            ),
+        )
         headers = _superuser(client, seed_auth["password"])
         resp = client.post(
             f"{BACKUP}/restore",
@@ -205,11 +217,19 @@ class TestRestore:
 
     def test_restore_rejects_non_pgdump_file(self, client, seed_auth, monkeypatch):
         from app.api.endpoints import admin_backup as ep
+        from app.services.db_backup import DbConnection
 
         monkeypatch.setattr(ep, "is_postgres", lambda: True)
         monkeypatch.setattr(ep, "tools_available", lambda: True)
+        monkeypatch.setattr(
+            ep,
+            "resolve_connection",
+            lambda: DbConnection(
+                user="t", password=None, host="h", port="5432",
+                database="pug_holding_test_fixture",
+            ),
+        )
         headers = _superuser(client, seed_auth["password"])
-        # Active default DB name from config is 'pug_holding'.
         resp = client.post(
             f"{BACKUP}/restore",
             headers=headers,
@@ -220,7 +240,7 @@ class TestRestore:
                     "application/octet-stream",
                 ),
             },
-            data={"confirm_db_name": "pug_holding"},
+            data={"confirm_db_name": "pug_holding_test_fixture"},
         )
         assert resp.status_code == 400
         detail = resp.json()["detail"]
@@ -228,15 +248,24 @@ class TestRestore:
 
     def test_restore_rejects_empty_file(self, client, seed_auth, monkeypatch):
         from app.api.endpoints import admin_backup as ep
+        from app.services.db_backup import DbConnection
 
         monkeypatch.setattr(ep, "is_postgres", lambda: True)
         monkeypatch.setattr(ep, "tools_available", lambda: True)
+        monkeypatch.setattr(
+            ep,
+            "resolve_connection",
+            lambda: DbConnection(
+                user="t", password=None, host="h", port="5432",
+                database="pug_holding_test_fixture",
+            ),
+        )
         headers = _superuser(client, seed_auth["password"])
         resp = client.post(
             f"{BACKUP}/restore",
             headers=headers,
             files={"file": ("empty.dump", b"", "application/octet-stream")},
-            data={"confirm_db_name": "pug_holding"},
+            data={"confirm_db_name": "pug_holding_test_fixture"},
         )
         assert resp.status_code == 400
         assert "empty" in resp.json()["detail"].lower()
