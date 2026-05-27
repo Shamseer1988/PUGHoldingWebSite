@@ -7,6 +7,7 @@ import {
   Bookmark,
   Briefcase,
   CalendarClock,
+  ClipboardList,
   ExternalLink,
   FileBarChart,
   Handshake,
@@ -27,6 +28,7 @@ import {
   ANY_REPORT_VIEW,
   PERM_HR_AUDIT_READ,
   PERM_HR_DASHBOARD_VIEW,
+  PERM_HR_INTERVIEWS_SCHEDULE,
   PERM_HR_OFFERS_VIEW,
   PERM_HR_USERS_MANAGE,
 } from "@/lib/hr/permissions";
@@ -111,6 +113,12 @@ const NAV: NavGroup[] = [
         href: "/hr/users",
         icon: UsersRound,
         anyOf: [PERM_HR_USERS_MANAGE],
+      },
+      {
+        label: "Scorecard templates",
+        href: "/hr/scorecard-templates",
+        icon: ClipboardList,
+        anyOf: [PERM_HR_INTERVIEWS_SCHEDULE],
       },
       {
         label: "HR audit log",

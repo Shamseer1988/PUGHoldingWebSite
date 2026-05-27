@@ -938,6 +938,19 @@ class InterviewFeedback(Base, TimestampMixin):
     weaknesses: Mapped[Optional[str]] = mapped_column(Text)
     next_action: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Feature F2 — link to the ScorecardTemplate used (if any) and the
+    # filled-in per-dimension scores. Shape:
+    #   {"<dimension_key>": {"score": int, "notes": str}}
+    # Kept as JSON so adding/removing dimensions in the template doesn't
+    # require a schema migration on every submitted scorecard.
+    scorecard_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("hr_scorecard_templates.id", ondelete="SET NULL"), index=True
+    )
+    scorecard_scores: Mapped[Optional[dict]] = mapped_column(JSON)
+    # Weighted total derived from scorecard_scores at submit time. Cached
+    # so report rollups don't have to recompute.
+    scorecard_total: Mapped[Optional[int]] = mapped_column(Integer)
+
     interview: Mapped[Interview] = relationship(back_populates="feedback")
 
 
@@ -1418,5 +1431,78 @@ class SavedCandidateSearch(Base, TimestampMixin):
         CheckConstraint(
             _enum_in_clause("scope", SAVED_SEARCH_SCOPES),
             name="ck_hr_saved_searches_scope",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Interview scorecard templates (Feature F2)
+# ---------------------------------------------------------------------------
+
+
+SCORECARD_SCOPE_GLOBAL = "global"
+SCORECARD_SCOPE_JOB = "job"
+SCORECARD_SCOPES = (SCORECARD_SCOPE_GLOBAL, SCORECARD_SCOPE_JOB)
+
+
+class ScorecardTemplate(Base, TimestampMixin):
+    """A reusable rubric attached to one or many interviews.
+
+    Dimensions are stored as JSON to keep the schema flat while
+    letting HR add / remove / re-order rubric rows from the admin UI
+    without a migration. Each dimension is:
+
+      {"key": "system_design",
+       "label": "System design",
+       "description": "Ability to reason about scale, failure modes",
+       "max_score": 5,
+       "weight": 30}
+
+    ``scope`` is ``global`` for a template that applies to any role,
+    or ``job`` for a template pinned to a single ``job_opening_id``.
+    A global template is fine to start with — job-specific templates
+    are the upgrade path for roles with bespoke rubrics.
+    """
+
+    __tablename__ = "hr_scorecard_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    scope: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SCORECARD_SCOPE_GLOBAL,
+        server_default=SCORECARD_SCOPE_GLOBAL,
+        index=True,
+    )
+    # Only set when scope == "job".
+    job_opening_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("hr_job_openings.id", ondelete="SET NULL"), index=True
+    )
+
+    # JSON list of dimension dicts — see class docstring for shape.
+    dimensions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    is_default: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+    )
+
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("scope", SCORECARD_SCOPES),
+            name="ck_hr_scorecard_templates_scope",
         ),
     )
