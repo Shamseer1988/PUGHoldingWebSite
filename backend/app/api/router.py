@@ -20,6 +20,7 @@ from app.api.endpoints import (
     hr_offers,
     hr_reports,
     hr_saved_searches,
+    hr_scheduled_reports,
     hr_scorecards,
     public,
 )
@@ -43,3 +44,4 @@ api_router.include_router(hr_offers.router)
 api_router.include_router(hr_reports.router)
 api_router.include_router(hr_saved_searches.router)
 api_router.include_router(hr_scorecards.router)
+api_router.include_router(hr_scheduled_reports.router)

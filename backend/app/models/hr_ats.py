@@ -1506,3 +1506,84 @@ class ScorecardTemplate(Base, TimestampMixin):
             name="ck_hr_scorecard_templates_scope",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Scheduled report digests (Feature F4)
+# ---------------------------------------------------------------------------
+
+
+SCHEDULED_REPORT_FREQ_DAILY = "daily"
+SCHEDULED_REPORT_FREQ_WEEKLY = "weekly"
+SCHEDULED_REPORT_FREQ_MONTHLY = "monthly"
+SCHEDULED_REPORT_FREQUENCIES = (
+    SCHEDULED_REPORT_FREQ_DAILY,
+    SCHEDULED_REPORT_FREQ_WEEKLY,
+    SCHEDULED_REPORT_FREQ_MONTHLY,
+)
+
+SCHEDULED_REPORT_STATUS_PENDING = "pending"
+SCHEDULED_REPORT_STATUS_SUCCESS = "success"
+SCHEDULED_REPORT_STATUS_FAILED = "failed"
+SCHEDULED_REPORT_STATUSES = (
+    SCHEDULED_REPORT_STATUS_PENDING,
+    SCHEDULED_REPORT_STATUS_SUCCESS,
+    SCHEDULED_REPORT_STATUS_FAILED,
+)
+
+
+class ScheduledReport(Base, TimestampMixin):
+    """A recurring report email.
+
+    Daily / weekly / monthly cadence is checked by the in-process
+    APScheduler job ``app.jobs.report_digests`` which fires once a day
+    at 09:00 UTC and dispatches the reports that fall due.
+
+    Filter overrides live in ``params`` as a JSON object matching the
+    same CandidateFilters shape as F1's saved searches — keeping a
+    single filter vocabulary across the product.
+    """
+
+    __tablename__ = "hr_scheduled_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Must be a key from REPORT_TYPES (validated at endpoint write
+    # time). Stored as plain text so adding new report keys later
+    # doesn't require a schema migration.
+    report_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    frequency: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SCHEDULED_REPORT_FREQ_DAILY,
+        server_default=SCHEDULED_REPORT_FREQ_DAILY,
+        index=True,
+    )
+
+    # List of email addresses. Mailing-list patterns ("hr@…") are fine.
+    recipients: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    # Optional filter override applied on top of "everything".
+    params: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_run_status: Mapped[Optional[str]] = mapped_column(String(16))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    last_row_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("frequency", SCHEDULED_REPORT_FREQUENCIES),
+            name="ck_hr_scheduled_reports_frequency",
+        ),
+    )
