@@ -69,6 +69,13 @@ from app.schemas.marketing import (
     CatalogueDetail,
     CatalogueRead,
     CatalogueUpdate,
+    MarketingDashboard,
+    MarketingDashboardKpis,
+    MarketingDashboardRecentView,
+    MarketingDashboardSeriesPoint,
+    MarketingDashboardTopCampaign,
+    MarketingDashboardTopCatalogue,
+    ReconcileCountersResult,
 )
 from app.services.audit_log import record_audit
 from app.services.catalogue_processor import (
@@ -985,6 +992,364 @@ def _compressed_filename(original: str) -> str:
     else:
         stem = base
     return f"{stem}_compressed.pdf"
+
+
+# ---------------------------------------------------------------------------
+# Marketing dashboard
+# ---------------------------------------------------------------------------
+
+
+# Allowed period strings + their day count. ``all`` collapses to a very
+# large lookback so we don't special-case the WHERE clause downstream.
+_DASHBOARD_PERIODS: dict[str, tuple[int, str]] = {
+    "7d": (7, "Last 7 days"),
+    "30d": (30, "Last 30 days"),
+    "90d": (90, "Last 90 days"),
+    "all": (3650, "All time"),
+}
+
+
+@router.get("/dashboard", response_model=MarketingDashboard)
+def marketing_dashboard(
+    period: str = Query(
+        default="30d",
+        description="Lookback window: 7d, 30d, 90d, or all.",
+    ),
+    top_n: int = Query(default=5, ge=1, le=20),
+    recent_n: int = Query(default=15, ge=1, le=50),
+    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+    db: Session = Depends(get_db),
+) -> MarketingDashboard:
+    """One-shot read-model for the admin Marketing → Dashboard page.
+
+    Every aggregate is computed from ``catalogue_view_events`` (the
+    authoritative source) rather than the denormalised
+    ``catalogue.view_count`` / ``catalogue.download_count`` counters,
+    because the counters can drift if events are ever inserted
+    out-of-band. The dashboard is "what actually happened" — the row
+    counters are still surfaced on the list page as a cheap summary.
+
+    Returned in a single payload (rather than a fan-out of small
+    endpoints) so the UI renders without intermediate spinners.
+    """
+    period_days, period_label = _DASHBOARD_PERIODS.get(
+        period, _DASHBOARD_PERIODS["30d"]
+    )
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=period_days)
+    series_cutoff = now - timedelta(
+        days=min(period_days, 90)
+    )  # never chart > 90 buckets
+
+    # ---------- KPIs ----------
+    campaigns_total = int(
+        db.execute(select(func.count()).select_from(OfferCampaign)).scalar_one()
+        or 0
+    )
+    campaigns_active = int(
+        db.execute(
+            select(func.count())
+            .select_from(OfferCampaign)
+            .where(OfferCampaign.is_active.is_(True))
+        ).scalar_one()
+        or 0
+    )
+    catalogues_total = int(
+        db.execute(select(func.count()).select_from(Catalogue)).scalar_one() or 0
+    )
+    by_status_rows = db.execute(
+        select(Catalogue.processing_status, func.count())
+        .group_by(Catalogue.processing_status)
+    ).all()
+    by_status = {s: int(n) for s, n in by_status_rows}
+    catalogues_ready = by_status.get("ready", 0)
+    catalogues_processing = (
+        by_status.get("pending", 0) + by_status.get("processing", 0)
+    )
+    catalogues_failed = by_status.get("failed", 0)
+
+    total_pages = int(
+        db.execute(select(func.coalesce(func.sum(Catalogue.page_count), 0))).scalar_one()
+        or 0
+    )
+    total_views_period = int(
+        db.execute(
+            select(func.count())
+            .select_from(CatalogueViewEvent)
+            .where(CatalogueViewEvent.viewed_at >= cutoff)
+        ).scalar_one()
+        or 0
+    )
+    total_views_all_time = int(
+        db.execute(
+            select(func.count()).select_from(CatalogueViewEvent)
+        ).scalar_one()
+        or 0
+    )
+    unique_sessions_period = int(
+        db.execute(
+            select(func.count(func.distinct(CatalogueViewEvent.session_hash)))
+            .where(
+                CatalogueViewEvent.viewed_at >= cutoff,
+                CatalogueViewEvent.session_hash.is_not(None),
+            )
+        ).scalar_one()
+        or 0
+    )
+    total_downloads_all_time = int(
+        db.execute(
+            select(func.coalesce(func.sum(Catalogue.download_count), 0))
+        ).scalar_one()
+        or 0
+    )
+    avg_duration = db.execute(
+        select(func.avg(CatalogueViewEvent.duration_seconds))
+        .where(
+            CatalogueViewEvent.viewed_at >= cutoff,
+            CatalogueViewEvent.duration_seconds.is_not(None),
+            CatalogueViewEvent.duration_seconds > 0,
+        )
+    ).scalar_one()
+    avg_session_duration_sec = int(avg_duration) if avg_duration else 0
+
+    kpis = MarketingDashboardKpis(
+        campaigns_total=campaigns_total,
+        campaigns_active=campaigns_active,
+        catalogues_total=catalogues_total,
+        catalogues_ready=catalogues_ready,
+        catalogues_processing=catalogues_processing,
+        catalogues_failed=catalogues_failed,
+        total_pages=total_pages,
+        total_views_period=total_views_period,
+        total_views_all_time=total_views_all_time,
+        unique_sessions_period=unique_sessions_period,
+        total_downloads_all_time=total_downloads_all_time,
+        avg_session_duration_sec=avg_session_duration_sec,
+    )
+
+    # ---------- Daily series (zero-filled) ----------
+    daily_rows = db.execute(
+        select(
+            func.date(CatalogueViewEvent.viewed_at).label("d"),
+            func.count(),
+        )
+        .where(CatalogueViewEvent.viewed_at >= series_cutoff)
+        .group_by("d")
+        .order_by("d")
+    ).all()
+    daily_map: dict[date, int] = {}
+    for d, n in daily_rows:
+        # SQLite returns a str, Postgres a date — normalise.
+        key = d if isinstance(d, date) else date.fromisoformat(str(d))
+        daily_map[key] = int(n)
+    series: list[MarketingDashboardSeriesPoint] = []
+    bucket_days = (now.date() - series_cutoff.date()).days + 1
+    for offset in range(bucket_days):
+        bucket = series_cutoff.date() + timedelta(days=offset)
+        series.append(
+            MarketingDashboardSeriesPoint(
+                date=bucket, views=daily_map.get(bucket, 0)
+            )
+        )
+
+    # ---------- Top catalogues by views (period) ----------
+    top_cat_rows = db.execute(
+        select(
+            Catalogue.id,
+            Catalogue.slug,
+            Catalogue.title,
+            Catalogue.campaign_id,
+            Catalogue.download_count,
+            func.count(CatalogueViewEvent.id).label("views"),
+        )
+        .join(
+            CatalogueViewEvent,
+            (CatalogueViewEvent.catalogue_id == Catalogue.id)
+            & (CatalogueViewEvent.viewed_at >= cutoff),
+            isouter=True,
+        )
+        .group_by(
+            Catalogue.id,
+            Catalogue.slug,
+            Catalogue.title,
+            Catalogue.campaign_id,
+            Catalogue.download_count,
+        )
+        .order_by(desc("views"))
+        .limit(top_n)
+    ).all()
+    # Resolve campaign titles once.
+    campaign_titles: dict[int, str] = {}
+    if any(row.campaign_id for row in top_cat_rows):
+        campaign_id_set = {
+            row.campaign_id for row in top_cat_rows if row.campaign_id
+        }
+        for c in db.execute(
+            select(OfferCampaign.id, OfferCampaign.title).where(
+                OfferCampaign.id.in_(campaign_id_set)
+            )
+        ).all():
+            campaign_titles[int(c.id)] = c.title
+    top_catalogues = [
+        MarketingDashboardTopCatalogue(
+            id=int(row.id),
+            slug=row.slug,
+            title=row.title,
+            campaign_id=row.campaign_id,
+            campaign_title=campaign_titles.get(row.campaign_id) if row.campaign_id else None,
+            views=int(row.views or 0),
+            downloads=int(row.download_count or 0),
+        )
+        for row in top_cat_rows
+    ]
+
+    # ---------- Top campaigns by views (period) ----------
+    # Sum views across each campaign's catalogues. Catalogues without
+    # a campaign (standalone) are excluded — surfaced via top_catalogues.
+    top_camp_rows = db.execute(
+        select(
+            OfferCampaign.id,
+            OfferCampaign.slug,
+            OfferCampaign.title,
+            OfferCampaign.branch,
+            func.count(func.distinct(Catalogue.id)).label("catalogue_count"),
+            func.count(CatalogueViewEvent.id).label("views"),
+        )
+        .join(Catalogue, Catalogue.campaign_id == OfferCampaign.id, isouter=True)
+        .join(
+            CatalogueViewEvent,
+            (CatalogueViewEvent.catalogue_id == Catalogue.id)
+            & (CatalogueViewEvent.viewed_at >= cutoff),
+            isouter=True,
+        )
+        .group_by(
+            OfferCampaign.id,
+            OfferCampaign.slug,
+            OfferCampaign.title,
+            OfferCampaign.branch,
+        )
+        .order_by(desc("views"))
+        .limit(top_n)
+    ).all()
+    top_campaigns = [
+        MarketingDashboardTopCampaign(
+            id=int(row.id),
+            slug=row.slug,
+            title=row.title,
+            branch=row.branch,
+            catalogue_count=int(row.catalogue_count or 0),
+            views=int(row.views or 0),
+        )
+        for row in top_camp_rows
+    ]
+
+    # ---------- Device mix (period) ----------
+    device_rows = db.execute(
+        select(CatalogueViewEvent.device, func.count())
+        .where(CatalogueViewEvent.viewed_at >= cutoff)
+        .group_by(CatalogueViewEvent.device)
+    ).all()
+    by_device = {(d or "unknown"): int(n) for d, n in device_rows}
+
+    # ---------- Recent activity (live feed) ----------
+    recent_rows = db.execute(
+        select(
+            CatalogueViewEvent.catalogue_id,
+            CatalogueViewEvent.device,
+            CatalogueViewEvent.duration_seconds,
+            CatalogueViewEvent.viewed_at,
+            Catalogue.title,
+            Catalogue.slug,
+        )
+        .join(Catalogue, Catalogue.id == CatalogueViewEvent.catalogue_id)
+        .order_by(desc(CatalogueViewEvent.viewed_at))
+        .limit(recent_n)
+    ).all()
+    recent_views = [
+        MarketingDashboardRecentView(
+            catalogue_id=int(r.catalogue_id),
+            catalogue_title=r.title,
+            catalogue_slug=r.slug,
+            device=r.device,
+            duration_seconds=r.duration_seconds,
+            viewed_at=r.viewed_at,
+        )
+        for r in recent_rows
+    ]
+
+    return MarketingDashboard(
+        period_days=period_days,
+        period_label=period_label,
+        generated_at=now,
+        kpis=kpis,
+        views_over_time=series,
+        top_catalogues=top_catalogues,
+        top_campaigns=top_campaigns,
+        by_device=by_device,
+        recent_views=recent_views,
+    )
+
+
+@router.post(
+    "/catalogues/reconcile-counters",
+    response_model=ReconcileCountersResult,
+)
+def reconcile_view_counters(
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+) -> ReconcileCountersResult:
+    """Recompute ``catalogue.view_count`` from the events table.
+
+    The view counter on each row is bumped per request alongside the
+    event insert, but if events are ever loaded out-of-band (test
+    fixtures, manual SQL, a hot-fix migration) the counter can fall
+    behind. This re-syncs every row to ``COUNT(events)``. Read-only
+    on the events table, so safe to run any time.
+    """
+    before_total = int(
+        db.execute(
+            select(func.coalesce(func.sum(Catalogue.view_count), 0))
+        ).scalar_one()
+        or 0
+    )
+    event_counts = dict(
+        db.execute(
+            select(
+                CatalogueViewEvent.catalogue_id,
+                func.count(CatalogueViewEvent.id),
+            ).group_by(CatalogueViewEvent.catalogue_id)
+        ).all()
+    )
+    catalogues = db.execute(select(Catalogue)).scalars().all()
+    updated = 0
+    for c in catalogues:
+        target = int(event_counts.get(c.id, 0))
+        if c.view_count != target:
+            c.view_count = target
+            updated += 1
+    after_total = sum(c.view_count for c in catalogues)
+    _audit(
+        db,
+        actor,
+        request,
+        action="marketing.catalogues.reconcile_counters",
+        target_type="catalogue",
+        target_id=0,
+        details={
+            "inspected": len(catalogues),
+            "updated": updated,
+            "before_total": before_total,
+            "after_total": after_total,
+        },
+    )
+    db.commit()
+    return ReconcileCountersResult(
+        catalogues_inspected=len(catalogues),
+        catalogues_updated=updated,
+        total_view_count_before=before_total,
+        total_view_count_after=after_total,
+    )
 
 
 __all__ = ["router"]

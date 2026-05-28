@@ -86,6 +86,11 @@ const NAV: NavGroup[] = [
     label: "Marketing",
     items: [
       {
+        label: "Dashboard",
+        href: "/admin/marketing/dashboard",
+        icon: LayoutDashboard,
+      },
+      {
         label: "Offer campaigns",
         href: "/admin/marketing/campaigns",
         icon: Tag,

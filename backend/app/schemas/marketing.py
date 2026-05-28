@@ -294,3 +294,86 @@ class CatalogueAnalytics(BaseModel):
     unique_sessions: int
     by_device: dict[str, int]
     last_7_days: list[dict]  # [{"date": "...", "views": N}, ...]
+
+
+# ---------------------------------------------------------------------------
+# Marketing dashboard — admin landing
+# ---------------------------------------------------------------------------
+
+
+class MarketingDashboardKpis(BaseModel):
+    """Top-of-page KPI tiles.
+
+    Period-scoped values (``*_period``) reflect the selected lookback
+    window; ``*_all_time`` ignores it so the operator can see lifetime
+    totals alongside recent activity.
+    """
+
+    campaigns_total: int
+    campaigns_active: int
+    catalogues_total: int
+    catalogues_ready: int
+    catalogues_processing: int
+    catalogues_failed: int
+    total_pages: int
+    total_views_period: int
+    total_views_all_time: int
+    unique_sessions_period: int
+    total_downloads_all_time: int
+    avg_session_duration_sec: int
+
+
+class MarketingDashboardSeriesPoint(BaseModel):
+    date: date  # day bucket (UTC)
+    views: int
+
+
+class MarketingDashboardTopCatalogue(BaseModel):
+    id: int
+    slug: str
+    title: str
+    campaign_id: Optional[int] = None
+    campaign_title: Optional[str] = None
+    views: int
+    downloads: int
+
+
+class MarketingDashboardTopCampaign(BaseModel):
+    id: int
+    slug: str
+    title: str
+    branch: Optional[str] = None
+    catalogue_count: int
+    views: int
+
+
+class MarketingDashboardRecentView(BaseModel):
+    catalogue_id: int
+    catalogue_title: str
+    catalogue_slug: str
+    device: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    viewed_at: datetime
+
+
+class MarketingDashboard(BaseModel):
+    """Full payload powering the admin Marketing → Dashboard page."""
+
+    period_days: int
+    period_label: str
+    generated_at: datetime
+    kpis: MarketingDashboardKpis
+    views_over_time: list[MarketingDashboardSeriesPoint]
+    top_catalogues: list[MarketingDashboardTopCatalogue]
+    top_campaigns: list[MarketingDashboardTopCampaign]
+    by_device: dict[str, int]
+    recent_views: list[MarketingDashboardRecentView]
+
+
+class ReconcileCountersResult(BaseModel):
+    """Outcome of resyncing ``catalogue.view_count`` from events."""
+
+    catalogues_inspected: int
+    catalogues_updated: int
+    total_view_count_before: int
+    total_view_count_after: int
