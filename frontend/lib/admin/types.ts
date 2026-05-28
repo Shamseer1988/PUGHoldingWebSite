@@ -122,14 +122,40 @@ export interface NewsItem {
   updated_at: string;
 }
 
+export type ContactStatus =
+  | "new"
+  | "open"
+  | "pending_admin"
+  | "pending_customer"
+  | "completed"
+  | "archived";
+
+export type ContactPriority = "low" | "normal" | "high" | "urgent";
+
+export type ContactSource =
+  | "website_contact"
+  | "email_reply"
+  | "admin_created";
+
 export interface ContactMessage {
   id: number;
   name: string;
   email: string;
   phone: string | null;
+  company_name: string | null;
   department: string | null;
   subject: string | null;
   message: string;
+  ticket_number: string | null;
+  status: ContactStatus;
+  priority: ContactPriority;
+  source: ContactSource;
+  assigned_to_user_id: number | null;
+  last_message_at: string | null;
+  last_customer_reply_at: string | null;
+  last_admin_reply_at: string | null;
+  completed_at: string | null;
+  reopened_at: string | null;
   is_read: boolean;
   is_replied: boolean;
   is_archived: boolean;
@@ -141,31 +167,58 @@ export interface ContactMessage {
 
 export type ContactReplyDirection = "inbound" | "outbound";
 
+export type ContactReplySenderType = "customer" | "admin" | "system";
+
 export type ContactReplyEmailStatus =
   | "pending"
   | "sent"
   | "failed"
   | "received";
 
+export interface ContactReplyAttachment {
+  id: number;
+  original_filename: string;
+  mime_type: string | null;
+  file_size: number;
+  uploaded_at: string;
+}
+
 export interface ContactReplyBubble {
   id: number;
   contact_message_id: number;
   direction: ContactReplyDirection;
+  sender_type: ContactReplySenderType;
   admin_user_id: number | null;
   sender_name: string | null;
   sender_email: string | null;
   recipient_email: string | null;
   subject: string | null;
   body: string;
+  clean_body_text: string | null;
   email_status: ContactReplyEmailStatus;
   error_message: string | null;
   sent_at: string | null;
+  has_attachments: boolean;
+  attachments: ContactReplyAttachment[];
   created_at: string;
   updated_at: string;
 }
 
 export interface ContactMessageDetail extends ContactMessage {
   replies: ContactReplyBubble[];
+}
+
+export interface ContactInboxSyncSummary {
+  enabled: boolean;
+  fetched: number;
+  processed: number;
+  matched: number;
+  new_tickets: number;
+  skipped: number;
+  errors: number;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
 }
 
 export type EmailTestStatus = "never" | "success" | "failed";

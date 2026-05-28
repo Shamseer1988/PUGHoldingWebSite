@@ -18,3 +18,11 @@ try:
 except ImportError:
     # Feature not shipped yet — that's fine, scheduler boots empty.
     pass
+
+# Contact-Us ticket IMAP poller — interval is read from
+# CONTACT_INBOUND_POLL_INTERVAL_MINUTES at import; the job itself
+# no-ops when CONTACT_INBOUND_ENABLED=false.
+try:
+    from app.jobs import contact_inbound  # noqa: F401
+except ImportError:
+    pass

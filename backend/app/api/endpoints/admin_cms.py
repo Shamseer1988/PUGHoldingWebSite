@@ -60,6 +60,7 @@ from app.schemas.cms import (
     CompanyCreate,
     CompanyRead,
     CompanyUpdate,
+    ContactInboxSyncSummary,
     ContactMessageDetail,
     ContactMessageRead,
     ContactReply,
@@ -592,12 +593,38 @@ def list_contact_messages(
     db: Session = Depends(get_db),
     unread_only: bool = Query(default=False),
     include_archived: bool = Query(default=False),
+    status_filter: Optional[str] = Query(
+        default=None,
+        alias="status",
+        description=(
+            "Filter by ticket status: new, open, pending_admin, "
+            "pending_customer, completed, archived. Multiple values "
+            "may be comma-separated."
+        ),
+    ),
 ) -> List[ContactMessage]:
-    stmt = select(ContactMessage).order_by(desc(ContactMessage.created_at))
+    """Inbox list, sorted by most recent activity.
+
+    Sort uses ``last_message_at`` (denormalised on every reply) rather
+    than ``created_at`` so a ticket that just got a customer reply
+    floats back to the top of the list.
+    """
+    from app.models.cms import CONTACT_STATUSES
+
+    stmt = select(ContactMessage).order_by(
+        desc(func.coalesce(ContactMessage.last_message_at, ContactMessage.created_at))
+    )
     if unread_only:
         stmt = stmt.where(ContactMessage.is_read.is_(False))
     if not include_archived:
         stmt = stmt.where(ContactMessage.is_archived.is_(False))
+    if status_filter:
+        wanted = [
+            s.strip() for s in status_filter.split(",")
+            if s.strip() in CONTACT_STATUSES
+        ]
+        if wanted:
+            stmt = stmt.where(ContactMessage.status.in_(wanted))
     return db.execute(stmt).scalars().all()
 
 
@@ -822,55 +849,260 @@ def retry_reply(
     return _to_detail(msg)
 
 
+# ---------------------------------------------------------------------------
+# Ticket state machine — complete / reopen / unarchive
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/contact-messages/{message_id}/complete",
+    response_model=ContactMessageDetail,
+)
+def complete_contact_message(
+    message_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Close a ticket — flips status → ``completed`` and stamps
+    ``completed_at``. Adds a system bubble so the chat thread
+    visibly records who closed it and when."""
+    from app.models.cms import (
+        CONTACT_STATUS_COMPLETED,
+        SENDER_SYSTEM,
+    )
+
+    msg = _get_contact_or_404(db, message_id)
+    now = datetime.now(timezone.utc)
+    previous_status = msg.status
+    msg.status = CONTACT_STATUS_COMPLETED
+    msg.completed_at = now
+    msg.is_replied = True  # surface in legacy "replied" filter
+    db.add(
+        ContactReplyModel(
+            contact_message_id=msg.id,
+            direction="outbound",
+            sender_type=SENDER_SYSTEM,
+            admin_user_id=user.id,
+            sender_name=user.full_name,
+            body=f"Ticket marked completed by {user.full_name}.",
+            email_status="received",  # not actually emailed — system note
+        )
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.complete",
+        target_type="contact_message",
+        target_id=msg.id,
+        details={
+            "ticket_number": msg.ticket_number,
+            "from_status": previous_status,
+        },
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+@router.post(
+    "/contact-messages/{message_id}/reopen",
+    response_model=ContactMessageDetail,
+)
+def reopen_contact_message(
+    message_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Reverse a completion — flips status back to ``pending_admin``
+    so the inbox surfaces the ticket again, and clears the
+    archived flag if it was set."""
+    from app.models.cms import (
+        CONTACT_STATUS_PENDING_ADMIN,
+        SENDER_SYSTEM,
+    )
+
+    msg = _get_contact_or_404(db, message_id)
+    now = datetime.now(timezone.utc)
+    previous_status = msg.status
+    msg.status = CONTACT_STATUS_PENDING_ADMIN
+    msg.reopened_at = now
+    msg.completed_at = None
+    msg.is_archived = False
+    msg.is_read = False  # nudge it back into the unread badge
+    db.add(
+        ContactReplyModel(
+            contact_message_id=msg.id,
+            direction="outbound",
+            sender_type=SENDER_SYSTEM,
+            admin_user_id=user.id,
+            sender_name=user.full_name,
+            body=f"Ticket reopened by {user.full_name}.",
+            email_status="received",
+        )
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.reopen",
+        target_type="contact_message",
+        target_id=msg.id,
+        details={
+            "ticket_number": msg.ticket_number,
+            "from_status": previous_status,
+        },
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+@router.post(
+    "/contact-messages/{message_id}/unarchive",
+    response_model=ContactMessageDetail,
+)
+def unarchive_contact_message(
+    message_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Pull a ticket out of the Closed/Archived filter without
+    touching its status (so a completed-then-archived ticket stays
+    completed). The ``Reopen`` endpoint is the right move when the
+    operator wants the ticket to actively re-enter the inbox."""
+    msg = _get_contact_or_404(db, message_id)
+    msg.is_archived = False
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.unarchive",
+        target_type="contact_message",
+        target_id=msg.id,
+        details={"ticket_number": msg.ticket_number},
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+# ---------------------------------------------------------------------------
+# Manual IMAP sync — "Check inbox now" button
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/contact-inbox/poll",
+    response_model=ContactInboxSyncSummary,
+)
+def poll_contact_inbox(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactInboxSyncSummary:
+    """Force one IMAP poll cycle and return the per-message summary.
+
+    Disabled deployments (``CONTACT_INBOUND_ENABLED=false``) still
+    return 200 with ``enabled=false`` so the admin UI can show a
+    helpful inline message instead of an error toast.
+    """
+    from app.services.contact_inbound import poll_inbox
+
+    summary = poll_inbox(db)
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.inbox.poll",
+        target_type="contact_inbox",
+        target_id=0,
+        details={
+            "fetched": summary.fetched,
+            "matched": summary.matched,
+            "new_tickets": summary.new_tickets,
+            "skipped": summary.skipped,
+            "errors": summary.errors,
+            "error": summary.error,
+        },
+    )
+    db.commit()
+    return ContactInboxSyncSummary(**summary.as_dict())
+
+
 def _reply_subject(original: Optional[str]) -> str:
     base = (original or "your enquiry").strip()
     return base if base.lower().startswith("re:") else f"Re: {base}"
 
 
 def _to_detail(msg: ContactMessage) -> ContactMessageDetail:
-    """Compose the chat thread payload (inbound + every outbound reply)."""
-    bubbles: List[ContactReplyRead] = [
-        ContactReplyRead(
-            id=0,
-            contact_message_id=msg.id,
-            direction="inbound",
-            admin_user_id=None,
-            sender_name=msg.name,
-            sender_email=msg.email,
-            recipient_email=None,
-            subject=msg.subject,
-            body=msg.message,
-            email_status="received",
-            error_message=None,
-            sent_at=None,
-            created_at=msg.created_at,
-            updated_at=msg.created_at,
+    """Compose the chat thread payload (inbound + every outbound reply).
+
+    Legacy ``contact_messages`` rows submitted before Phase B don't
+    have an *inbound* row in ``contact_replies`` for the initial
+    submission, so we synthesise an ``id=0`` bubble for them.
+    Post-Phase-B rows already have a real inbound row from the
+    public endpoint, so we skip the synthetic to avoid the chat
+    header showing twice. The condition is "no inbound row" rather
+    than "no replies at all" — a legacy ticket that already has
+    admin outbound replies still needs the synthetic original.
+    """
+    has_inbound = any(r.direction == "inbound" for r in msg.replies)
+    bubbles: List[ContactReplyRead] = []
+    if not has_inbound:
+        bubbles.append(
+            ContactReplyRead(
+                id=0,
+                contact_message_id=msg.id,
+                direction="inbound",
+                sender_type="customer",
+                admin_user_id=None,
+                sender_name=msg.name,
+                sender_email=msg.email,
+                recipient_email=None,
+                subject=msg.subject,
+                body=msg.message,
+                email_status="received",
+                error_message=None,
+                sent_at=None,
+                has_attachments=False,
+                attachments=[],
+                created_at=msg.created_at,
+                updated_at=msg.created_at,
+            )
         )
-    ]
     for reply in msg.replies:
         bubbles.append(ContactReplyRead.model_validate(reply))
 
-    return ContactMessageDetail(
-        id=msg.id,
-        name=msg.name,
-        email=msg.email,
-        phone=msg.phone,
-        department=msg.department,
-        subject=msg.subject,
-        message=msg.message,
-        is_read=msg.is_read,
-        is_replied=msg.is_replied,
-        is_archived=msg.is_archived,
-        reply_body=msg.reply_body,
-        replied_by_id=msg.replied_by_id,
-        replied_at=msg.replied_at,
-        created_at=msg.created_at,
-        replies=bubbles,
-    )
+    detail = ContactMessageDetail.model_validate(msg)
+    detail.replies = bubbles
+    return detail
 
 
 def _get_contact_or_404(db: Session, message_id: int) -> ContactMessage:
-    msg = db.get(ContactMessage, message_id)
+    """Load the ticket plus its replies + attachments in one round trip.
+
+    The detail endpoint serialises ``replies[*].attachments`` so a
+    lazy load would fire one extra query per reply (N+1) — cheap on
+    a small thread but inefficient once a long-running ticket has 20+
+    bubbles. ``selectinload`` issues a single ``IN`` query per level.
+    """
+    from sqlalchemy.orm import selectinload
+
+    from app.models.cms import ContactReply as ContactReplyORM
+
+    msg = db.execute(
+        select(ContactMessage)
+        .options(
+            selectinload(ContactMessage.replies).selectinload(
+                ContactReplyORM.attachments
+            )
+        )
+        .where(ContactMessage.id == message_id)
+    ).scalar_one_or_none()
     if msg is None:
         raise HTTPException(status_code=404, detail="Contact message not found")
     return msg

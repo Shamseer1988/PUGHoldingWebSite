@@ -4,12 +4,18 @@ import * as React from "react";
 import {
   AlertTriangle,
   Archive,
+  ArchiveRestore,
+  CheckCheck,
   CheckCircle2,
   Inbox,
   Loader2,
+  MailCheck,
+  Paperclip,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
+  Ticket,
 } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
@@ -21,14 +27,46 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
 import type {
+  ContactInboxSyncSummary,
   ContactMessage,
   ContactMessageDetail,
   ContactReplyBubble,
+  ContactStatus,
 } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
 
 
-type ListFilter = "all" | "new" | "replied" | "failed" | "closed";
+type ListFilter =
+  | "all"
+  | "new"
+  | "pending_admin"
+  | "pending_customer"
+  | "completed"
+  | "archived";
+
+
+const STATUS_LABEL: Record<ContactStatus, string> = {
+  new: "New",
+  open: "Open",
+  pending_admin: "Needs reply",
+  pending_customer: "Waiting",
+  completed: "Completed",
+  archived: "Archived",
+};
+
+
+const STATUS_TONE: Record<ContactStatus, string> = {
+  new: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-200",
+  open: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-200",
+  pending_admin:
+    "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-200",
+  pending_customer:
+    "border-indigo-500/40 bg-indigo-500/10 text-indigo-700 dark:text-indigo-200",
+  completed:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
+  archived:
+    "border-zinc-400/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+};
 
 
 export default function InboxAdminPage() {
@@ -42,23 +80,100 @@ export default function InboxAdminPage() {
   const [filter, setFilter] = React.useState<ListFilter>("all");
   const [query, setQuery] = React.useState("");
   const [retryingId, setRetryingId] = React.useState<number | null>(null);
+  const [polling, setPolling] = React.useState(false);
 
-  const includeArchived = filter === "closed";
+  const includeArchived = filter === "archived";
 
   React.useEffect(() => {
     void refreshList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeArchived]);
+  }, [includeArchived, filter]);
 
   async function refreshList() {
     setMessages(null);
     try {
+      // Server-side status filter for everything except "all" — keeps
+      // the over-the-wire payload small once the inbox grows. The
+      // ``archived`` view passes include_archived=true so otherwise
+      // hidden rows surface.
+      const params = new URLSearchParams({
+        include_archived: String(includeArchived),
+      });
+      const serverStatus = inboxFilterToStatusParam(filter);
+      if (serverStatus) params.set("status", serverStatus);
       const list = await adminApi.get<ContactMessage[]>(
-        `/admin/cms/contact-messages?include_archived=${includeArchived}`
+        `/admin/cms/contact-messages?${params.toString()}`
       );
       setMessages(list);
     } catch (err) {
       setError((err as AdminApiError).message);
+    }
+  }
+
+  async function pollInbox() {
+    setPolling(true);
+    setError(null);
+    try {
+      const summary = await adminApi.post<ContactInboxSyncSummary>(
+        "/admin/cms/contact-inbox/poll"
+      );
+      if (!summary.enabled) {
+        setError(
+          summary.error ||
+            "IMAP inbound is disabled — set CONTACT_INBOUND_ENABLED=true in the backend env."
+        );
+      } else if (summary.error) {
+        setError(summary.error);
+      } else if (summary.fetched === 0) {
+        setToast("Inbox checked — no new mail.");
+      } else {
+        const parts: string[] = [];
+        if (summary.matched)
+          parts.push(`matched ${summary.matched} reply${summary.matched === 1 ? "" : "ies"}`);
+        if (summary.new_tickets)
+          parts.push(
+            `opened ${summary.new_tickets} new ticket${summary.new_tickets === 1 ? "" : "s"}`
+          );
+        if (summary.skipped) parts.push(`skipped ${summary.skipped}`);
+        if (summary.errors) parts.push(`${summary.errors} error(s)`);
+        setToast(
+          parts.length
+            ? `Inbox checked — ${parts.join(", ")}.`
+            : `Inbox checked — fetched ${summary.fetched}.`
+        );
+      }
+      await refreshList();
+      if (selectedId) {
+        const fresh = await adminApi.get<ContactMessageDetail>(
+          `/admin/cms/contact-messages/${selectedId}`
+        );
+        setDetail(fresh);
+      }
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    } finally {
+      setPolling(false);
+    }
+  }
+
+  async function transition(
+    action: "complete" | "reopen" | "unarchive",
+    successMessage: string
+  ) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await adminApi.post<ContactMessageDetail>(
+        `/admin/cms/contact-messages/${detail.id}/${action}`
+      );
+      setDetail(updated);
+      setToast(successMessage);
+      await refreshList();
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -155,42 +270,26 @@ export default function InboxAdminPage() {
     }
   }
 
-  // Filter + search applied client-side over the full list.
+  // The status filter is server-side now (sent via ?status=…); the
+  // only client-side filter left is the free-text search box.
   const filteredMessages = React.useMemo(() => {
     if (!messages) return null;
     const q = query.trim().toLowerCase();
+    if (!q) return messages;
     return messages.filter((m) => {
-      // Filter chip
-      switch (filter) {
-        case "new":
-          if (m.is_read || m.is_replied) return false;
-          break;
-        case "replied":
-          if (!m.is_replied) return false;
-          break;
-        case "closed":
-          if (!m.is_archived) return false;
-          break;
-        case "failed":
-          // Per-list metadata doesn't carry reply status; surface
-          // anything read-but-not-replied as a candidate. Detail view
-          // shows the real per-reply status.
-          if (m.is_replied || !m.is_read) return false;
-          break;
-      }
-      if (!q) return true;
       const haystack = [
         m.name,
         m.email,
         m.phone ?? "",
         m.subject ?? "",
+        m.ticket_number ?? "",
         m.message,
       ]
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [messages, filter, query]);
+  }, [messages, query]);
 
   const unreadCount = React.useMemo(
     () => (messages ?? []).filter((m) => !m.is_read).length,
@@ -208,6 +307,21 @@ export default function InboxAdminPage() {
               {unreadCount} unread
             </Badge>
           )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={pollInbox}
+            disabled={polling}
+            title="Pull customer replies from the configured IMAP mailbox"
+          >
+            {polling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MailCheck className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">Check inbox now</span>
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -251,9 +365,10 @@ export default function InboxAdminPage() {
                 [
                   ["all", "All"],
                   ["new", "New"],
-                  ["replied", "Replied"],
-                  ["failed", "Failed reply"],
-                  ["closed", "Closed"],
+                  ["pending_admin", "Needs reply"],
+                  ["pending_customer", "Waiting"],
+                  ["completed", "Completed"],
+                  ["archived", "Archived"],
                 ] as [ListFilter, string][]
               ).map(([key, label]) => (
                 <button
@@ -306,20 +421,27 @@ export default function InboxAdminPage() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate font-medium">{m.name}</span>
-                        {m.is_replied ? (
-                          <Badge variant="success">Replied</Badge>
-                        ) : m.is_read ? (
-                          <Badge variant="muted">Read</Badge>
-                        ) : (
-                          <Badge variant="default">New</Badge>
-                        )}
+                        <StatusChip status={m.status} compact />
                       </div>
                       <p className="truncate text-sm text-muted-foreground">
                         {m.subject ?? m.email}
                       </p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {new Date(m.created_at).toLocaleString()}
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {m.ticket_number && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-1.5 py-0.5 font-mono text-[10px]"
+                            title={`Ticket ${m.ticket_number}`}
+                          >
+                            <Ticket className="h-2.5 w-2.5" />
+                            {m.ticket_number}
+                          </span>
+                        )}
+                        <span>
+                          {new Date(
+                            m.last_message_at ?? m.created_at
+                          ).toLocaleString()}
+                        </span>
+                      </div>
                     </button>
                   </li>
                 ))}
@@ -340,6 +462,15 @@ export default function InboxAdminPage() {
             <>
               <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 p-5">
                 <div className="min-w-0">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    {detail.ticket_number && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        <Ticket className="h-3 w-3" />
+                        {detail.ticket_number}
+                      </span>
+                    )}
+                    <StatusChip status={detail.status} />
+                  </div>
                   <h2 className="text-base font-semibold">
                     {detail.subject ?? "(no subject)"}
                   </h2>
@@ -351,18 +482,65 @@ export default function InboxAdminPage() {
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Received {new Date(detail.created_at).toLocaleString()}
+                    {detail.last_message_at &&
+                      detail.last_message_at !== detail.created_at && (
+                        <>
+                          {" · Last activity "}
+                          {new Date(detail.last_message_at).toLocaleString()}
+                        </>
+                      )}
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={archiveSelected}
-                    disabled={busy}
-                  >
-                    <Archive className="h-4 w-4" />
-                    Archive
-                  </Button>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {detail.status !== "completed" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        transition("complete", `Ticket marked completed.`)
+                      }
+                      disabled={busy}
+                      title="Mark this ticket as resolved"
+                    >
+                      <CheckCheck className="h-4 w-4" />
+                      Mark completed
+                    </Button>
+                  )}
+                  {detail.status === "completed" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => transition("reopen", `Ticket reopened.`)}
+                      disabled={busy}
+                      title="Move the ticket back into the active inbox"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Reopen
+                    </Button>
+                  )}
+                  {detail.is_archived ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        transition("unarchive", `Ticket unarchived.`)
+                      }
+                      disabled={busy}
+                    >
+                      <ArchiveRestore className="h-4 w-4" />
+                      Unarchive
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={archiveSelected}
+                      disabled={busy}
+                    >
+                      <Archive className="h-4 w-4" />
+                      Archive
+                    </Button>
+                  )}
                 </div>
               </header>
 
@@ -435,6 +613,22 @@ function ChatBubble({
   onRetry?: () => void;
   retrying: boolean;
 }) {
+  // System messages — state-machine notes ("Marked completed by …",
+  // "Reopened by …") render as a centred chip rather than a chat
+  // bubble so they read as audit-trail context, not conversation.
+  if (bubble.sender_type === "system") {
+    return (
+      <div className="flex justify-center">
+        <div className="rounded-full border border-border/60 bg-muted/60 px-3 py-1 text-[11px] text-muted-foreground">
+          <span className="font-medium">{bubble.body}</span>
+          <span className="ml-2 text-muted-foreground/70">
+            {new Date(bubble.created_at).toLocaleString()}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   const outbound = bubble.direction === "outbound";
   const failed = bubble.email_status === "failed";
   return (
@@ -468,6 +662,24 @@ function ChatBubble({
         <p className="whitespace-pre-wrap text-sm leading-relaxed">
           {bubble.body}
         </p>
+        {bubble.has_attachments && bubble.attachments.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {bubble.attachments.map((a) => (
+              <li
+                key={a.id}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground"
+              >
+                <Paperclip className="h-3 w-3" />
+                <span className="truncate font-medium">
+                  {a.original_filename}
+                </span>
+                <span className="text-muted-foreground/70">
+                  {formatBytes(a.file_size)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <span>{new Date(bubble.created_at).toLocaleString()}</span>
           {outbound && <StatusPill status={bubble.email_status} />}
@@ -497,6 +709,54 @@ function ChatBubble({
       </div>
     </div>
   );
+}
+
+
+function StatusChip({
+  status,
+  compact = false,
+}: {
+  status: ContactStatus;
+  compact?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border font-medium",
+        compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]",
+        STATUS_TONE[status]
+      )}
+      title={`Status: ${STATUS_LABEL[status]}`}
+    >
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+
+function inboxFilterToStatusParam(filter: ListFilter): string | null {
+  // Server accepts comma-separated statuses. ``new`` covers both the
+  // brand-new ticket and any that haven't moved out of ``open`` yet
+  // (currently nothing creates ``open`` automatically, but we include
+  // it so manually-tagged tickets still surface).
+  switch (filter) {
+    case "all":
+    case "archived":
+      return null;
+    case "new":
+      return "new,open";
+    case "pending_admin":
+    case "pending_customer":
+    case "completed":
+      return filter;
+  }
+}
+
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 
