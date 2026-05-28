@@ -1,4 +1,70 @@
 /** @type {import('next').NextConfig} */
+
+// ---------------------------------------------------------------------------
+// Phase A-2 — Security headers
+// ---------------------------------------------------------------------------
+//
+// The frontend talks to the backend over an absolute origin
+// (`NEXT_PUBLIC_API_BASE_URL`) rather than always going through
+// next.js rewrites, so a strict `connect-src 'self'` would block
+// admin login + public CMS fetches in production. We derive the
+// backend origin from the env var and add it to `connect-src` so the
+// same policy works in dev (localhost:8000) and prod
+// (api.your-domain.com / same-origin via reverse proxy).
+const apiBaseUrl =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  process.env.API_BASE_URL ??
+  "http://localhost:8000/api/v1";
+let apiOrigin = "";
+try {
+  apiOrigin = new URL(apiBaseUrl).origin;
+} catch {
+  // Malformed URL — leave empty; `'self'` will still cover same-origin.
+  apiOrigin = "";
+}
+
+// CSP directives expressed as an array so each line is reviewable in
+// diffs. Joined with `; ` before being emitted as the header value.
+const csp = [
+  "default-src 'self'",
+  // `unsafe-inline` + `unsafe-eval` are required by Next.js's hydration
+  // bootstrap and by Tag Manager / Pixel SDKs until we wire a nonce.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' " +
+    "https://www.googletagmanager.com https://www.google-analytics.com " +
+    "https://connect.facebook.net https://snap.licdn.com " +
+    "https://analytics.tiktok.com https://clarity.ms",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob: https:",
+  // `connect-src` needs the backend API origin plus the analytics +
+  // R2 hosts the frontend fetches from.
+  "connect-src 'self' " +
+    (apiOrigin ? apiOrigin + " " : "") +
+    "https://www.google-analytics.com https://vitals.vercel-insights.com " +
+    "*.r2.cloudflarestorage.com",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
+
+const securityHeaders = [
+  { key: "X-DNS-Prefetch-Control", value: "on" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+  },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "Content-Security-Policy", value: csp },
+];
+
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -7,6 +73,14 @@ const nextConfig = {
       { protocol: "https", hostname: "images.unsplash.com" },
       { protocol: "https", hostname: "**.r2.cloudflarestorage.com" },
     ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: securityHeaders,
+      },
+    ];
   },
   async rewrites() {
     // Admin-controlled domain-verification files (Google Search Console,
