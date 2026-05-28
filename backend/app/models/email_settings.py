@@ -88,6 +88,40 @@ class EmailSetting(Base):
     last_test_message: Mapped[Optional[str]] = mapped_column(Text)
     last_test_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
+    # --- IMAP inbound (contact-ticket poller) -----------------------
+    # Mirrors the SMTP block above. ``imap_password_encrypted`` is a
+    # Fernet token, never returned to the admin UI. Folder fields use
+    # IMAP-friendly names (typically ``INBOX``, ``Processed``,
+    # ``Errors``). ``imap_create_new_tickets`` is opt-in because a
+    # stray newsletter bounce shouldn't mint a ticket by default.
+    imap_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    imap_host: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_port: Mapped[Optional[int]] = mapped_column(Integer)
+    imap_username: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    imap_use_ssl: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    imap_folder: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="INBOX", server_default="INBOX"
+    )
+    imap_processed_folder: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_error_folder: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_poll_interval_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=5, server_default="5"
+    )
+    imap_create_new_tickets: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    last_imap_test_status: Mapped[str] = mapped_column(
+        String(16), nullable=False,
+        default=TEST_STATUS_NEVER, server_default=TEST_STATUS_NEVER,
+    )
+    last_imap_test_message: Mapped[Optional[str]] = mapped_column(Text)
+    last_imap_test_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     updated_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )

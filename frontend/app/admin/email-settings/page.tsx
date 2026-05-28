@@ -4,9 +4,12 @@ import * as React from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
+  Inbox,
   KeyRound,
   Loader2,
   Mail,
+  PlugZap,
   Save,
   Send,
   Server,
@@ -33,7 +36,9 @@ import type {
   EmailSettings,
   EmailSettingsUpdate,
   EmailTestResult,
+  ImapTestResult,
 } from "@/lib/admin/types";
+import { cn } from "@/lib/utils";
 
 type Form = {
   email_enabled: boolean;
@@ -55,6 +60,18 @@ type Form = {
   job_approval_email_enabled: boolean;
   brand_logo_url: string;
   email_footer_text: string;
+  // IMAP inbox (contact-ticket poller)
+  imap_enabled: boolean;
+  imap_host: string;
+  imap_port: string;
+  imap_username: string;
+  imap_password: string;
+  imap_use_ssl: boolean;
+  imap_folder: string;
+  imap_processed_folder: string;
+  imap_error_folder: string;
+  imap_poll_interval_minutes: string;
+  imap_create_new_tickets: boolean;
 };
 
 function blankForm(): Form {
@@ -77,6 +94,17 @@ function blankForm(): Form {
     job_approval_email_enabled: true,
     brand_logo_url: "",
     email_footer_text: "",
+    imap_enabled: false,
+    imap_host: "",
+    imap_port: "993",
+    imap_username: "",
+    imap_password: "",
+    imap_use_ssl: true,
+    imap_folder: "INBOX",
+    imap_processed_folder: "",
+    imap_error_folder: "",
+    imap_poll_interval_minutes: "5",
+    imap_create_new_tickets: false,
   };
 }
 
@@ -101,6 +129,20 @@ function formFromSettings(s: EmailSettings): Form {
     job_approval_email_enabled: s.job_approval_email_enabled,
     brand_logo_url: s.brand_logo_url ?? "",
     email_footer_text: s.email_footer_text ?? "",
+    imap_enabled: s.imap_enabled ?? false,
+    imap_host: s.imap_host ?? "",
+    imap_port: s.imap_port != null ? String(s.imap_port) : "993",
+    imap_username: s.imap_username ?? "",
+    imap_password: "",
+    imap_use_ssl: s.imap_use_ssl ?? true,
+    imap_folder: s.imap_folder ?? "INBOX",
+    imap_processed_folder: s.imap_processed_folder ?? "",
+    imap_error_folder: s.imap_error_folder ?? "",
+    imap_poll_interval_minutes:
+      s.imap_poll_interval_minutes != null
+        ? String(s.imap_poll_interval_minutes)
+        : "5",
+    imap_create_new_tickets: s.imap_create_new_tickets ?? false,
   };
 }
 
@@ -138,6 +180,9 @@ function EmailSettingsBody() {
   const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [testResult, setTestResult] = React.useState<EmailTestResult | null>(null);
+  const [imapTesting, setImapTesting] = React.useState(false);
+  const [imapTestResult, setImapTestResult] =
+    React.useState<ImapTestResult | null>(null);
 
   React.useEffect(() => {
     refresh();
@@ -179,10 +224,25 @@ function EmailSettingsBody() {
         job_approval_email_enabled: form.job_approval_email_enabled,
         brand_logo_url: form.brand_logo_url.trim() || null,
         email_footer_text: form.email_footer_text.trim() || null,
+        imap_enabled: form.imap_enabled,
+        imap_host: form.imap_host.trim() || null,
+        imap_port: form.imap_port.trim() ? Number(form.imap_port) : null,
+        imap_username: form.imap_username.trim() || null,
+        imap_use_ssl: form.imap_use_ssl,
+        imap_folder: form.imap_folder.trim() || null,
+        imap_processed_folder: form.imap_processed_folder.trim() || null,
+        imap_error_folder: form.imap_error_folder.trim() || null,
+        imap_poll_interval_minutes: form.imap_poll_interval_minutes.trim()
+          ? Number(form.imap_poll_interval_minutes)
+          : null,
+        imap_create_new_tickets: form.imap_create_new_tickets,
       };
-      // Only send password when the admin actually typed one.
+      // Only send passwords when the admin actually typed one.
       if (form.smtp_password.length > 0) {
         body.smtp_password = form.smtp_password;
+      }
+      if (form.imap_password.length > 0) {
+        body.imap_password = form.imap_password;
       }
       const fresh = await adminApi.put<EmailSettings>(
         "/admin/email-settings",
@@ -222,6 +282,33 @@ function EmailSettingsBody() {
       setError((err as AdminApiError).message);
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function testImap() {
+    setImapTesting(true);
+    setError(null);
+    setImapTestResult(null);
+    try {
+      // Send the just-typed password (if any) so the admin can
+      // verify creds without saving them first.
+      const body: { imap_password?: string } = {};
+      if (form.imap_password.length > 0) {
+        body.imap_password = form.imap_password;
+      }
+      const result = await adminApi.post<ImapTestResult>(
+        "/admin/email-settings/imap-test",
+        body
+      );
+      setImapTestResult(result);
+      if (result.success) {
+        setToast("IMAP connection succeeded.");
+      }
+      await refresh();
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    } finally {
+      setImapTesting(false);
     }
   }
 
@@ -569,8 +656,292 @@ function EmailSettingsBody() {
             </Field>
           </CardContent>
         </Card>
+
+        {/* 6. IMAP inbox (contact-ticket poller) — admin replies use
+            the SMTP block above; this block pulls customer replies
+            in so the inbox stays live. Configured here so credentials
+            can be rotated without restarting the API. */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Inbox className="h-4 w-4 text-pug-green-600" />
+              IMAP inbox
+              <ImapStatusPill data={data} />
+            </CardTitle>
+            <CardDescription>
+              Mailbox the contact-ticket reply poller reads from. Customer
+              replies land back on their existing ticket. Microsoft 365
+              mailboxes require an App Password (Basic Auth) or OAuth.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                checked={form.imap_enabled}
+                onChange={(e) => set("imap_enabled", e.target.checked)}
+                disabled={saving}
+              />
+              <span>
+                Enable IMAP inbound polling.{" "}
+                <span className="text-xs text-muted-foreground">
+                  When off, no scheduled or manual poll fires — admin
+                  replies still go out via SMTP above.
+                </span>
+              </span>
+            </label>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label="Host">
+                <Input
+                  value={form.imap_host}
+                  onChange={(e) => set("imap_host", e.target.value)}
+                  placeholder="imap.example.com"
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Port">
+                <Input
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={form.imap_port}
+                  onChange={(e) => set("imap_port", e.target.value)}
+                  placeholder="993"
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Folder">
+                <Input
+                  value={form.imap_folder}
+                  onChange={(e) => set("imap_folder", e.target.value)}
+                  placeholder="INBOX"
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Username">
+                <Input
+                  value={form.imap_username}
+                  onChange={(e) => set("imap_username", e.target.value)}
+                  placeholder="support@example.com"
+                  autoComplete="off"
+                  disabled={saving}
+                />
+              </Field>
+              <Field
+                label={
+                  data?.has_imap_password
+                    ? "Password (leave blank to keep existing)"
+                    : "Password"
+                }
+              >
+                <Input
+                  type="password"
+                  value={form.imap_password}
+                  onChange={(e) => set("imap_password", e.target.value)}
+                  placeholder={
+                    data?.has_imap_password
+                      ? "•••••••••• (already set)"
+                      : "App password or mailbox password"
+                  }
+                  autoComplete="new-password"
+                  disabled={saving}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Encrypted at rest. M365/Outlook needs a 16-char App
+                  Password — your normal sign-in password will fail.
+                </p>
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border accent-primary"
+                  checked={form.imap_use_ssl}
+                  onChange={(e) => set("imap_use_ssl", e.target.checked)}
+                  disabled={saving}
+                />
+                Use SSL (port 993)
+              </label>
+              <Field label="Poll interval (minutes)">
+                <Input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  value={form.imap_poll_interval_minutes}
+                  onChange={(e) =>
+                    set("imap_poll_interval_minutes", e.target.value)
+                  }
+                  placeholder="5"
+                  disabled={saving}
+                />
+              </Field>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  checked={form.imap_create_new_tickets}
+                  onChange={(e) =>
+                    set("imap_create_new_tickets", e.target.checked)
+                  }
+                  disabled={saving}
+                />
+                <span>
+                  Open new tickets from unrecognised mail
+                  <span className="block text-[11px] text-muted-foreground">
+                    Off by default — leave off unless this mailbox
+                    is dedicated to ticket intake.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Processed folder (optional)">
+                <Input
+                  value={form.imap_processed_folder}
+                  onChange={(e) =>
+                    set("imap_processed_folder", e.target.value)
+                  }
+                  placeholder="Processed"
+                  disabled={saving}
+                />
+              </Field>
+              <Field label="Error folder (optional)">
+                <Input
+                  value={form.imap_error_folder}
+                  onChange={(e) =>
+                    set("imap_error_folder", e.target.value)
+                  }
+                  placeholder="Errors"
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Test connection</p>
+                  <p className="text-xs text-muted-foreground">
+                    Opens a real IMAP session, logs in, lists folders,
+                    and selects the chosen one. Nothing is sent or
+                    moved.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={testImap}
+                  disabled={imapTesting || saving}
+                >
+                  {imapTesting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlugZap className="h-4 w-4" />
+                  )}
+                  Test IMAP
+                </Button>
+              </div>
+
+              {imapTestResult && (
+                <div
+                  className={cn(
+                    "mt-3 rounded-md border p-2.5 text-xs",
+                    imapTestResult.success
+                      ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-900 dark:text-emerald-200"
+                      : "border-rose-500/40 bg-rose-500/5 text-rose-900 dark:text-rose-200"
+                  )}
+                  role="status"
+                >
+                  <div className="flex items-start gap-2">
+                    {imapTestResult.success ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+                    <div className="min-w-0 space-y-1">
+                      <p className="leading-snug">
+                        {imapTestResult.message}
+                      </p>
+                      {imapTestResult.server_greeting && (
+                        <p className="font-mono text-[10px] opacity-70">
+                          {imapTestResult.server_greeting}
+                        </p>
+                      )}
+                      {imapTestResult.folders_sampled.length > 0 && (
+                        <p className="text-[11px] opacity-80">
+                          Folders seen:{" "}
+                          {imapTestResult.folders_sampled
+                            .slice(0, 8)
+                            .join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!imapTestResult && data?.last_imap_test_status &&
+                data.last_imap_test_status !== "never" && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Last test:{" "}
+                    <span
+                      className={cn(
+                        "font-medium",
+                        data.last_imap_test_status === "success"
+                          ? "text-emerald-700 dark:text-emerald-300"
+                          : "text-rose-700 dark:text-rose-300"
+                      )}
+                    >
+                      {data.last_imap_test_status}
+                    </span>
+                    {data.last_imap_test_at &&
+                      ` · ${new Date(data.last_imap_test_at).toLocaleString()}`}
+                    {data.last_imap_test_message && (
+                      <span className="ml-2 italic">
+                        {data.last_imap_test_message}
+                      </span>
+                    )}
+                  </p>
+                )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </AdminShell>
+  );
+}
+
+
+function ImapStatusPill({ data }: { data: EmailSettings | null }) {
+  if (!data) return null;
+  const enabled = data.imap_enabled;
+  const last = data.last_imap_test_status;
+  let label = enabled ? "Enabled" : "Disabled";
+  let tone = enabled
+    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+    : "border-zinc-400/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
+  if (enabled && last === "failed") {
+    label = "Test failed";
+    tone = "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-200";
+  }
+  return (
+    <span
+      className={cn(
+        "ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+        tone
+      )}
+    >
+      {label}
+    </span>
   );
 }
 

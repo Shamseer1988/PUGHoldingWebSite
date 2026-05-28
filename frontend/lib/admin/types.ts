@@ -250,6 +250,23 @@ export interface EmailSettings {
   updated_by_id: number | null;
   updated_at: string | null;
   env_fallback_active: boolean;
+  // IMAP inbox (contact-ticket poller). All optional because pre-
+  // migration installs return null/undefined for the new columns.
+  imap_enabled?: boolean;
+  imap_host?: string | null;
+  imap_port?: number | null;
+  imap_username?: string | null;
+  has_imap_password?: boolean;
+  imap_use_ssl?: boolean;
+  imap_folder?: string | null;
+  imap_processed_folder?: string | null;
+  imap_error_folder?: string | null;
+  imap_poll_interval_minutes?: number | null;
+  imap_create_new_tickets?: boolean;
+  last_imap_test_status?: EmailTestStatus;
+  last_imap_test_message?: string | null;
+  last_imap_test_at?: string | null;
+  imap_env_fallback_active?: boolean;
 }
 
 export interface EmailSettingsUpdate {
@@ -273,12 +290,34 @@ export interface EmailSettingsUpdate {
   job_approval_email_enabled?: boolean;
   brand_logo_url?: string | null;
   email_footer_text?: string | null;
+  // IMAP
+  imap_enabled?: boolean;
+  imap_host?: string | null;
+  imap_port?: number | null;
+  imap_username?: string | null;
+  /** Blank/undefined preserves the existing encrypted value. */
+  imap_password?: string;
+  imap_use_ssl?: boolean;
+  imap_folder?: string | null;
+  imap_processed_folder?: string | null;
+  imap_error_folder?: string | null;
+  imap_poll_interval_minutes?: number | null;
+  imap_create_new_tickets?: boolean;
 }
 
 export interface EmailTestResult {
   success: boolean;
   message: string;
   sent_at: string | null;
+}
+
+export interface ImapTestResult {
+  success: boolean;
+  message: string;
+  folders_sampled: string[];
+  server_greeting: string | null;
+  selected_message_count: number | null;
+  tested_at: string | null;
 }
 
 export interface NewsletterSubscriber {

@@ -57,6 +57,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.crypto import decrypt_secret
 from app.models.cms import (
     CONTACT_STATUS_OPEN,
     CONTACT_STATUS_PENDING_ADMIN,
@@ -66,11 +67,109 @@ from app.models.cms import (
     REPLY_STATUS_RECEIVED,
     SENDER_CUSTOMER,
 )
+from app.models.email_settings import EmailSetting
 from app.services.contact_threading import (
     THREAD_HEADER_NAME,
     extract_ticket_from_subject,
     parse_thread_token_from_message_id,
 )
+
+
+# ---------------------------------------------------------------------------
+# Resolved config — merges DB row with env defaults
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ResolvedImapConfig:
+    """Effective IMAP settings for a single poll cycle.
+
+    DB-backed columns on ``email_settings`` win when set; otherwise we
+    fall back to the env vars from ``app.core.config.Settings`` so an
+    existing install that ran on env-only config keeps working until
+    the admin opens Email Configuration and saves once.
+    """
+
+    enabled: bool
+    host: Optional[str]
+    port: int
+    username: Optional[str]
+    password: Optional[str]
+    use_ssl: bool
+    folder: str
+    processed_folder: Optional[str]
+    error_folder: Optional[str]
+    poll_interval_minutes: int
+    create_new_tickets: bool
+
+    @property
+    def is_ready(self) -> bool:
+        return bool(self.enabled and self.host and self.username and self.password)
+
+    @property
+    def is_complete(self) -> bool:
+        """Same as ``is_ready`` but ignores the enabled flag — useful
+        for the test endpoint which lets the admin verify creds before
+        flipping the master switch."""
+        return bool(self.host and self.username and self.password)
+
+
+def resolve_imap_config(db: Session) -> ResolvedImapConfig:
+    """Build the IMAP config the poller + test endpoint share."""
+    env = get_settings()
+    row = db.get(EmailSetting, 1)
+    db_pwd = (
+        decrypt_secret(row.imap_password_encrypted)
+        if row and row.imap_password_encrypted
+        else None
+    )
+    return ResolvedImapConfig(
+        enabled=(
+            row.imap_enabled
+            if row and row.imap_enabled
+            else bool(env.contact_inbound_enabled)
+        ),
+        host=(row.imap_host if row else None) or env.contact_inbound_host,
+        port=(row.imap_port if row else None) or env.contact_inbound_port or 993,
+        username=(row.imap_username if row else None)
+        or env.contact_inbound_username,
+        password=db_pwd or env.contact_inbound_password,
+        use_ssl=(
+            row.imap_use_ssl
+            if row is not None
+            else bool(env.contact_inbound_use_ssl)
+        ),
+        folder=(row.imap_folder if row else None)
+        or env.contact_inbound_folder
+        or "INBOX",
+        processed_folder=(
+            (row.imap_processed_folder if row else None)
+            or env.contact_inbound_processed_folder
+        ),
+        error_folder=(row.imap_error_folder if row else None)
+        or env.contact_inbound_error_folder,
+        poll_interval_minutes=(
+            row.imap_poll_interval_minutes if row else None
+        )
+        or env.contact_inbound_poll_interval_minutes
+        or 5,
+        create_new_tickets=(
+            row.imap_create_new_tickets
+            if row and row.imap_create_new_tickets
+            else _create_new_tickets_env()
+        ),
+    )
+
+
+def _create_new_tickets_env() -> bool:
+    """Honour ``CONTACT_INBOUND_CREATE_NEW`` (defaults off)."""
+    import os
+
+    return os.getenv("CONTACT_INBOUND_CREATE_NEW", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 logger = logging.getLogger(__name__)
 
@@ -142,34 +241,57 @@ def poll_inbox(db: Session, *, limit: int = 50) -> InboundPollSummary:
     admin "Check now" endpoint can surface a friendly message instead
     of a 500.
     """
-    settings = get_settings()
-    summary = InboundPollSummary(enabled=bool(settings.contact_inbound_enabled))
+    config = resolve_imap_config(db)
+    summary = InboundPollSummary(enabled=config.enabled)
     if not summary.enabled:
-        summary.error = "IMAP inbound is disabled (CONTACT_INBOUND_ENABLED=false)."
+        summary.error = (
+            "IMAP inbound is disabled. Toggle it on in Email Configuration "
+            "→ IMAP inbox (or set CONTACT_INBOUND_ENABLED=true)."
+        )
         summary.finished_at = datetime.now(timezone.utc)
         return summary
-    if not _config_complete(settings):
+    if not config.is_ready:
+        missing = []
+        if not config.host:
+            missing.append("host")
+        if not config.username:
+            missing.append("username")
+        if not config.password:
+            missing.append("password")
         summary.error = (
-            "IMAP inbound is enabled but host/username/password are missing — "
-            "set CONTACT_INBOUND_HOST/USERNAME/PASSWORD."
+            "IMAP inbound is enabled but " + ", ".join(missing) + " is missing. "
+            "Open Email Configuration → IMAP inbox to set them."
         )
         summary.finished_at = datetime.now(timezone.utc)
         return summary
 
     try:
-        client = _connect(settings)
+        client = _connect(config)
+    except _ImapAuthError as exc:
+        summary.error = str(exc)
+        summary.finished_at = datetime.now(timezone.utc)
+        return summary
     except (imaplib.IMAP4.error, OSError, ssl.SSLError) as exc:
-        summary.error = f"IMAP connect failed: {exc}"
+        summary.error = _friendly_connect_error(exc, config)
         summary.finished_at = datetime.now(timezone.utc)
         logger.exception("Contact-inbox IMAP connect failed")
         return summary
 
     try:
-        _select_folder(client, settings.contact_inbound_folder)
+        try:
+            _select_folder(client, config.folder)
+        except imaplib.IMAP4.error as exc:
+            summary.error = (
+                f"Could not select folder '{config.folder}': {exc}. "
+                f"Check the folder name in Email Configuration."
+            )
+            summary.finished_at = datetime.now(timezone.utc)
+            return summary
+
         uids = _search_unseen(client, limit)
         summary.fetched = len(uids)
         for uid in uids:
-            outcome = _process_one(db, client, uid, settings)
+            outcome = _process_one(db, client, uid, config)
             summary.outcomes.append(outcome)
             if outcome.error:
                 summary.errors += 1
@@ -198,27 +320,229 @@ def poll_inbox(db: Session, *, limit: int = 50) -> InboundPollSummary:
 
 
 # ---------------------------------------------------------------------------
+# Test connection — used by the Email Configuration admin page
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ImapTestOutcome:
+    """Diagnostic returned by ``test_imap_connection``."""
+
+    success: bool
+    message: str
+    folders_sampled: List[str] = field(default_factory=list)
+    server_greeting: Optional[str] = None
+    selected_message_count: Optional[int] = None
+    tested_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+def test_imap_connection(
+    db: Session,
+    *,
+    override_password: Optional[str] = None,
+) -> ImapTestOutcome:
+    """Validate the saved IMAP config by opening a real connection.
+
+    Runs through the same steps the poller does — connect, login,
+    SELECT folder, optional LIST so the admin sees a few sibling
+    folder names for context — but never fetches a message.
+
+    Accepts an ``override_password`` so the admin can validate
+    *just-typed* credentials before saving them (so they don't
+    overwrite a working password with a bad one).
+    """
+    config = resolve_imap_config(db)
+    if override_password is not None and override_password.strip():
+        # Swap the password while keeping the rest of the resolved
+        # config (host/port/SSL/folder).
+        config = ResolvedImapConfig(
+            enabled=True,
+            host=config.host,
+            port=config.port,
+            username=config.username,
+            password=override_password,
+            use_ssl=config.use_ssl,
+            folder=config.folder,
+            processed_folder=config.processed_folder,
+            error_folder=config.error_folder,
+            poll_interval_minutes=config.poll_interval_minutes,
+            create_new_tickets=config.create_new_tickets,
+        )
+
+    if not config.is_complete:
+        missing = []
+        if not config.host:
+            missing.append("host")
+        if not config.username:
+            missing.append("username")
+        if not config.password:
+            missing.append("password")
+        return ImapTestOutcome(
+            success=False,
+            message=(
+                "Fill in " + ", ".join(missing) + " before testing the "
+                "connection."
+            ),
+        )
+
+    try:
+        client = _connect(config)
+    except _ImapAuthError as exc:
+        return ImapTestOutcome(success=False, message=str(exc))
+    except (imaplib.IMAP4.error, OSError, ssl.SSLError) as exc:
+        return ImapTestOutcome(
+            success=False, message=_friendly_connect_error(exc, config)
+        )
+
+    folders: List[str] = []
+    try:
+        try:
+            status, count = _select_folder_for_test(client, config.folder)
+        except imaplib.IMAP4.error as exc:
+            try:
+                _, listed = client.list()
+                folders = _decode_folder_list(listed or [])
+            except Exception:  # noqa: BLE001
+                pass
+            return ImapTestOutcome(
+                success=False,
+                message=(
+                    f"Connected but could not select '{config.folder}': "
+                    f"{exc}. {('Available folders: ' + ', '.join(folders[:8])) if folders else 'List folders failed too.'}"
+                ),
+                folders_sampled=folders[:12],
+            )
+
+        # Best-effort listing for context (Outlook gives a long tree).
+        try:
+            _, listed = client.list()
+            folders = _decode_folder_list(listed or [])
+        except Exception:  # noqa: BLE001
+            pass
+
+        greeting = (
+            client.welcome.decode("ascii", errors="replace")
+            if hasattr(client, "welcome") and client.welcome
+            else None
+        )
+        return ImapTestOutcome(
+            success=True,
+            message=(
+                f"Connection OK — {config.username} signed in to "
+                f"{config.host}:{config.port}, '{config.folder}' contains "
+                f"{count} message(s)."
+            ),
+            folders_sampled=folders[:12],
+            server_greeting=greeting,
+            selected_message_count=count,
+        )
+    finally:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            client.logout()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _select_folder_for_test(
+    client: imaplib.IMAP4, folder: str
+) -> Tuple[str, int]:
+    status, data = client.select(folder, readonly=True)
+    if status != "OK":
+        raise imaplib.IMAP4.error(
+            f"SELECT failed for folder {folder!r}: {data!r}"
+        )
+    count = 0
+    if data and data[0]:
+        try:
+            count = int(data[0])
+        except (TypeError, ValueError):
+            count = 0
+    return status, count
+
+
+def _decode_folder_list(rows: list) -> List[str]:
+    out: List[str] = []
+    for row in rows:
+        if row is None:
+            continue
+        line = (
+            row.decode("utf-8", errors="replace")
+            if isinstance(row, (bytes, bytearray))
+            else str(row)
+        )
+        # ``(\HasNoChildren) "/" "INBOX"`` — peel out the trailing quoted name.
+        m = re.search(r'"([^"]+)"\s*$', line)
+        if m:
+            out.append(m.group(1))
+        else:
+            parts = line.rsplit(" ", 1)
+            if len(parts) == 2 and parts[1]:
+                out.append(parts[1].strip('"'))
+    return out
+
+
+# Custom error class so callers can distinguish auth failures from
+# generic IMAP4.error exceptions for friendlier messaging.
+class _ImapAuthError(Exception):
+    pass
+
+
+def _friendly_connect_error(
+    exc: Exception, config: "ResolvedImapConfig"
+) -> str:
+    """Translate raw imaplib/socket errors into something an admin
+    can actually act on."""
+    raw = str(exc).strip() or exc.__class__.__name__
+    lower = raw.lower()
+    if isinstance(exc, socket.gaierror) or "name or service not known" in lower:
+        return (
+            f"DNS lookup failed for {config.host!r}. Check the host name "
+            f"in Email Configuration."
+        )
+    if isinstance(exc, ConnectionRefusedError) or "refused" in lower:
+        return (
+            f"Connection refused to {config.host}:{config.port}. The server "
+            f"is reachable but not accepting IMAP on that port. Common "
+            f"ports: 993 (SSL) or 143 (plain/STARTTLS)."
+        )
+    if isinstance(exc, ssl.SSLError):
+        return (
+            f"TLS handshake failed against {config.host}:{config.port}. "
+            f"Either the server uses STARTTLS on a plain port (set "
+            f"'Use SSL' = off + port 143) or it's serving a bad "
+            f"certificate. Raw: {raw}"
+        )
+    if isinstance(exc, socket.timeout) or "timed out" in lower:
+        return (
+            f"Timed out connecting to {config.host}:{config.port}. "
+            f"Check that the host/port is correct and the network "
+            f"allows outbound IMAP."
+        )
+    return f"IMAP connect failed: {raw}"
+
+
+# ---------------------------------------------------------------------------
 # Connection helpers
 # ---------------------------------------------------------------------------
 
 
-def _config_complete(settings) -> bool:
-    return bool(
-        settings.contact_inbound_host
-        and settings.contact_inbound_username
-        and settings.contact_inbound_password
-    )
-
-
-def _connect(settings) -> imaplib.IMAP4:
+def _connect(config: ResolvedImapConfig) -> imaplib.IMAP4:
     """Open an authenticated IMAP4 / IMAP4_SSL connection.
 
     Returns the client positioned at the AUTH state — the caller still
-    needs to SELECT a folder.
+    needs to SELECT a folder. Auth failures raise ``_ImapAuthError``
+    with a provider-aware message; transport failures keep their
+    native exception so the friendly-error mapper can format them.
     """
-    host = settings.contact_inbound_host
-    port = settings.contact_inbound_port
-    if settings.contact_inbound_use_ssl:
+    host = config.host or ""
+    port = config.port
+    if config.use_ssl:
         client: imaplib.IMAP4 = imaplib.IMAP4_SSL(
             host, port, timeout=30, ssl_context=ssl.create_default_context()
         )
@@ -234,9 +558,39 @@ def _connect(settings) -> imaplib.IMAP4:
                 host,
                 port,
             )
-    client.login(
-        settings.contact_inbound_username, settings.contact_inbound_password
-    )
+
+    try:
+        client.login(config.username or "", config.password or "")
+    except imaplib.IMAP4.error as exc:
+        raw = str(exc)
+        lower = raw.lower()
+        # Microsoft 365 in particular returns
+        # "AUTHENTICATE failed." when Basic Auth has been disabled at
+        # the tenant level — most operators won't know what that
+        # cryptic message means.
+        if "outlook.office" in (host or "").lower() or "office365" in lower:
+            raise _ImapAuthError(
+                "Microsoft 365 rejected the credentials. Microsoft has "
+                "disabled Basic Auth for most tenants. Either: (1) "
+                "enable MFA on this mailbox and use a 16-character "
+                "App Password instead of the regular password, or (2) "
+                "ask your tenant admin to run "
+                "`Set-CASMailbox -ImapEnabled $true` for this mailbox "
+                "+ allow Authenticated SMTP. Server said: " + raw
+            )
+        if "authenticate" in lower or "authentication" in lower or "login" in lower:
+            raise _ImapAuthError(
+                f"IMAP login refused by {host}: {raw}. Check the username "
+                f"and password — many providers require an App Password "
+                f"when MFA is on."
+            )
+        raise
+
+    try:
+        # Detach the client from idle so subsequent SELECTs don't block.
+        client.noop()
+    except Exception:  # noqa: BLE001
+        pass
     return client
 
 
@@ -264,7 +618,7 @@ def _process_one(
     db: Session,
     client: imaplib.IMAP4,
     uid: bytes,
-    settings,
+    config: ResolvedImapConfig,
 ) -> InboundReplyOutcome:
     """Fetch ⇒ parse ⇒ match ⇒ persist ⇒ flag-as-seen one message."""
     uid_str = uid.decode("ascii", errors="replace")
@@ -292,13 +646,13 @@ def _process_one(
 
     ticket = _match_ticket(db, msg)
     if ticket is None:
-        if _create_new_ticket_enabled(settings):
+        if config.create_new_tickets:
             new_msg = _create_ticket_from_email(db, msg)
             ticket = new_msg
             outcome.matched_via = "new ticket"
         else:
             outcome.skipped_reason = "no matching ticket"
-            _move_to(client, uid, settings.contact_inbound_error_folder, mark_seen=True)
+            _move_to(client, uid, config.error_folder, mark_seen=True)
             return outcome
     else:
         outcome.matched_ticket = ticket[0]
@@ -353,24 +707,8 @@ def _process_one(
     db.commit()
 
     outcome.reply_id = reply.id
-    _move_to(client, uid, settings.contact_inbound_processed_folder, mark_seen=True)
+    _move_to(client, uid, config.processed_folder, mark_seen=True)
     return outcome
-
-
-def _create_new_ticket_enabled(settings) -> bool:
-    """Honour ``CONTACT_INBOUND_CREATE_NEW`` (defaults off).
-
-    Reading via env keeps this opt-in without adding another required
-    Settings field — most operators leave it off so an unrelated email
-    can't mint a ticket.
-    """
-    import os
-
-    return os.getenv("CONTACT_INBOUND_CREATE_NEW", "false").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
 
 
 def _create_ticket_from_email(
@@ -755,19 +1093,12 @@ def process_fake_message(
     Used by the IMAP unit tests so they can validate matching +
     threading without bringing up an IMAP server.
     """
-    settings = settings or get_settings()
+    # Backwards-compatible: the existing tests sometimes pass an env-
+    # only ``settings`` (the test seam was historically env-driven).
+    # We just need the ``create_new_tickets`` flag here — read from
+    # env when no settings overrride is given.
+    create_new = _create_new_tickets_env()
 
-    class _FakeClient:
-        def uid(self, *_args, **_kwargs):  # noqa: D401
-            return ("OK", [])
-
-        def close(self):
-            pass
-
-        def logout(self):
-            pass
-
-    fake = _FakeClient()
     # Inline the relevant bits of _process_one without IMAP fetch.
     msg = email.message_from_bytes(raw_bytes, policy=email.policy.default)
     outcome = InboundReplyOutcome(uid="fake", message_id=_normalise_message_id(msg.get("Message-ID")))
@@ -777,7 +1108,7 @@ def process_fake_message(
 
     ticket = _match_ticket(db, msg)
     if ticket is None:
-        if _create_new_ticket_enabled(settings):
+        if create_new:
             ticket_obj = _create_ticket_from_email(db, msg)
             ticket = (ticket_obj.ticket_number, ticket_obj, "new ticket")
         else:
@@ -825,9 +1156,13 @@ def process_fake_message(
 
 
 __all__ = [
+    "ImapTestOutcome",
     "InboundPollSummary",
     "InboundReplyOutcome",
+    "ResolvedImapConfig",
     "poll_inbox",
     "process_fake_message",
+    "resolve_imap_config",
     "strip_quoted_reply",
+    "test_imap_connection",
 ]

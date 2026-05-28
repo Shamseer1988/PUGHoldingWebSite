@@ -16,7 +16,7 @@ from app.models.email_settings import TEST_STATUSES
 
 
 class EmailSettingsRead(BaseModel):
-    """Email config as the admin UI sees it. Never includes the password."""
+    """Email config as the admin UI sees it. Never includes passwords."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -49,6 +49,23 @@ class EmailSettingsRead(BaseModel):
     # Highlights env-only fallback to the admin so they know if the row
     # itself is empty.
     env_fallback_active: bool = False
+
+    # --- IMAP inbound (contact-ticket poller) -----------------------
+    imap_enabled: bool = False
+    imap_host: Optional[str] = None
+    imap_port: Optional[int] = None
+    imap_username: Optional[str] = None
+    has_imap_password: bool = False
+    imap_use_ssl: bool = True
+    imap_folder: Optional[str] = None
+    imap_processed_folder: Optional[str] = None
+    imap_error_folder: Optional[str] = None
+    imap_poll_interval_minutes: Optional[int] = None
+    imap_create_new_tickets: bool = False
+    last_imap_test_status: str = "never"
+    last_imap_test_message: Optional[str] = None
+    last_imap_test_at: Optional[datetime] = None
+    imap_env_fallback_active: bool = False
 
 
 class EmailSettingsUpdate(BaseModel):
@@ -88,6 +105,36 @@ class EmailSettingsUpdate(BaseModel):
             return value or None
         return value
 
+    # ----- IMAP fields (mirror SMTP shape) -----
+    imap_enabled: Optional[bool] = None
+    imap_host: Optional[str] = Field(default=None, max_length=255)
+    imap_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    imap_username: Optional[str] = Field(default=None, max_length=255)
+    imap_password: Optional[str] = Field(default=None, max_length=500)
+    imap_use_ssl: Optional[bool] = None
+    imap_folder: Optional[str] = Field(default=None, max_length=255)
+    imap_processed_folder: Optional[str] = Field(default=None, max_length=255)
+    imap_error_folder: Optional[str] = Field(default=None, max_length=255)
+    imap_poll_interval_minutes: Optional[int] = Field(
+        default=None, ge=1, le=60 * 24
+    )
+    imap_create_new_tickets: Optional[bool] = None
+
+    @field_validator(
+        "imap_host",
+        "imap_username",
+        "imap_folder",
+        "imap_processed_folder",
+        "imap_error_folder",
+        mode="before",
+    )
+    @classmethod
+    def _strip_imap(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
 
 class EmailTestRequest(BaseModel):
     to_email: EmailStr
@@ -97,6 +144,24 @@ class EmailTestResult(BaseModel):
     success: bool
     message: str
     sent_at: Optional[datetime] = None
+
+
+class ImapTestRequest(BaseModel):
+    """Optional password override — lets the admin verify a freshly-
+    typed password without saving it first (so they can't overwrite a
+    working password with a bad one). Blank/missing means "use what's
+    already in the DB / env"."""
+
+    imap_password: Optional[str] = Field(default=None, max_length=500)
+
+
+class ImapTestResult(BaseModel):
+    success: bool
+    message: str
+    folders_sampled: List[str] = []
+    server_greeting: Optional[str] = None
+    selected_message_count: Optional[int] = None
+    tested_at: Optional[datetime] = None
 
 
 # Validate status when reading from the DB so callers don't pass garbage.
