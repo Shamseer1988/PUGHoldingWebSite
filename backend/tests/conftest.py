@@ -77,6 +77,37 @@ def _reset_rate_limits() -> Generator[None, None, None]:
     reset_rate_limits()
 
 
+class _PerCallFakeRedis:
+    """Builds a fresh ``FakeRedis`` per method access, bound to the
+    same shared ``FakeServer``.
+
+    The test suite repeatedly calls ``asyncio.run(fake_redis.get(...))``
+    — each ``asyncio.run`` creates a new event loop, but
+    ``fakeredis``'s connection pool internals (an ``asyncio.Queue``)
+    can only live inside the loop that first touched them. Reusing
+    a single client across runs raises "Queue is bound to a
+    different event loop". Building a brand-new client per
+    attribute access keeps every operation cleanly tied to whatever
+    loop ends up awaiting it.
+    """
+
+    def __init__(self, server) -> None:
+        self._server = server
+
+    def __getattr__(self, name):
+        from fakeredis import aioredis as fake_aioredis
+
+        server = self._server
+
+        def factory(*args, **kwargs):
+            client = fake_aioredis.FakeRedis(
+                server=server, decode_responses=True
+            )
+            return getattr(client, name)(*args, **kwargs)
+
+        return factory
+
+
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
     """Phase B-2: pin a ``fakeredis`` instance as the process-wide
@@ -86,11 +117,16 @@ def fake_redis(monkeypatch):
     ``app.core.redis_client._build_client`` from
     ``settings.redis_url``; monkey-patching that function makes the
     rate limiter, cache decorator and any future Redis-touching code
-    use the in-process fake transparently. Tests that want to inspect
-    Redis state directly can do so by importing
-    ``app.core.redis_client.get_redis_client()`` and awaiting commands
-    on the returned fake.
+    use the in-process fake transparently. Tests inspect Redis state
+    via the yielded proxy (see ``_PerCallFakeRedis`` for the
+    event-loop reasoning).
+
+    A single ``FakeServer`` backs both the in-app client and the
+    test-inspector proxy so they see the same data, but each
+    individual call gets its own ``FakeRedis`` so the connection
+    pool can bind to whichever event loop is running it.
     """
+    from fakeredis import FakeServer
     from fakeredis import aioredis as fake_aioredis
 
     from app.core import redis_client as redis_module
@@ -98,11 +134,13 @@ def fake_redis(monkeypatch):
     # Reset any singleton built by a previous test so this test gets
     # a fresh fakeredis instance (no leftover keys from earlier).
     redis_module._reset_client_for_tests()
-    fake_client = fake_aioredis.FakeRedis(decode_responses=True)
+    server = FakeServer()
     monkeypatch.setattr(
-        redis_module, "_build_client", lambda: fake_client
+        redis_module,
+        "_build_client",
+        lambda: fake_aioredis.FakeRedis(server=server, decode_responses=True),
     )
-    yield fake_client
+    yield _PerCallFakeRedis(server)
     redis_module._reset_client_for_tests()
 
 

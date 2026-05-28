@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     sentry_dsn: Optional[str] = Field(default=None)
     redis_url: str = Field(default="redis://localhost:6379/0")
 
+    # Phase B-3: ARQ background queue toggle. When off (the test +
+    # legacy default) the image optimiser, email sender and AI
+    # review run inline inside the request handler — exactly how
+    # they always have. When on, those three call sites enqueue an
+    # ARQ job against the Redis above and return immediately; a
+    # separate ``arq.worker`` process (``python -m
+    # worker_runner``) drains the queue.
+    arq_enabled: bool = Field(default=False)
+
     # --- Uploads ---
     upload_dir: str = Field(default="app/uploads")
     max_upload_size_mb: int = Field(default=20)

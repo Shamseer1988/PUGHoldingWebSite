@@ -253,34 +253,16 @@ async def rate_limit_backup(
 def reset_rate_limits() -> None:
     """Clear every bucket — useful between tests.
 
-    Schedules an async ``FLUSHDB`` against the current Redis client.
-    When the conftest pins a ``fakeredis`` instance this resets just
-    the fake; when no client has been built yet (the early-test
-    common case) it's a no-op.
+    Drops the cached Redis singleton. The conftest's ``fake_redis``
+    fixture rebuilds against a per-test ``FakeServer`` so state
+    naturally doesn't leak across tests; this helper is the explicit
+    knob a single test (e.g. ``rate_limit_on``) can call when it
+    wants a clean slate mid-suite. Awaiting ``FLUSHDB`` on the
+    singleton would crash with an event-loop mismatch — the cached
+    client was bound to whatever loop ``TestClient`` used, and the
+    teardown runs under a fresh ``asyncio.get_event_loop()`` —
+    dropping is the simpler invariant.
     """
-    import asyncio
+    from app.core.redis_client import _reset_client_for_tests
 
-    from app.core.redis_client import _client as _maybe_client
-
-    if _maybe_client is None:
-        return
-
-    async def _flush() -> None:
-        try:
-            await _maybe_client.flushdb()
-        except aioredis.RedisError as exc:
-            logger.debug(
-                "reset_rate_limits flush failed (ignored)", error=str(exc)
-            )
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're inside an async context — schedule and let the
-            # caller's event loop run it. This branch is hit when
-            # invoked from an async fixture.
-            loop.create_task(_flush())
-        else:
-            loop.run_until_complete(_flush())
-    except RuntimeError:
-        asyncio.run(_flush())
+    _reset_client_for_tests()

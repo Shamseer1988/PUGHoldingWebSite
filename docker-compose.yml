@@ -99,6 +99,41 @@ services:
     ports:
       - "8000:8000"
 
+  worker:
+    # Phase B-3: ARQ background worker. Reuses the same image as
+    # the backend service (multi-stage Dockerfile, ``runner`` target)
+    # but boots ``worker_runner.py`` instead of uvicorn. Disabled
+    # by default — set ``ARQ_ENABLED=true`` in backend/.env to start
+    # this service alongside the API.
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: development
+      SECRET_KEY: "compose-dev-secret-do-not-use-in-production"
+      ARQ_ENABLED: "true"
+    volumes:
+      - ./backend:/app
+    command: ["python", "worker_runner.py"]
+    profiles:
+      # ``profiles`` keeps the worker out of the default
+      # ``docker compose up`` flow. Bring it up explicitly with
+      # ``docker compose --profile worker up worker``.
+      - worker
+
   frontend:
     build:
       context: .

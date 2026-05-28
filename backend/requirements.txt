@@ -111,3 +111,11 @@ redis==5.2.0
 # client, no socket. Avoids a hard dependency on a running Redis
 # during ``pytest``.
 fakeredis==2.26.1
+
+# Phase B-3 — async background job queue. ARQ persists jobs in
+# Redis (the same instance Phase B-2 already uses), runs workers
+# in a separate process, and exposes ``await pool.enqueue_job(...)``
+# for the API to schedule work without blocking the request.
+# Inline call sites stay the default; opt into the queue by
+# setting ARQ_ENABLED=true and running ``python worker_runner.py``.
+arq==0.26.1

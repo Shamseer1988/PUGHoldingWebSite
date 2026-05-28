@@ -51,10 +51,42 @@ async def lifespan(app: FastAPI):
         pass
 
     start_scheduler()
+
+    # Phase B-3: open an ARQ pool so route handlers can enqueue
+    # background jobs via ``Depends(get_arq_pool)``. Only when the
+    # feature flag is on — leaving it off avoids opening an extra
+    # Redis pool for installs that don't have a worker running.
+    settings = get_settings()
+    if settings.arq_enabled:
+        from arq import create_pool
+
+        from app.worker.settings import WorkerSettings
+
+        try:
+            app.state.arq_pool = await create_pool(
+                WorkerSettings.redis_settings
+            )
+            logger.info("ARQ pool opened")
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "ARQ pool failed to open — enqueue calls will degrade"
+            )
+            app.state.arq_pool = None
+    else:
+        app.state.arq_pool = None
+
     try:
         yield
     finally:
         shutdown_scheduler()
+        # Phase B-3: close the ARQ pool first; close_redis below is
+        # the singleton from B-2 and is separate.
+        pool = getattr(app.state, "arq_pool", None)
+        if pool is not None:
+            try:
+                await pool.aclose()
+            except Exception:  # noqa: BLE001
+                logger.exception("ARQ pool close raised during shutdown")
         # Phase B-2: tear the Redis singleton down so a clean
         # uvicorn shutdown closes the connection pool. No-op if
         # ``redis_client.get_redis_client`` was never called.
