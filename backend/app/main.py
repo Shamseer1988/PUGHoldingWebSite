@@ -70,16 +70,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — strict allowlist in production, permissive localhost in dev.
+    # CORS — strict allowlist in production, permissive LAN in dev.
     #
     # FastAPI's CORSMiddleware returns ``400 Bad Request`` on every
     # preflight whose ``Origin`` header isn't in ``allow_origins``. In
-    # development the frontend often runs on a non-3000 port (3001 when
-    # 3000 is busy, 5173 with Vite, a LAN IP for cross-device testing,
-    # etc.) — so we also pass an ``allow_origin_regex`` that matches
-    # any ``localhost``/``127.0.0.1`` host on any port. The strict
-    # ``allow_origins`` list still wins for the explicit values; the
-    # regex is the safety net.
+    # development the frontend can hit the API from:
+    #   * ``localhost`` / ``127.0.0.1`` on any port (3000, 3001, 5173…)
+    #   * A LAN IP (``192.168.x.x``, ``10.x.x.x``, ``172.16-31.x.x``)
+    #     when testing from a phone / tablet / another laptop on the
+    #     same WiFi.
+    # So we pass an ``allow_origin_regex`` that matches both. The
+    # strict ``allow_origins`` list still wins for explicit values;
+    # the regex is the safety net. Never enabled in production.
     is_prod = settings.app_env.lower() == "production"
     cors_kwargs: dict = {
         "allow_origins": settings.cors_origins,
@@ -89,15 +91,21 @@ def create_app() -> FastAPI:
         "expose_headers": ["Content-Disposition"],
     }
     if not is_prod:
-        # Matches http(s)://localhost(:any) and http(s)://127.0.0.1(:any).
+        # http(s)://(localhost|127.0.0.1|RFC1918 private IP)(:any port)?
         cors_kwargs["allow_origin_regex"] = (
-            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+            r"^https?://("
+            r"localhost|"
+            r"127\.0\.0\.1|"
+            r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+            r"192\.168\.\d{1,3}\.\d{1,3}|"
+            r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}"
+            r")(:\d+)?$"
         )
     logger.info(
         "CORS configured: app_env=%s, allow_origins=%s%s",
         settings.app_env,
         settings.cors_origins,
-        ", allow_origin_regex=localhost|127.0.0.1 (any port)"
+        ", allow_origin_regex=localhost|127.0.0.1|RFC1918 LAN (any port)"
         if not is_prod
         else "",
     )
