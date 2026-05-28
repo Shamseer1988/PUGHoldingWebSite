@@ -675,6 +675,34 @@ function EmailSettingsBody() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Behaviour callout — the user explicitly asked for this:
+                only ticket replies show up in the contact center, all
+                other mail must behave exactly like Outlook normally
+                would (unread, in INBOX, untouched). */}
+            <div className="rounded-lg border border-pug-green-600/30 bg-pug-green-600/5 p-3 text-xs text-pug-green-800 dark:border-pug-green-500/40 dark:bg-pug-green-500/10 dark:text-pug-green-100">
+              <p className="font-semibold">How non-ticket mail is handled</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[11px] leading-snug">
+                <li>
+                  Customer replies that match an existing ticket are
+                  pulled into the admin Contact Center as chat bubbles
+                  and marked <span className="font-medium">read</span> in
+                  this mailbox.
+                </li>
+                <li>
+                  Every other email — newsletters, vendor pings, anything
+                  unrelated — is <span className="font-medium">left
+                  completely untouched</span>. It stays unread in your
+                  Outlook inbox.
+                </li>
+                <li>
+                  We use an invisible IMAP keyword
+                  (<code className="rounded bg-muted px-1">$PUG-Inspected</code>)
+                  to remember which UIDs we&apos;ve already looked at, so
+                  the same message isn&apos;t re-fetched on every poll.
+                </li>
+              </ul>
+            </div>
+
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"

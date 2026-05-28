@@ -288,7 +288,7 @@ def poll_inbox(db: Session, *, limit: int = 50) -> InboundPollSummary:
             summary.finished_at = datetime.now(timezone.utc)
             return summary
 
-        uids = _search_unseen(client, limit)
+        uids = _search_uninspected(client, limit)
         summary.fetched = len(uids)
         for uid in uids:
             outcome = _process_one(db, client, uid, config)
@@ -594,19 +594,71 @@ def _connect(config: ResolvedImapConfig) -> imaplib.IMAP4:
     return client
 
 
+# Custom IMAP keyword stamped onto every UID we've already inspected.
+# Lets us skip ourselves on subsequent polls *without* touching the
+# ``\Seen`` flag — so non-ticket mail stays unread in the user's
+# Outlook / Gmail / native mail client. Standard ``$``-prefixed
+# keywords are widely supported (Gmail, Exchange Online, Dovecot,
+# Cyrus). For the rare server that rejects custom keywords we fall
+# back to a UNSEEN search + still avoid duplicates via the
+# ``email_message_id`` dedup on ContactReply.
+IMAP_INSPECTED_KEYWORD = "$PUG-Inspected"
+
+
 def _select_folder(client: imaplib.IMAP4, folder: str) -> None:
     status, _ = client.select(folder, readonly=False)
     if status != "OK":
         raise imaplib.IMAP4.error(f"SELECT failed for folder {folder!r}")
 
 
-def _search_unseen(client: imaplib.IMAP4, limit: int) -> List[bytes]:
-    """Return up to ``limit`` UIDs of UNSEEN messages, oldest first."""
-    status, data = client.uid("search", None, "UNSEEN")
-    if status != "OK" or not data or data[0] is None:
+def _search_uninspected(client: imaplib.IMAP4, limit: int) -> List[bytes]:
+    """Return up to ``limit`` UIDs we haven't yet inspected.
+
+    Searches by our custom ``$PUG-Inspected`` keyword so the user's
+    Read/Unread state in Outlook stays untouched. Falls back to the
+    legacy UNSEEN criterion on servers that reject the keyword
+    (very rare in 2026, but the polite degradation keeps the poller
+    alive on weird hosts).
+    """
+    try:
+        status, data = client.uid(
+            "search", None, f"UNKEYWORD {IMAP_INSPECTED_KEYWORD}"
+        )
+        if status != "OK":
+            raise imaplib.IMAP4.error("UNKEYWORD search not OK")
+    except imaplib.IMAP4.error:
+        logger.warning(
+            "IMAP server rejected UNKEYWORD %s — falling back to UNSEEN "
+            "(non-ticket mail will be marked Seen). Use a server that "
+            "supports IMAP4rev1 keywords for the recommended behaviour.",
+            IMAP_INSPECTED_KEYWORD,
+        )
+        status, data = client.uid("search", None, "UNSEEN")
+        if status != "OK" or not data or data[0] is None:
+            return []
+    if not data or data[0] is None:
         return []
     uids = data[0].split()
     return uids[:limit]
+
+
+def _mark_inspected(client: imaplib.IMAP4, uid: bytes) -> None:
+    """Stamp our custom keyword so the next poll skips this UID.
+
+    Best-effort — a server that rejected the UNKEYWORD search will
+    also reject the keyword store, in which case we silently no-op
+    and rely on the message-id dedup on the next pass.
+    """
+    try:
+        client.uid(
+            "store", uid, "+FLAGS", f"({IMAP_INSPECTED_KEYWORD})"
+        )
+    except imaplib.IMAP4.error:
+        logger.debug(
+            "Could not stamp %s on UID %r — will rely on Message-ID dedup",
+            IMAP_INSPECTED_KEYWORD,
+            uid,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -638,10 +690,11 @@ def _process_one(
     outcome.message_id = _normalise_message_id(msg.get("Message-ID"))
 
     # Already imported? Skip cleanly — no flag change so the caller
-    # can re-flag without duplicates.
+    # Already imported on a previous poll? Stamp inspected so we
+    # skip the next time too, then bail without a duplicate row.
     if outcome.message_id and _reply_already_exists(db, outcome.message_id):
         outcome.skipped_reason = "duplicate message id"
-        _mark_seen(client, uid)
+        _mark_inspected(client, uid)
         return outcome
 
     ticket = _match_ticket(db, msg)
@@ -651,8 +704,12 @@ def _process_one(
             ticket = new_msg
             outcome.matched_via = "new ticket"
         else:
+            # Non-ticket mail — DO NOT touch \Seen and DO NOT move.
+            # The user's Outlook should treat this exactly as if we
+            # weren't polling. We only stamp ``$PUG-Inspected`` so we
+            # don't re-fetch the same message on every poll.
             outcome.skipped_reason = "no matching ticket"
-            _move_to(client, uid, config.error_folder, mark_seen=True)
+            _mark_inspected(client, uid)
             return outcome
     else:
         outcome.matched_ticket = ticket[0]
@@ -707,6 +764,11 @@ def _process_one(
     db.commit()
 
     outcome.reply_id = reply.id
+    # Matched ticket reply — mark Seen (so Outlook stops nagging the
+    # support inbox), optionally move to the Processed folder, AND
+    # stamp the inspected keyword so we skip it on the next poll
+    # even if a server quirk un-Seens it later.
+    _mark_inspected(client, uid)
     _move_to(client, uid, config.processed_folder, mark_seen=True)
     return outcome
 
