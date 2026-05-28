@@ -15,6 +15,7 @@ import {
   Handshake,
   History,
   LayoutDashboard,
+  LineChart,
   Mailbox,
   Menu as MenuIcon,
   Users,
@@ -101,6 +102,15 @@ const NAV: NavGroup[] = [
   {
     label: "Insights",
     items: [
+      {
+        // Phase C-3: recruitment velocity + conversion view. Distinct
+        // from "Dashboard" (operational, what-needs-my-attention) and
+        // "Reports & export" (tabular bulk exports).
+        label: "Analytics",
+        href: "/hr/analytics",
+        icon: LineChart,
+        anyOf: [PERM_HR_DASHBOARD_VIEW],
+      },
       {
         label: "Reports & export",
         href: "/hr/reports",

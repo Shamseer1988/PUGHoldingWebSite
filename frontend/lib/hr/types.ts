@@ -24,6 +24,43 @@ export interface NamedCount {
   count: number;
 }
 
+// ---------------------------------------------------------------------------
+// Phase C-3 — Recruitment analytics
+// ---------------------------------------------------------------------------
+
+export interface DailyCount {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export interface SourceMetric {
+  source: string;
+  total: number;
+  shortlisted: number;
+  offers_issued: number;
+  joined: number;
+}
+
+export interface TimeToHireBySource {
+  source: string;
+  avg_days: number | null;
+  sample_size: number;
+}
+
+export interface TimeToHireSummary {
+  overall_avg_days: number | null;
+  sample_size: number;
+  by_source: TimeToHireBySource[];
+}
+
+export interface RecruitmentAnalytics {
+  window_days: number;
+  daily_applications: DailyCount[];
+  funnel_conversion: FunnelStage[];
+  source_breakdown: SourceMetric[];
+  time_to_hire: TimeToHireSummary;
+}
+
 export type InterviewMode = "online" | "phone" | "in_person";
 
 export interface InterviewSummary {

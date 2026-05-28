@@ -33,6 +33,9 @@ from app.models.hr_ats import (
     OFFER_PENDING_APPROVAL,
     OFFER_SENT,
     PUBLISH_STATUS_PUBLISHED,
+    SOURCE_BULK_UPLOAD,
+    SOURCE_MANUAL_UPLOAD,
+    SOURCE_PUBLIC_FORM,
     STATUS_AI_REVIEWED,
     STATUS_CV_RECEIVED,
     STATUS_FINAL_INTERVIEW,
@@ -54,13 +57,18 @@ from app.models.hr_ats import (
 )
 from app.schemas.hr_dashboard import (
     AuditEntryRead,
+    DailyCount,
     DashboardSummary,
     FunnelStage,
     InterviewSummary,
     MonthlyCount,
     NamedCount,
     OfferSummary,
+    RecruitmentAnalytics,
+    SourceMetric,
     StatItem,
+    TimeToHireBySource,
+    TimeToHireSummary,
 )
 
 
@@ -347,6 +355,239 @@ def hr_dashboard(
         candidates_by_department=by_department,
         pending_interviews=pending_interviews,
         pending_offers=pending_offers,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase C-3 — Recruitment analytics
+# ---------------------------------------------------------------------------
+
+
+_ANALYTICS_SOURCES = [
+    SOURCE_PUBLIC_FORM,
+    SOURCE_MANUAL_UPLOAD,
+    SOURCE_BULK_UPLOAD,
+]
+
+
+@router.get("/analytics/recruitment", response_model=RecruitmentAnalytics)
+def hr_recruitment_analytics(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_DASHBOARD_VIEW)),
+    window_days: int = Query(default=90, ge=7, le=365),
+) -> RecruitmentAnalytics:
+    """Deeper recruitment metrics windowed over the trailing N days.
+
+    Powers the ``/hr/analytics`` page. Distinct from ``/hr/dashboard``:
+    the dashboard surfaces operational state ("what needs my
+    attention right now?"), this endpoint surfaces velocity +
+    conversion ("how is recruiting performing?"). The default
+    window matches the standard HR review cadence.
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=window_days)
+
+    base_filter = CandidateJobApplication.applied_at >= window_start
+
+    # ---- 1. Daily applications time-series.
+    daily_applications = _bucket_by_day(
+        db,
+        CandidateJobApplication.applied_at,
+        window_days=window_days,
+        extra_where=base_filter,
+    )
+
+    # ---- 2. Funnel stage counts (windowed).
+    funnel_rows = db.execute(
+        select(CandidateJobApplication.status, func.count())
+        .where(base_filter)
+        .group_by(CandidateJobApplication.status)
+    ).all()
+    funnel_lookup: dict[str, int] = {status: count for status, count in funnel_rows}
+    pipeline_funnel = [
+        FunnelStage(status=status, label=label, count=funnel_lookup.get(status, 0))
+        for status, label in FUNNEL_STAGES
+    ]
+
+    # ---- 3. Source breakdown (cumulative drop-offs).
+    source_breakdown = _build_source_breakdown(db, window_start)
+
+    # ---- 4. Time-to-hire (joined applications only).
+    time_to_hire = _build_time_to_hire(db, window_start)
+
+    return RecruitmentAnalytics(
+        window_days=window_days,
+        daily_applications=daily_applications,
+        funnel_conversion=pipeline_funnel,
+        source_breakdown=source_breakdown,
+        time_to_hire=time_to_hire,
+    )
+
+
+def _bucket_by_day(
+    db: Session,
+    column,
+    *,
+    window_days: int,
+    extra_where,
+) -> List[DailyCount]:
+    """Per-day bucket with zero-fill for dates with no activity.
+
+    SQLite (test suite) lacks ``date_trunc``; Postgres has it. We
+    bucket Python-side instead so the two engines share the code
+    path the rest of ``hr_dashboard`` already follows.
+    """
+    rows = db.execute(select(column).where(extra_where)).all()
+    buckets: dict[str, int] = {}
+    for (ts,) in rows:
+        if ts is None:
+            continue
+        key = ts.strftime("%Y-%m-%d")
+        buckets[key] = buckets.get(key, 0) + 1
+
+    # Zero-fill so the chart line doesn't visually collapse on quiet
+    # days. Walk backwards from today.
+    today = datetime.now(timezone.utc).date()
+    output: list[DailyCount] = []
+    for offset in range(window_days - 1, -1, -1):
+        day = today - timedelta(days=offset)
+        key = day.strftime("%Y-%m-%d")
+        output.append(DailyCount(date=key, count=buckets.get(key, 0)))
+    return output
+
+
+# Statuses that count as "shortlisted or beyond" for the source-breakdown.
+_SHORTLISTED_OR_BEYOND = {
+    STATUS_SHORTLISTED,
+    STATUS_FIRST_INTERVIEW,
+    STATUS_TECHNICAL_INTERVIEW,
+    STATUS_FINAL_INTERVIEW,
+    STATUS_SELECTED,
+    STATUS_OFFER_SENT,
+    STATUS_JOINED,
+}
+
+_OFFERS_OR_BEYOND = {STATUS_OFFER_SENT, STATUS_SELECTED, STATUS_JOINED}
+
+
+def _build_source_breakdown(
+    db: Session, window_start: datetime
+) -> List[SourceMetric]:
+    """Cumulative drop-off per intake source.
+
+    "Shortlisted" / "Offers issued" / "Joined" are cumulative
+    counts — an application currently in ``joined`` is also counted
+    in ``shortlisted`` and ``offers_issued`` — so the natural
+    percentages a UI computes (``joined / total``, ``offers /
+    total``) read as funnel conversion rates.
+    """
+    rows = db.execute(
+        select(CandidateJobApplication.source, CandidateJobApplication.status)
+        .where(CandidateJobApplication.applied_at >= window_start)
+    ).all()
+
+    # ``source`` may be NULL for legacy rows — bucket those under
+    # ``unknown`` so they don't get silently dropped.
+    buckets: dict[str, dict[str, int]] = {}
+    for source, status in rows:
+        key = source or "unknown"
+        bucket = buckets.setdefault(
+            key, {"total": 0, "shortlisted": 0, "offers_issued": 0, "joined": 0}
+        )
+        bucket["total"] += 1
+        if status in _SHORTLISTED_OR_BEYOND:
+            bucket["shortlisted"] += 1
+        if status in _OFFERS_OR_BEYOND:
+            bucket["offers_issued"] += 1
+        if status == STATUS_JOINED:
+            bucket["joined"] += 1
+
+    # Emit the canonical sources in a predictable order first, then
+    # any unexpected ones (e.g. ``unknown``, future enum values).
+    ordering = list(_ANALYTICS_SOURCES) + [
+        s for s in buckets if s not in _ANALYTICS_SOURCES
+    ]
+    return [
+        SourceMetric(
+            source=source,
+            total=buckets.get(source, {}).get("total", 0),
+            shortlisted=buckets.get(source, {}).get("shortlisted", 0),
+            offers_issued=buckets.get(source, {}).get("offers_issued", 0),
+            joined=buckets.get(source, {}).get("joined", 0),
+        )
+        for source in ordering
+        if source in buckets or source in _ANALYTICS_SOURCES
+    ]
+
+
+def _build_time_to_hire(
+    db: Session, window_start: datetime
+) -> TimeToHireSummary:
+    """Avg days from ``applied_at`` to ``OfferTracking.joined_at``.
+
+    Only joined applications inside the window contribute. The
+    application carries ``applied_at``; the joining timestamp lives
+    on the offer row (``OfferTracking.joined_at``). We pull both via
+    a join keyed on ``application_id``.
+    """
+    rows = db.execute(
+        select(
+            CandidateJobApplication.source,
+            CandidateJobApplication.applied_at,
+            OfferTracking.joined_at,
+        )
+        .join(
+            OfferTracking,
+            OfferTracking.application_id == CandidateJobApplication.id,
+        )
+        .where(
+            CandidateJobApplication.applied_at >= window_start,
+            CandidateJobApplication.status == STATUS_JOINED,
+            OfferTracking.joined_at.is_not(None),
+        )
+    ).all()
+
+    overall_total_days = 0.0
+    overall_count = 0
+    by_source: dict[str, list[float]] = {}
+    for source, applied_at, joined_at in rows:
+        if applied_at is None or joined_at is None:
+            continue
+        days = (joined_at - applied_at).total_seconds() / 86400.0
+        # Negative durations would mean a data oddity (clock skew,
+        # manual backdating) — skip rather than poison the average.
+        if days < 0:
+            continue
+        overall_total_days += days
+        overall_count += 1
+        by_source.setdefault(source or "unknown", []).append(days)
+
+    by_source_payload: list[TimeToHireBySource] = []
+    ordering = list(_ANALYTICS_SOURCES) + [
+        s for s in by_source if s not in _ANALYTICS_SOURCES
+    ]
+    seen = set()
+    for source in ordering:
+        if source in seen:
+            continue
+        seen.add(source)
+        values = by_source.get(source, [])
+        avg = (sum(values) / len(values)) if values else None
+        by_source_payload.append(
+            TimeToHireBySource(
+                source=source,
+                avg_days=round(avg, 1) if avg is not None else None,
+                sample_size=len(values),
+            )
+        )
+
+    overall_avg = (
+        round(overall_total_days / overall_count, 1) if overall_count else None
+    )
+    return TimeToHireSummary(
+        overall_avg_days=overall_avg,
+        sample_size=overall_count,
+        by_source=by_source_payload,
     )
 
 
