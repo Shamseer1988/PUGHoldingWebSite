@@ -12,7 +12,8 @@ export const metadata = {
     "How Paris United Group Holding collects, uses, and protects personal information across its retail, distribution, and services businesses.",
 };
 
-export const revalidate = 60;
+// Phase A-1: legal copy — refresh hourly.
+export const revalidate = 3600;
 
 const LAST_UPDATED = "25 May 2026";
 

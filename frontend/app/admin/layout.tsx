@@ -1,5 +1,10 @@
 import { AuthProvider } from "@/components/auth-provider";
 
+// Phase A-1: admin portal is per-user, per-permission, never cached.
+// Forcing dynamic at the layout level keeps every nested admin route
+// off the static cache regardless of any per-route exports.
+export const dynamic = "force-dynamic";
+
 /**
  * Website Admin layout.
  *

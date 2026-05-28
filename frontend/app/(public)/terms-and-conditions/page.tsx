@@ -12,7 +12,8 @@ export const metadata = {
     "Terms of use governing the Paris United Group Holding website and the services provided through it.",
 };
 
-export const revalidate = 60;
+// Phase A-1: legal copy — refresh hourly.
+export const revalidate = 3600;
 
 const LAST_UPDATED = "25 May 2026";
 

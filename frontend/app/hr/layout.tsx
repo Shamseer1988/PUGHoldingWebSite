@@ -1,5 +1,10 @@
 import { AuthProvider } from "@/components/auth-provider";
 
+// Phase A-1: HR ATS is per-user, per-permission, never cached.
+// Same reasoning as the admin layout — caching candidate / interview
+// data would leak across operators.
+export const dynamic = "force-dynamic";
+
 /**
  * HR ATS layout.
  *

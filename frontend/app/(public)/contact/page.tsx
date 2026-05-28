@@ -16,7 +16,8 @@ import { parseContactMapEmbed } from "@/lib/contact-map";
 import { getSitePage, getSiteSettings } from "@/lib/public-api";
 
 export const metadata = { title: "Contact Us" };
-export const revalidate = 60;
+// Phase A-1: static page — refresh hourly.
+export const revalidate = 3600;
 
 export default async function ContactPage() {
   const [settings, page] = await Promise.all([

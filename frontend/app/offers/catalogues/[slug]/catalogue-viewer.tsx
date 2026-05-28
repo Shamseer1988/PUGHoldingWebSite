@@ -60,8 +60,17 @@ export function CatalogueViewer({ catalogue }: Props) {
     React.useState<FlipBookComponent | null>(null);
 
   const containerRef = React.useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const flipBookRef = React.useRef<any>(null);
+  // react-pageflip exposes a class-component instance with one
+  // synchronous accessor (``pageFlip()``) that returns the
+  // imperative controller. Type the ref to the slice we actually
+  // use instead of leaking ``any`` into the file.
+  const flipBookRef = React.useRef<{
+    pageFlip(): {
+      flipNext(): void;
+      flipPrev(): void;
+      flip(target: number): void;
+    };
+  } | null>(null);
 
   const pages = catalogue.pages;
   const pageCount = pages.length;
@@ -493,46 +502,54 @@ export function CatalogueViewer({ catalogue }: Props) {
             }}
           >
             {FlipBookComp ? (
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              React.createElement(FlipBookComp as any, {
-                key: flipBookKey,
-                ref: flipBookRef,
-                width: size.w,
-                height: size.h,
-                size: "fixed",
-                minWidth: 280,
-                maxWidth: 1600,
-                minHeight: 380,
-                maxHeight: 2000,
-                maxShadowOpacity: 0.5,
-                showCover: true,
-                mobileScrollSupport: false,
-                drawShadow: true,
-                flippingTime: 650,
-                usePortrait: isMobile,
-                startZIndex: 0,
-                autoSize: false,
-                clickEventForward: true,
-                useMouseEvents: true,
-                swipeDistance: 20,
-                showPageCorners: true,
-                disableFlipByClick: false,
-                startPage: 0,
-                style: {},
-                className: "",
-                onFlip: (e: { data: number }) => {
-                  setPageIndex(e.data);
-                  playFlipSound();
-                },
-                children: pages.map((p) => (
-                  <FlipPage
-                    key={p.page_number}
-                    page={p}
+              // Capitalise the state binding so JSX renders the
+              // dynamic class component (lowercase identifiers are
+              // parsed as host elements).
+              (() => {
+                const Comp = FlipBookComp;
+                return (
+                  <Comp
+                    key={flipBookKey}
+                    ref={flipBookRef}
                     width={size.w}
                     height={size.h}
-                  />
-                )),
-              })
+                    size="fixed"
+                    minWidth={280}
+                    maxWidth={1600}
+                    minHeight={380}
+                    maxHeight={2000}
+                    maxShadowOpacity={0.5}
+                    showCover
+                    mobileScrollSupport={false}
+                    drawShadow
+                    flippingTime={650}
+                    usePortrait={isMobile}
+                    startZIndex={0}
+                    autoSize={false}
+                    clickEventForward
+                    useMouseEvents
+                    swipeDistance={20}
+                    showPageCorners
+                    disableFlipByClick={false}
+                    startPage={0}
+                    style={{}}
+                    className=""
+                    onFlip={(e: { data: number }) => {
+                      setPageIndex(e.data);
+                      playFlipSound();
+                    }}
+                  >
+                    {pages.map((p) => (
+                      <FlipPage
+                        key={p.page_number}
+                        page={p}
+                        width={size.w}
+                        height={size.h}
+                      />
+                    ))}
+                  </Comp>
+                );
+              })()
             ) : null}
           </div>
         )}

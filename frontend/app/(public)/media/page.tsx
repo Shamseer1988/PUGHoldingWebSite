@@ -4,7 +4,8 @@ import { Section } from "@/components/site/section";
 import { getMediaGallery, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "Media Gallery" };
-export const revalidate = 60;
+// Phase A-1: listing — refresh every 5 min.
+export const revalidate = 300;
 
 export default async function MediaPage() {
   // Everything on this page comes from /admin/media uploads. Tag an

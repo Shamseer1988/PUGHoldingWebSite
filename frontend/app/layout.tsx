@@ -18,9 +18,12 @@ const inter = Inter({
   display: "swap",
 });
 
-// Root layout fetches CMS-driven SEO + site settings. Keep it dynamic
-// so the no-store responses don't collide with a cached layout.
-export const dynamic = "force-dynamic";
+// Removed `export const dynamic = "force-dynamic"` (Phase A-1). Forcing
+// every route to render dynamically defeated the CDN cache for public
+// pages that change infrequently. Public pages now opt into per-route
+// ISR via `export const revalidate = …` in their own files; admin and
+// HR portals declare `force-dynamic` in their own layouts so
+// personalised content keeps rendering on every request.
 
 
 /**

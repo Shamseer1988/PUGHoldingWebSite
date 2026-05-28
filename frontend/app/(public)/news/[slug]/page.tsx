@@ -19,7 +19,8 @@ import { Button } from "@/components/ui/button";
 import { getNews, getNewsBySlug, resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
-export const revalidate = 60;
+// Phase A-1: detail page (already has generateStaticParams) — refresh every 5 min.
+export const revalidate = 300;
 
 export async function generateStaticParams() {
   const news = await getNews();

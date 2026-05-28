@@ -4,7 +4,8 @@ import { Section } from "@/components/site/section";
 import { getPublicJobs, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "Careers" };
-export const revalidate = 60;
+// Phase A-1: listing — refresh every 5 min.
+export const revalidate = 300;
 
 export default async function CareersPage() {
   const [jobs, page] = await Promise.all([
