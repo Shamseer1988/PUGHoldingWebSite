@@ -7,6 +7,7 @@ import { Bot, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   askPugAi,
+  askPugAiStream,
   PublicApiError,
   type AskPugAiTurn,
 } from "@/lib/public-api-client";
@@ -107,41 +108,100 @@ export function AskPugAiButton() {
         content: m.content,
       }));
 
-    setMessages((prev) => [...prev, userMsg]);
+    // Phase C-5: optimistic assistant bubble that fills as tokens
+    // stream in. ``newId()`` is captured here so we can target the
+    // same message across many ``setMessages`` calls.
+    const assistantId = newId();
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
     setInput("");
     setBusy(true);
 
     try {
-      const result = await askPugAi({
-        question: text,
-        session_id: sessionIdRef.current || null,
-        history,
-      });
-      if (result.session_id) {
-        sessionIdRef.current = result.session_id;
+      const done = await askPugAiStream(
+        {
+          question: text,
+          session_id: sessionIdRef.current || null,
+          history,
+        },
+        {
+          onDelta: (piece) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: (m.content ?? "") + piece }
+                  : m
+              )
+            );
+          },
+        }
+      );
+      if (done.session_id) {
+        sessionIdRef.current = done.session_id;
         try {
-          window.localStorage.setItem(SESSION_KEY, result.session_id);
+          window.localStorage.setItem(SESSION_KEY, done.session_id);
         } catch {
           /* ignore quota */
         }
       }
-      const assistantMsg: ChatMessage = {
-        id: newId(),
-        role: "assistant",
-        content: result.answer,
-        was_fallback: result.was_fallback,
-        mode: result.mode,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
-      const detail =
-        err instanceof PublicApiError
-          ? err.message
-          : "Sorry, something went wrong. Please try again later or contact us directly.";
-      setMessages((prev) => [
-        ...prev,
-        { id: newId(), role: "system", content: detail },
-      ]);
+      // Stamp the final metadata (mode + fallback) on the bubble so
+      // the rendered "Live mode" pill matches what the user saw.
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                mode: done.mode,
+                was_fallback: done.was_fallback,
+              }
+            : m
+        )
+      );
+    } catch (streamErr) {
+      // Stream failed — fall back to the blocking endpoint so the
+      // visitor still gets an answer. The optimistic bubble is
+      // replaced with the full response on success.
+      try {
+        const result = await askPugAi({
+          question: text,
+          session_id: sessionIdRef.current || null,
+          history,
+        });
+        if (result.session_id) {
+          sessionIdRef.current = result.session_id;
+          try {
+            window.localStorage.setItem(SESSION_KEY, result.session_id);
+          } catch {
+            /* ignore quota */
+          }
+        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content: result.answer,
+                  was_fallback: result.was_fallback,
+                  mode: result.mode,
+                }
+              : m
+          )
+        );
+      } catch (err) {
+        const detail =
+          err instanceof PublicApiError
+            ? err.message
+            : "Sorry, something went wrong. Please try again later or contact us directly.";
+        setMessages((prev) =>
+          prev
+            // Drop the empty assistant bubble we put in optimistically.
+            .filter((m) => m.id !== assistantId)
+            .concat([{ id: newId(), role: "system", content: detail }])
+        );
+      }
     } finally {
       setBusy(false);
     }

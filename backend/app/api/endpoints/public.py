@@ -6,10 +6,12 @@ Form submission endpoints write to the same tables the admin manages.
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -72,7 +74,11 @@ from app.schemas.hr_ats import (
     PublicAIAskResponse,
     PublicCvParsePreview,
 )
-from app.ai.public_assistant import answer_question, log_query
+from app.ai.public_assistant import (
+    answer_question,
+    log_query,
+    stream_answer_question,
+)
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
@@ -1266,6 +1272,109 @@ def ask_pug_ai(
         was_fallback=result.was_fallback,
         session_id=payload.session_id,
         model_name=result.model_name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase C-5 — Streaming variant of /ai-assistant/ask
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/ai-assistant/ask-stream",
+    dependencies=[Depends(rate_limit_ai_assistant)],
+)
+def ask_pug_ai_stream(
+    payload: PublicAIAskRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-Sent Events stream of the public assistant's answer.
+
+    Wire format: ``text/event-stream`` framed as
+
+        data: {"type": "delta", "text": "<chunk>"}\\n\\n
+        data: {"type": "delta", "text": "<chunk>"}\\n\\n
+        ...
+        data: {"type": "done", "mode": "...", "session_id": "...",
+                "model_name": "...", "was_fallback": false}\\n\\n
+
+    Mock / disabled / fallback modes emit the same shape — they
+    just ship the entire answer as a single ``delta`` followed by
+    the closing ``done``. The frontend doesn't branch on mode.
+
+    Rate limited the same as the blocking endpoint (10/min, 60/hour
+    per IP) — streaming changes perceived latency, not request
+    quota. The accompanying ``PublicAIQuery`` row is written once
+    the stream completes; a client that disconnects mid-stream
+    still gets logged with whatever was produced up to that point.
+    """
+    history = [
+        {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
+        for m in (payload.history or [])
+        if isinstance(m, dict)
+    ]
+    ctx = get_request_context(request)
+
+    def _sse() -> Iterable[str]:
+        # We accumulate the final ``AskResult`` so the log row reflects
+        # the full text the visitor saw, even if individual ``delta``
+        # frames are small.
+        final_result = None
+        try:
+            for kind, payload_item in stream_answer_question(
+                db,
+                question=payload.question,
+                history=history,
+            ):
+                if kind == "delta":
+                    yield (
+                        "data: "
+                        + json.dumps({"type": "delta", "text": payload_item})
+                        + "\n\n"
+                    )
+                elif kind == "done":
+                    final_result = payload_item
+                    yield (
+                        "data: "
+                        + json.dumps(
+                            {
+                                "type": "done",
+                                "mode": payload_item.mode,
+                                "session_id": payload.session_id,
+                                "model_name": payload_item.model_name,
+                                "was_fallback": payload_item.was_fallback,
+                            }
+                        )
+                        + "\n\n"
+                    )
+        finally:
+            if final_result is not None:
+                try:
+                    log_query(
+                        db,
+                        question=payload.question,
+                        result=final_result,
+                        session_id=payload.session_id,
+                        ip_address=ctx["ip_address"],
+                        user_agent=ctx["user_agent"],
+                    )
+                except Exception:  # noqa: BLE001 — logging must never raise
+                    logger.exception(
+                        "Failed to log AI query for session %s",
+                        payload.session_id,
+                    )
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={
+            # Disable buffering at any intermediate proxy so chunks
+            # actually reach the browser as they're produced.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 
