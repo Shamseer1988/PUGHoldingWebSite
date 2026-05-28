@@ -2,16 +2,19 @@
 
 import * as React from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Copy,
   Download,
   LayoutGrid,
+  List,
   Maximize2,
   Minimize2,
+  Printer,
   Share2,
   ZoomIn,
   ZoomOut,
@@ -32,13 +35,12 @@ import {
 import { cn } from "@/lib/utils";
 
 
-// react-pageflip is a client-only library that touches DOM refs on
-// mount. Wrap it in next/dynamic with ssr:false so the bundle stays
-// server-renderable and the flipbook hydrates after the catalogue
-// detail has loaded.
-const HTMLFlipBook = dynamic(() => import("react-pageflip"), {
-  ssr: false,
-});
+// react-pageflip touches ``window`` at import time (via its
+// page-flip dependency), so we can't import it eagerly during SSR.
+// Doing the dynamic import inside ``useEffect`` lets the class
+// component render directly here — which means refs work the
+// natural way. ``next/dynamic`` would otherwise swallow the ref.
+type FlipBookComponent = React.ComponentType<Record<string, unknown>>;
 
 
 interface Props {
@@ -49,10 +51,13 @@ interface Props {
 export function CatalogueViewer({ catalogue }: Props) {
   const [pageIndex, setPageIndex] = React.useState(0);
   const [thumbsOpen, setThumbsOpen] = React.useState(false);
+  const [outlineOpen, setOutlineOpen] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
   const [fullscreen, setFullscreen] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(false);
   const [zoom, setZoom] = React.useState(1);
+  const [FlipBookComp, setFlipBookComp] =
+    React.useState<FlipBookComponent | null>(null);
 
   const containerRef = React.useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,7 +67,22 @@ export function CatalogueViewer({ catalogue }: Props) {
   const pageCount = pages.length;
 
   // -----------------------------------------------------------------
-  // Mobile detect (Tailwind ``md`` breakpoint)
+  // Lazy-load react-pageflip on mount (uses ``window`` at import).
+  // -----------------------------------------------------------------
+  React.useEffect(() => {
+    let cancelled = false;
+    import("react-pageflip").then((mod) => {
+      if (cancelled) return;
+      const Comp = mod.default as unknown as FlipBookComponent;
+      setFlipBookComp(() => Comp);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // -----------------------------------------------------------------
+  // Mobile detect (Tailwind ``md`` breakpoint).
   // -----------------------------------------------------------------
   React.useEffect(() => {
     function check() {
@@ -74,7 +94,7 @@ export function CatalogueViewer({ catalogue }: Props) {
   }, []);
 
   // -----------------------------------------------------------------
-  // Analytics — beacon on open + on close with duration
+  // Analytics — beacon on open + on close with duration.
   // -----------------------------------------------------------------
   React.useEffect(() => {
     const start = Date.now();
@@ -91,7 +111,35 @@ export function CatalogueViewer({ catalogue }: Props) {
   }, [catalogue.id]);
 
   // -----------------------------------------------------------------
-  // Keyboard
+  // Navigation helpers — always go through the flipbook so the
+  // animation fires. ``pageFlip()`` returns the PageFlip instance.
+  // -----------------------------------------------------------------
+  const next = React.useCallback(() => {
+    const api = flipBookRef.current?.pageFlip?.();
+    if (api) api.flipNext();
+    else setPageIndex((i) => Math.min(pageCount - 1, i + 1));
+  }, [pageCount]);
+
+  const prev = React.useCallback(() => {
+    const api = flipBookRef.current?.pageFlip?.();
+    if (api) api.flipPrev();
+    else setPageIndex((i) => Math.max(0, i - 1));
+  }, []);
+
+  const goTo = React.useCallback(
+    (idx: number) => {
+      const target = Math.max(0, Math.min(pageCount - 1, idx));
+      const api = flipBookRef.current?.pageFlip?.();
+      if (api) api.flip(target);
+      else setPageIndex(target);
+      setThumbsOpen(false);
+      setOutlineOpen(false);
+    },
+    [pageCount]
+  );
+
+  // -----------------------------------------------------------------
+  // Keyboard.
   // -----------------------------------------------------------------
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -109,8 +157,7 @@ export function CatalogueViewer({ catalogue }: Props) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageCount]);
+  }, [next, prev, goTo, pageCount]);
 
   React.useEffect(() => {
     function onFs() {
@@ -119,34 +166,6 @@ export function CatalogueViewer({ catalogue }: Props) {
     document.addEventListener("fullscreenchange", onFs);
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
-
-  // -----------------------------------------------------------------
-  // Page navigation — go through the flipbook ref on desktop so the
-  // animation fires; fall back to direct state on mobile.
-  // -----------------------------------------------------------------
-  function next() {
-    if (!isMobile && flipBookRef.current?.pageFlip) {
-      flipBookRef.current.pageFlip().flipNext();
-    } else {
-      setPageIndex((i) => Math.min(pageCount - 1, i + 1));
-    }
-  }
-  function prev() {
-    if (!isMobile && flipBookRef.current?.pageFlip) {
-      flipBookRef.current.pageFlip().flipPrev();
-    } else {
-      setPageIndex((i) => Math.max(0, i - 1));
-    }
-  }
-  function goTo(idx: number) {
-    const target = Math.max(0, Math.min(pageCount - 1, idx));
-    if (!isMobile && flipBookRef.current?.pageFlip) {
-      flipBookRef.current.pageFlip().flip(target);
-    } else {
-      setPageIndex(target);
-    }
-    setThumbsOpen(false);
-  }
 
   function toggleFullscreen() {
     const el = containerRef.current;
@@ -158,8 +177,15 @@ export function CatalogueViewer({ catalogue }: Props) {
     }
   }
 
+  function printCatalogue() {
+    // Open the source PDF in a new tab — the browser's PDF reader
+    // exposes its own print button. We don't auto-trigger print()
+    // because cross-origin iframes block it.
+    window.open(catalogueDownloadUrl(catalogue.id), "_blank");
+  }
+
   // -----------------------------------------------------------------
-  // Share
+  // Share.
   // -----------------------------------------------------------------
   const shareUrl =
     typeof window !== "undefined" ? window.location.href : "";
@@ -189,8 +215,8 @@ export function CatalogueViewer({ catalogue }: Props) {
 
   // -----------------------------------------------------------------
   // Page-flip sound — synthesized via Web Audio so we don't ship an
-  // asset. A short noise burst through a band-pass + envelope sounds
-  // close enough to a paper flip for the effect to feel real.
+  // asset. A short noise burst through a band-pass envelope sounds
+  // close enough to a paper flip.
   // -----------------------------------------------------------------
   const audioCtxRef = React.useRef<AudioContext | null>(null);
   function playFlipSound() {
@@ -209,7 +235,6 @@ export function CatalogueViewer({ catalogue }: Props) {
       const length = Math.floor(sampleRate * duration);
       const buffer = ctx.createBuffer(1, length, sampleRate);
       const data = buffer.getChannelData(0);
-      // Decaying noise + slight upward tilt = paper rustle.
       for (let i = 0; i < length; i++) {
         const t = i / length;
         const noise = Math.random() * 2 - 1;
@@ -234,42 +259,59 @@ export function CatalogueViewer({ catalogue }: Props) {
   }
 
   // -----------------------------------------------------------------
-  // Page geometry for the flipbook — fit a two-page spread into the
-  // viewport while honouring the source aspect ratio.
+  // Size — fill the viewer body in BOTH dimensions. Compute the
+  // largest page size that fits given the spread width factor (2 in
+  // landscape, 1 in portrait).
   // -----------------------------------------------------------------
   const firstPage = pages[0];
   const aspect = firstPage
     ? firstPage.width / firstPage.height
-    : 0.7071; // A4
-  // Pick a height that fits the viewer area (vh minus topbar minus a
-  // little padding); width follows the aspect. SSR fallback: 720x1000.
-  const [size, setSize] = React.useState({ w: 500, h: 700 });
+    : 0.7071; // A4 portrait fallback
+
+  const [size, setSize] = React.useState({ w: 420, h: 600 });
   React.useEffect(() => {
     function measure() {
-      // 3.5rem top bar (layout) + 3rem viewer top bar + 1.5rem padding
-      const available = window.innerHeight - 56 - 56 - 24;
-      const h = Math.max(400, Math.min(available, 1100));
+      // Reserved chrome:
+      //   ~ 52px sticky layout header
+      //   ~ 52px viewer top bar
+      //   ~ 48px bottom progress bar
+      //   + a little breathing room
+      const reservedV = 52 + 52 + 48 + 16;
+      // Horizontal: nav arrows (~64px each side) + small padding.
+      const reservedH = isMobile ? 16 : 144;
+      const availH = Math.max(360, window.innerHeight - reservedV);
+      const availW = Math.max(320, window.innerWidth - reservedH);
+      const spread = isMobile ? 1 : 2;
+      const hByWidth = (availW / spread) / aspect;
+      const hByHeight = availH;
+      const h = Math.floor(Math.min(hByWidth, hByHeight));
       const w = Math.floor(h * aspect);
       setSize({ w, h });
     }
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [aspect]);
+  }, [aspect, isMobile]);
+
+  // Force the flipbook to remount when the device mode flips —
+  // ``usePortrait`` is read once in componentDidMount and won't
+  // react to a prop change otherwise.
+  const flipBookKey = isMobile ? "portrait" : "landscape";
+
+  const ready = FlipBookComp !== null && pageCount > 0;
 
   return (
     <main
       ref={containerRef}
       className={cn(
-        // Calaméo-style dark theatre. The dark gradient frames the
-        // page art and the brand-gold chevrons pop on the dark
-        // backdrop.
+        // Calaméo-style dark theatre: dark gradient frames the page
+        // art so the brand-gold accents pop.
         "relative flex w-full flex-col bg-gradient-to-b from-zinc-900 via-zinc-950 to-black text-zinc-100",
         fullscreen ? "h-screen" : "h-[calc(100vh-3.5rem)]"
       )}
     >
-      {/* ----- Top bar ----- */}
-      <header className="relative z-20 flex items-center gap-3 border-b border-white/5 bg-black/40 px-4 py-2.5 backdrop-blur sm:px-6">
+      {/* ----- Top toolbar ----- */}
+      <header className="relative z-20 flex items-center gap-2 border-b border-white/5 bg-black/40 px-3 py-2 backdrop-blur sm:px-5">
         <Link
           href="/offers"
           className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300 hover:text-white"
@@ -277,7 +319,7 @@ export function CatalogueViewer({ catalogue }: Props) {
           <ArrowLeft className="h-3 w-3" />
           Offers
         </Link>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 px-2">
           <p className="truncate text-sm font-semibold">{catalogue.title}</p>
           <PageReadout
             pageIndex={pageIndex}
@@ -285,20 +327,47 @@ export function CatalogueViewer({ catalogue }: Props) {
             isMobile={isMobile}
           />
         </div>
-        <div className="hidden gap-1 sm:flex">
+
+        {/* Page navigation / view group — full set on desktop, trimmed on mobile */}
+        <div className="hidden items-center gap-0.5 sm:flex">
           <IconButton
             label="Thumbnails"
             icon={LayoutGrid}
-            onClick={() => setThumbsOpen((v) => !v)}
+            onClick={() => {
+              setOutlineOpen(false);
+              setThumbsOpen((v) => !v);
+            }}
             active={thumbsOpen}
           />
+          <IconButton
+            label="Page list"
+            icon={List}
+            onClick={() => {
+              setThumbsOpen(false);
+              setOutlineOpen((v) => !v);
+            }}
+            active={outlineOpen}
+          />
+          <IconButton
+            label="First page"
+            icon={ChevronsLeft}
+            onClick={() => goTo(0)}
+            disabled={pageIndex === 0}
+          />
+          <IconButton
+            label="Last page"
+            icon={ChevronsRight}
+            onClick={() => goTo(pageCount - 1)}
+            disabled={pageIndex >= pageCount - 1}
+          />
+          <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
           <IconButton
             label="Zoom out"
             icon={ZoomOut}
             onClick={() => setZoom((z) => clampZoom(z - 0.15))}
             disabled={zoom <= MIN_ZOOM + 0.001}
           />
-          <span className="inline-flex w-12 items-center justify-center text-[11px] text-zinc-300">
+          <span className="inline-flex w-11 items-center justify-center font-mono text-[11px] text-zinc-300">
             {Math.round(zoom * 100)}%
           </span>
           <IconButton
@@ -307,7 +376,15 @@ export function CatalogueViewer({ catalogue }: Props) {
             onClick={() => setZoom((z) => clampZoom(z + 0.15))}
             disabled={zoom >= MAX_ZOOM - 0.001}
           />
+          <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
+          <IconButton
+            label="Print"
+            icon={Printer}
+            onClick={printCatalogue}
+          />
         </div>
+
+        {/* Always-visible group (mobile too) */}
         <div className="relative">
           <IconButton
             label="Share"
@@ -319,7 +396,7 @@ export function CatalogueViewer({ catalogue }: Props) {
         <IconButton
           label="Download PDF"
           icon={Download}
-          as={Link}
+          as="a"
           href={catalogueDownloadUrl(catalogue.id)}
         />
         <IconButton
@@ -327,68 +404,79 @@ export function CatalogueViewer({ catalogue }: Props) {
           icon={fullscreen ? Minimize2 : Maximize2}
           onClick={toggleFullscreen}
         />
+        {/* Mobile-only quick thumbnails button */}
+        <div className="sm:hidden">
+          <IconButton
+            label="Thumbnails"
+            icon={LayoutGrid}
+            onClick={() => setThumbsOpen((v) => !v)}
+            active={thumbsOpen}
+          />
+        </div>
       </header>
 
       {/* ----- Viewer body ----- */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden">
-        {isMobile ? (
-          <MobileScroller
-            pages={pages}
-            onActivePage={(n) => setPageIndex(n - 1)}
-          />
-        ) : pageCount > 0 ? (
+        {!ready ? (
+          <p className="text-sm text-zinc-400">
+            {pageCount === 0 ? "No pages to display." : "Loading viewer…"}
+          </p>
+        ) : (
           <div
             className="transition-transform duration-200"
-            style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+            style={{
+              transform: `scale(${zoom})`,
+              transformOrigin: "center",
+            }}
           >
-            {/* The cast keeps TS quiet about the dynamic import +
-                ref typing. The library accepts any sane refs. */}
-            <HTMLFlipBook
-              ref={flipBookRef as never}
-              width={size.w}
-              height={size.h}
-              size="stretch"
-              minWidth={300}
-              maxWidth={1200}
-              minHeight={400}
-              maxHeight={1600}
-              maxShadowOpacity={0.5}
-              showCover
-              mobileScrollSupport={false}
-              drawShadow
-              flippingTime={650}
-              usePortrait={false}
-              startZIndex={0}
-              autoSize={false}
-              clickEventForward
-              useMouseEvents
-              swipeDistance={30}
-              showPageCorners
-              disableFlipByClick={false}
-              startPage={0}
-              style={{}}
-              className=""
-              onFlip={(e: { data: number }) => {
-                setPageIndex(e.data);
-                playFlipSound();
-              }}
-            >
-              {pages.map((p) => (
-                <FlipPage
-                  key={p.page_number}
-                  page={p}
-                  width={size.w}
-                  height={size.h}
-                />
-              ))}
-            </HTMLFlipBook>
+            {FlipBookComp ? (
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              React.createElement(FlipBookComp as any, {
+                key: flipBookKey,
+                ref: flipBookRef,
+                width: size.w,
+                height: size.h,
+                size: "fixed",
+                minWidth: 280,
+                maxWidth: 1600,
+                minHeight: 380,
+                maxHeight: 2000,
+                maxShadowOpacity: 0.5,
+                showCover: true,
+                mobileScrollSupport: false,
+                drawShadow: true,
+                flippingTime: 650,
+                usePortrait: isMobile,
+                startZIndex: 0,
+                autoSize: false,
+                clickEventForward: true,
+                useMouseEvents: true,
+                swipeDistance: 20,
+                showPageCorners: true,
+                disableFlipByClick: false,
+                startPage: 0,
+                style: {},
+                className: "",
+                onFlip: (e: { data: number }) => {
+                  setPageIndex(e.data);
+                  playFlipSound();
+                },
+                children: pages.map((p) => (
+                  <FlipPage
+                    key={p.page_number}
+                    page={p}
+                    width={size.w}
+                    height={size.h}
+                  />
+                )),
+              })
+            ) : null}
           </div>
-        ) : (
-          <p className="text-sm text-zinc-400">No pages to display.</p>
         )}
 
-        {/* Nav arrows — desktop only; mobile uses native scroll. */}
-        {!isMobile && (
+        {/* Nav arrows — visible on all sizes so mobile gets explicit
+            controls in addition to the swipe gesture. */}
+        {ready && (
           <>
             <NavArrow
               direction="prev"
@@ -404,14 +492,15 @@ export function CatalogueViewer({ catalogue }: Props) {
         )}
       </div>
 
-      {/* ----- Bottom progress + thumbnail strip ----- */}
-      {!isMobile && pageCount > 0 && (
+      {/* ----- Bottom progress bar ----- */}
+      {pageCount > 0 && (
         <ProgressBar
           pageIndex={pageIndex}
           pageCount={pageCount}
           onSeek={goTo}
         />
       )}
+
       {thumbsOpen && (
         <ThumbnailGrid
           pages={pages}
@@ -420,12 +509,13 @@ export function CatalogueViewer({ catalogue }: Props) {
           onClose={() => setThumbsOpen(false)}
         />
       )}
-
-      {/* Mobile page indicator */}
-      {isMobile && (
-        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-white/15 bg-black/60 px-3 py-1 text-[11px] text-zinc-200">
-          Page {pageIndex + 1} of {pageCount}
-        </div>
+      {outlineOpen && (
+        <OutlinePanel
+          pages={pages}
+          currentIndex={pageIndex}
+          onJump={goTo}
+          onClose={() => setOutlineOpen(false)}
+        />
       )}
     </main>
   );
@@ -471,8 +561,6 @@ function PageReadout({
   if (pageCount === 0) {
     return <p className="text-[11px] text-zinc-400">No pages</p>;
   }
-  // Desktop two-page spread except the cover (page 1 alone) and the
-  // last page if it lands on a left-side slot.
   if (!isMobile && pageIndex > 0 && pageIndex < pageCount - 1) {
     return (
       <p className="text-[11px] text-zinc-400">
@@ -488,65 +576,6 @@ function PageReadout({
 }
 
 
-function MobileScroller({
-  pages,
-  onActivePage,
-}: {
-  pages: CataloguePage[];
-  onActivePage: (n: number) => void;
-}) {
-  const observer = React.useRef<IntersectionObserver | null>(null);
-  React.useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    observer.current = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.55) {
-            const num = Number(
-              (entry.target as HTMLElement).dataset.pageNumber
-            );
-            if (!Number.isNaN(num)) onActivePage(num);
-          }
-        }
-      },
-      { threshold: [0.55] }
-    );
-    return () => observer.current?.disconnect();
-  }, [onActivePage]);
-
-  const setRef = React.useCallback((el: HTMLDivElement | null) => {
-    if (!el || !observer.current) return;
-    observer.current.observe(el);
-  }, []);
-
-  return (
-    <div className="flex h-full w-full snap-y snap-mandatory flex-col overflow-y-auto">
-      {pages.map((p) => (
-        <div
-          key={p.page_number}
-          ref={setRef}
-          data-page-number={p.page_number}
-          className="flex min-h-full shrink-0 snap-center items-center justify-center p-3"
-        >
-          <div
-            className="overflow-hidden rounded-lg bg-white shadow-2xl shadow-black/40"
-            style={{ aspectRatio: `${p.width} / ${p.height}` }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={resolveAssetUrl(p.image_url) ?? ""}
-              alt={`Page ${p.page_number}`}
-              className="h-full w-full object-contain"
-              loading="lazy"
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-
 function ProgressBar({
   pageIndex,
   pageCount,
@@ -556,18 +585,15 @@ function ProgressBar({
   pageCount: number;
   onSeek: (i: number) => void;
 }) {
-  // Slider goes from 0 to pageCount-1. We let the browser handle the
-  // pointer events; on change we jump to the page (which triggers the
-  // flipbook's flipTo animation).
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-10 flex items-center gap-3 border-t border-white/5 bg-black/50 px-4 py-2 backdrop-blur sm:px-6">
+    <div className="relative z-10 flex items-center gap-3 border-t border-white/5 bg-black/60 px-4 py-2 backdrop-blur sm:px-6">
       <span className="font-mono text-[11px] text-zinc-300">
         {pageIndex + 1}
       </span>
       <input
         type="range"
         min={0}
-        max={pageCount - 1}
+        max={Math.max(0, pageCount - 1)}
         value={pageIndex}
         onChange={(e) => onSeek(Number(e.target.value))}
         aria-label="Jump to page"
@@ -644,6 +670,64 @@ function ThumbnailGrid({
 }
 
 
+function OutlinePanel({
+  pages,
+  currentIndex,
+  onJump,
+  onClose,
+}: {
+  pages: CataloguePage[];
+  currentIndex: number;
+  onJump: (i: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="absolute right-0 top-0 z-30 flex h-full w-72 flex-col border-l border-white/10 bg-black/90 backdrop-blur"
+      role="dialog"
+      aria-label="Page list"
+    >
+      <header className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
+          Pages
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-1 text-zinc-300 hover:text-white"
+          aria-label="Close page list"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </header>
+      <ul className="flex-1 overflow-y-auto py-1">
+        {pages.map((p, i) => (
+          <li key={p.page_number}>
+            <button
+              type="button"
+              onClick={() => onJump(i)}
+              className={cn(
+                "flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors",
+                i === currentIndex
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-300 hover:bg-white/5 hover:text-white"
+              )}
+            >
+              <span className="inline-flex h-6 w-8 items-center justify-center rounded bg-white/5 font-mono text-[11px]">
+                {p.page_number}
+              </span>
+              <span className="text-[12px] text-zinc-400">
+                Page {p.page_number}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
 // ---------------------------------------------------------------------------
 // Small UI primitives
 // ---------------------------------------------------------------------------
@@ -663,7 +747,7 @@ type IconButtonProps = {
   active?: boolean;
 } & (
   | { as?: undefined; href?: undefined }
-  | { as: typeof Link; href: string }
+  | { as: "a"; href: string }
 );
 
 
@@ -676,17 +760,18 @@ function IconButton(props: IconButtonProps) {
       ? "cursor-not-allowed opacity-30"
       : "hover:bg-white/10 hover:text-white"
   );
-  if (props.as === Link && props.href) {
+  if (props.as === "a" && props.href) {
     return (
-      <Link
+      <a
         href={props.href}
         className={className}
         aria-label={label}
         title={label}
         target="_blank"
+        rel="noreferrer"
       >
         <Icon className="h-4 w-4" />
-      </Link>
+      </a>
     );
   }
   return (
@@ -721,14 +806,14 @@ function NavArrow({
       disabled={disabled}
       aria-label={direction === "prev" ? "Previous page" : "Next page"}
       className={cn(
-        "absolute top-1/2 z-10 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/40 text-zinc-100 backdrop-blur transition-all",
-        direction === "prev" ? "left-3 sm:left-6" : "right-3 sm:right-6",
+        "absolute top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/50 text-zinc-100 shadow-lg backdrop-blur transition-all sm:h-14 sm:w-14",
+        direction === "prev" ? "left-2 sm:left-5" : "right-2 sm:right-5",
         disabled
           ? "cursor-not-allowed opacity-25"
-          : "hover:bg-black/70 hover:text-white"
+          : "hover:bg-black/80 hover:text-white"
       )}
     >
-      <Icon className="h-7 w-7" />
+      <Icon className="h-6 w-6 sm:h-7 sm:w-7" />
     </button>
   );
 }
