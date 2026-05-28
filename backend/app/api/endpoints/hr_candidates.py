@@ -23,6 +23,7 @@ logger = get_logger(__name__)
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -117,6 +118,7 @@ from app.ai.candidate_review import (
     resolve_config,
 )
 from app.services.audit_log import record_audit
+from app.services.hr_realtime import broadcast_candidate_application_new
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
@@ -422,6 +424,7 @@ def get_candidate(
 )
 def upload_candidate(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
     file: UploadFile = File(...),
@@ -501,20 +504,36 @@ def upload_candidate(
     )
     db.commit()
 
+    # Phase C-2: real-time toast on every connected HR console. The
+    # endpoint is sync (the ingest path is blocking); BackgroundTasks
+    # runs the async broadcast on the event loop after the response
+    # ships so the operator sees the 201 before the toast.
+    job_title = (
+        result.application.job_opening.title
+        if result.application.job_opening is not None
+        else None
+    )
+    job_slug = (
+        result.application.job_opening.slug
+        if result.application.job_opening is not None
+        else None
+    )
+    background_tasks.add_task(
+        broadcast_candidate_application_new,
+        candidate_id=result.candidate.id,
+        candidate_name=result.candidate.full_name,
+        application_id=result.application.id,
+        job_title=job_title,
+        job_slug=job_slug,
+        source="manual_upload",
+    )
+
     return ApplicationSubmissionResponse(
         candidate_id=result.candidate.id,
         application_id=result.application.id,
         was_existing_candidate=result.was_existing_candidate,
-        job_title=(
-            result.application.job_opening.title
-            if result.application.job_opening is not None
-            else None
-        ),
-        job_slug=(
-            result.application.job_opening.slug
-            if result.application.job_opening is not None
-            else None
-        ),
+        job_title=job_title,
+        job_slug=job_slug,
     )
 
 

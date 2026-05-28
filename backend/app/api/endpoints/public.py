@@ -83,6 +83,7 @@ from app.services.cv_storage import CvUploadError, store_cv_bytes
 from app.models.hr_ats import SOURCE_PUBLIC_FORM
 from app.services.audit_log import record_audit
 from app.services.hr_notifications import notify_candidate_application_received
+from app.services.hr_realtime import broadcast_candidate_application_new
 
 
 logger = logging.getLogger(__name__)
@@ -1177,6 +1178,27 @@ async def submit_candidate_application(
         logger.exception(
             "Failed to dispatch application-received email for %s", result.application.id
         )
+
+    # Phase C-2: push a real-time toast to every HR operator with a
+    # live console open. Best-effort — never raises (the helper
+    # swallows internally), so a slow WS client can't roll the
+    # public response back.
+    await broadcast_candidate_application_new(
+        candidate_id=result.candidate.id,
+        candidate_name=result.candidate.full_name,
+        application_id=result.application.id,
+        job_title=(
+            result.application.job_opening.title
+            if result.application.job_opening is not None
+            else None
+        ),
+        job_slug=(
+            result.application.job_opening.slug
+            if result.application.job_opening is not None
+            else None
+        ),
+        source="public_form",
+    )
 
     return ApplicationSubmissionResponse(
         candidate_id=result.candidate.id,

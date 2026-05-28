@@ -25,6 +25,7 @@ from app.api.endpoints import (
     hr_scheduled_reports,
     hr_scorecards,
     public,
+    websocket,
 )
 
 api_router = APIRouter()
@@ -49,3 +50,4 @@ api_router.include_router(hr_reports.router)
 api_router.include_router(hr_saved_searches.router)
 api_router.include_router(hr_scorecards.router)
 api_router.include_router(hr_scheduled_reports.router)
+api_router.include_router(websocket.router)
