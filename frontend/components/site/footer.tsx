@@ -21,6 +21,7 @@ import {
 import { Logo } from "@/components/site/logo";
 import type { SiteSettings } from "@/lib/admin/types";
 import { parseContactMapEmbed } from "@/lib/contact-map";
+import { useT } from "@/lib/i18n/locale-provider";
 import { FOOTER_COLUMNS, FOOTER_LEGAL_LINKS } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,7 @@ interface SocialRow {
 
 export function Footer({ settings }: FooterProps) {
   const prefersReducedMotion = useReducedMotion();
+  const t = useT();
   // When the user prefers reduced motion, jump straight to the
   // "visible" state on first paint — no transitions. Matches the
   // old GSAP path's matchMedia bail-out: elements appear in their
@@ -83,14 +85,14 @@ export function Footer({ settings }: FooterProps) {
   const contactRows: ContactRow[] = [];
   if (settings.contact_address) {
     contactRows.push({
-      label: "Address",
+      label: t("footer.address_label"),
       value: settings.contact_address,
       icon: MapPin,
     });
   }
   if (settings.contact_phone) {
     contactRows.push({
-      label: "Phone",
+      label: t("footer.phone_label"),
       value: settings.contact_phone,
       href: `tel:${settings.contact_phone.replace(/\s/g, "")}`,
       icon: Phone,
@@ -98,7 +100,7 @@ export function Footer({ settings }: FooterProps) {
   }
   if (settings.contact_email) {
     contactRows.push({
-      label: "Email",
+      label: t("footer.email_label"),
       value: settings.contact_email,
       href: `mailto:${settings.contact_email}`,
       icon: Mail,
@@ -228,7 +230,7 @@ export function Footer({ settings }: FooterProps) {
             {socialRows.length > 0 && (
               <div className="mt-7">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/70">
-                  Follow us
+                  {t("footer.follow_us")}
                 </p>
                 <ul className="mt-3 flex flex-wrap items-center gap-2">
                   {socialRows.map((social) => {
@@ -327,7 +329,7 @@ export function Footer({ settings }: FooterProps) {
                 className="group/top inline-flex items-center gap-2 rounded-full border border-pug-gold-500/30 bg-background/80 px-4 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:border-pug-gold-500/60 hover:text-foreground hover:shadow-[0_6px_18px_-10px_rgba(207,166,70,0.45)] dark:bg-pug-green-950/80"
               >
                 <ArrowUp className="h-3.5 w-3.5 transition-transform duration-200 group-hover/top:-translate-y-0.5" />
-                <span>Back to top</span>
+                <span>{t("footer.back_to_top")}</span>
               </button>
             </div>
           </div>
@@ -341,7 +343,7 @@ export function Footer({ settings }: FooterProps) {
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Sparkles className="h-3 w-3 text-pug-gold-500" aria-hidden />
               <span>
-                © {year} {settings.site_name}. All rights reserved.
+                © {year} {settings.site_name}. {t("footer.all_rights_reserved")}
               </span>
             </p>
 
@@ -394,6 +396,7 @@ export function Footer({ settings }: FooterProps) {
  *   so empty CMS state doesn't leave a stray block.
  */
 function FindUsCard({ settings }: { settings: SiteSettings }) {
+  const t = useT();
   const address = settings.contact_address?.trim() || null;
   const mapEmbed = parseContactMapEmbed(settings.contact_map_embed);
 
@@ -424,7 +427,7 @@ function FindUsCard({ settings }: { settings: SiteSettings }) {
           <div className="space-y-3">
             <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-pug-gold-700 dark:text-pug-gold-300">
               <Compass className="h-3.5 w-3.5" />
-              Find us
+              {t("footer.find_us")}
             </p>
             <p className="text-sm font-medium leading-relaxed text-foreground">
               {address ?? "Doha, Qatar"}
@@ -437,7 +440,7 @@ function FindUsCard({ settings }: { settings: SiteSettings }) {
                 className="group/maps inline-flex items-center gap-1.5 rounded-full border border-pug-gold-500/30 bg-pug-gold-500/5 px-3 py-1.5 text-xs font-semibold text-pug-gold-700 transition-all hover:-translate-y-0.5 hover:border-pug-gold-500/60 hover:bg-pug-gold-500/10 hover:shadow-[0_8px_22px_-14px_rgba(207,166,70,0.5)] dark:text-pug-gold-200"
               >
                 <MapPin className="h-3.5 w-3.5" />
-                Open in Maps
+                {t("footer.open_in_maps")}
                 <ArrowUpRight className="h-3 w-3 transition-transform group-hover/maps:translate-x-0.5 group-hover/maps:-translate-y-0.5" />
               </Link>
             )}

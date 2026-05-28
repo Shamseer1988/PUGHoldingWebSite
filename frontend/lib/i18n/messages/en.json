@@ -1,0 +1,28 @@
+{
+  "navbar": {
+    "open_menu": "Open menu",
+    "open_search": "Open search",
+    "close_search": "Close search",
+    "search_the_site": "Search the site",
+    "search_placeholder": "Search the site (coming soon)",
+    "close": "Close",
+    "language_label": "Language",
+    "switch_language_to": "Switch language to {target}"
+  },
+  "footer": {
+    "find_us": "Find us",
+    "open_in_maps": "Open in Maps",
+    "follow_us": "Follow us",
+    "back_to_top": "Back to top",
+    "all_rights_reserved": "All rights reserved.",
+    "address_label": "Address",
+    "phone_label": "Phone",
+    "email_label": "Email"
+  },
+  "hero": {
+    "scroll_hint": "Scroll to explore",
+    "previous_slide": "Previous slide",
+    "next_slide": "Next slide",
+    "slide_indicator": "Go to slide {n}"
+  }
+}

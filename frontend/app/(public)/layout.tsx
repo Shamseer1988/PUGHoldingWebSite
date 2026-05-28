@@ -4,6 +4,9 @@ import { MaintenancePage } from "@/components/site/maintenance-page";
 import { Navbar } from "@/components/site/navbar";
 import { ScrollProgressBar } from "@/components/site/scroll-progress";
 import { SkipToContent } from "@/components/site/skip-to-content";
+import { getLocale } from "@/lib/i18n/get-locale";
+import { getMessages } from "@/lib/i18n/get-messages";
+import { LocaleProvider } from "@/lib/i18n/locale-provider";
 import {
   getCompanies,
   getPublicNavigation,
@@ -41,16 +44,24 @@ export default async function PublicLayout({
     getPublicNavigation(),
   ]);
 
+  // Phase C-1: read the locale stamped by ``middleware.ts`` and seed
+  // the LocaleProvider with its dictionary. Components inside read
+  // strings via ``useT()``; ``<html dir>`` is set in the root layout.
+  const locale = getLocale();
+  const messages = getMessages(locale);
+
   return (
-    <div className="relative flex min-h-screen flex-col">
-      <SkipToContent />
-      <ScrollProgressBar />
-      <Navbar companies={companies} items={navItems} />
-      <main id="main-content" className="flex-1">
-        {children}
-      </main>
-      <Footer settings={settings} />
-      <AskPugAiButton />
-    </div>
+    <LocaleProvider locale={locale} messages={messages}>
+      <div className="relative flex min-h-screen flex-col">
+        <SkipToContent />
+        <ScrollProgressBar />
+        <Navbar companies={companies} items={navItems} />
+        <main id="main-content" className="flex-1">
+          {children}
+        </main>
+        <Footer settings={settings} />
+        <AskPugAiButton />
+      </div>
+    </LocaleProvider>
   );
 }

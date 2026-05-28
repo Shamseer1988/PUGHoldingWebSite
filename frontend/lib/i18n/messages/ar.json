@@ -1,0 +1,28 @@
+{
+  "navbar": {
+    "open_menu": "فتح القائمة",
+    "open_search": "فتح البحث",
+    "close_search": "إغلاق البحث",
+    "search_the_site": "البحث في الموقع",
+    "search_placeholder": "البحث في الموقع (قريباً)",
+    "close": "إغلاق",
+    "language_label": "اللغة",
+    "switch_language_to": "تبديل اللغة إلى {target}"
+  },
+  "footer": {
+    "find_us": "موقعنا",
+    "open_in_maps": "فتح في الخرائط",
+    "follow_us": "تابعنا",
+    "back_to_top": "العودة إلى الأعلى",
+    "all_rights_reserved": "جميع الحقوق محفوظة.",
+    "address_label": "العنوان",
+    "phone_label": "الهاتف",
+    "email_label": "البريد الإلكتروني"
+  },
+  "hero": {
+    "scroll_hint": "اسحب للأسفل للاستكشاف",
+    "previous_slide": "الشريحة السابقة",
+    "next_slide": "الشريحة التالية",
+    "slide_indicator": "الانتقال إلى الشريحة {n}"
+  }
+}

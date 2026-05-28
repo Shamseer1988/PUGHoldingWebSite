@@ -27,6 +27,7 @@
 - Do not add new dependencies without explaining why an existing package cannot serve the purpose
 - Keep migrations additive; never drop columns — use nullable + backfill pattern
 - **Frontend motion**: prefer `framer-motion` (variants + `whileInView`) for everything new. GSAP is kept only for `hero-slider.tsx` and `featured-companies-showcase.tsx` because they rely on `ScrollTrigger.scrub` (live scroll-linked parallax / active-state) which framer-motion can replicate only with significant extra machinery. Don't reach for GSAP for new work without an equivalent justification.
+- **Frontend i18n (Phase C-1)**: bilingual EN/AR on the public site. Translations live in `frontend/lib/i18n/messages/{en,ar}.json` (flat JSON, dotted keys). Read strings via `useT()` from `@/lib/i18n/locale-provider` in client components, or `getMessages(getLocale())` in server components. New keys must be added to both dictionaries — the test in `lib/i18n/__tests__/i18n.test.tsx` enforces parity. Direction is set on `<html>` by `app/layout.tsx`; use Tailwind's `rtl:` / `ltr:` variants for direction-sensitive layout. Admin + HR consoles are intentionally English-only (the middleware matcher excludes them). CMS content (companies, news, settings) is single-language until the backend grows a `locale` column.
 
 ## External Services
 - Storage: Cloudflare R2 (S3-compatible, endpoint in .env as R2_ENDPOINT_URL)
