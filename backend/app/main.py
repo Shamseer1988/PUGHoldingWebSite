@@ -7,6 +7,7 @@ middleware that every later phase will rely on.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,9 @@ from app import __version__
 from app.api import api_router
 from app.core.cache_headers import PublicCacheHeadersMiddleware
 from app.core.config import ensure_production_safety, get_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -66,13 +70,38 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    # CORS — strict allowlist in production, permissive localhost in dev.
+    #
+    # FastAPI's CORSMiddleware returns ``400 Bad Request`` on every
+    # preflight whose ``Origin`` header isn't in ``allow_origins``. In
+    # development the frontend often runs on a non-3000 port (3001 when
+    # 3000 is busy, 5173 with Vite, a LAN IP for cross-device testing,
+    # etc.) — so we also pass an ``allow_origin_regex`` that matches
+    # any ``localhost``/``127.0.0.1`` host on any port. The strict
+    # ``allow_origins`` list still wins for the explicit values; the
+    # regex is the safety net.
+    is_prod = settings.app_env.lower() == "production"
+    cors_kwargs: dict = {
+        "allow_origins": settings.cors_origins,
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+        "expose_headers": ["Content-Disposition"],
+    }
+    if not is_prod:
+        # Matches http(s)://localhost(:any) and http(s)://127.0.0.1(:any).
+        cors_kwargs["allow_origin_regex"] = (
+            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+        )
+    logger.info(
+        "CORS configured: app_env=%s, allow_origins=%s%s",
+        settings.app_env,
+        settings.cors_origins,
+        ", allow_origin_regex=localhost|127.0.0.1 (any port)"
+        if not is_prod
+        else "",
     )
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
 
     # Phase 19: rate limiting for the public write endpoints is applied
     # per-route via FastAPI dependencies — see app.core.rate_limit.
