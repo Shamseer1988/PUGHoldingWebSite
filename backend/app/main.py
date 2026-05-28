@@ -55,6 +55,15 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         shutdown_scheduler()
+        # Phase B-2: tear the Redis singleton down so a clean
+        # uvicorn shutdown closes the connection pool. No-op if
+        # ``redis_client.get_redis_client`` was never called.
+        from app.core.redis_client import close_redis
+
+        try:
+            await close_redis()
+        except Exception:  # noqa: BLE001
+            logger.exception("close_redis raised during shutdown")
 
 
 def create_app() -> FastAPI:

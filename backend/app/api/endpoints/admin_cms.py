@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -27,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context, require_website_admin
+from app.core.cache import clear_cache_prefix
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.auth import SCOPE_WEBSITE, AuditLog, User
@@ -317,6 +319,7 @@ def get_company(company_id: int, db: Session = Depends(get_db)) -> Company:
 def create_company(
     payload: CompanyCreate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Company:
@@ -344,6 +347,9 @@ def create_company(
     _audit(db, user, request, action="cms.company.create", target_type="company", target_id=company.id)
     db.commit()
     db.refresh(company)
+    # Invalidate the public companies cache so the next visitor
+    # fetches the fresh list instead of the up-to-5-min-stale one.
+    background.add_task(clear_cache_prefix, "public:companies")
     return company
 
 
@@ -352,6 +358,7 @@ def update_company(
     company_id: int,
     payload: CompanyUpdate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Company:
@@ -401,6 +408,7 @@ def update_company(
     )
     db.commit()
     db.refresh(company)
+    background.add_task(clear_cache_prefix, "public:companies")
     return company
 
 
@@ -408,6 +416,7 @@ def update_company(
 def delete_company(
     company_id: int,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Response:
@@ -417,6 +426,7 @@ def delete_company(
     db.delete(company)
     _audit(db, user, request, action="cms.company.delete", target_type="company", target_id=company_id)
     db.commit()
+    background.add_task(clear_cache_prefix, "public:companies")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -520,6 +530,7 @@ def list_news(db: Session = Depends(get_db)) -> List[NewsItem]:
 def create_news(
     payload: NewsCreate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> NewsItem:
@@ -536,6 +547,7 @@ def create_news(
     _audit(db, user, request, action="cms.news.create", target_type="news", target_id=item.id)
     db.commit()
     db.refresh(item)
+    background.add_task(clear_cache_prefix, "public:news")
     return item
 
 
@@ -544,6 +556,7 @@ def update_news(
     item_id: int,
     payload: NewsUpdate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> NewsItem:
@@ -564,6 +577,7 @@ def update_news(
     )
     db.commit()
     db.refresh(item)
+    background.add_task(clear_cache_prefix, "public:news")
     return item
 
 
@@ -571,6 +585,7 @@ def update_news(
 def delete_news(
     item_id: int,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Response:
@@ -580,6 +595,7 @@ def delete_news(
     db.delete(item)
     _audit(db, user, request, action="cms.news.delete", target_type="news", target_id=item_id)
     db.commit()
+    background.add_task(clear_cache_prefix, "public:news")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1169,6 +1185,7 @@ def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
 def update_site_settings(
     payload: SiteSettingUpdate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> SiteSetting:
@@ -1187,6 +1204,7 @@ def update_site_settings(
     )
     db.commit()
     db.refresh(settings)
+    background.add_task(clear_cache_prefix, "public:settings")
     return settings
 
 

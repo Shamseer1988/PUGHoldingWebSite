@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context
+from app.core.cache import cache_response
 from app.core.database import get_db
 from app.core.rate_limit import (
     rate_limit_ai_assistant,
@@ -174,6 +175,7 @@ def list_public_navigation(
 
 
 @router.get("/companies", response_model=List[CompanyRead])
+@cache_response("public:companies", ttl_seconds=300, vary_by=("category",))
 def list_active_companies(
     db: Session = Depends(get_db),
     category: Optional[str] = Query(
@@ -402,6 +404,9 @@ def get_homepage_trusted_brands(
 
 
 @router.get("/news", response_model=List[NewsRead])
+@cache_response(
+    "public:news", ttl_seconds=300, vary_by=("featured", "limit")
+)
 def list_published_news(
     db: Session = Depends(get_db),
     featured: Optional[bool] = Query(default=None),
@@ -615,6 +620,7 @@ def list_public_media(
 
 
 @router.get("/site-settings", response_model=SiteSettingRead)
+@cache_response("public:settings", ttl_seconds=600)
 def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
     settings = db.get(SiteSetting, 1)
     if settings is None:

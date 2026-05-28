@@ -24,6 +24,13 @@ os.environ.setdefault(
     "pytest-secret-key-only-used-by-the-test-suite-do-not-deploy",
 )
 
+# Phase B-2: switch the rate limiter from the in-memory bucket to
+# Redis. Most tests don't exercise rate-limit behaviour and we don't
+# want random suite traffic tripping a real Redis bucket. The
+# rate-limit-specific tests opt back in via the ``rate_limit_on``
+# fixture in test_security.py.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
 from typing import AsyncGenerator, Generator  # noqa: E402
 
 import pytest
@@ -68,6 +75,35 @@ def _reset_rate_limits() -> Generator[None, None, None]:
     reset_rate_limits()
     yield
     reset_rate_limits()
+
+
+@pytest.fixture(autouse=True)
+def fake_redis(monkeypatch):
+    """Phase B-2: pin a ``fakeredis`` instance as the process-wide
+    Redis client for every test.
+
+    The real client is constructed by
+    ``app.core.redis_client._build_client`` from
+    ``settings.redis_url``; monkey-patching that function makes the
+    rate limiter, cache decorator and any future Redis-touching code
+    use the in-process fake transparently. Tests that want to inspect
+    Redis state directly can do so by importing
+    ``app.core.redis_client.get_redis_client()`` and awaiting commands
+    on the returned fake.
+    """
+    from fakeredis import aioredis as fake_aioredis
+
+    from app.core import redis_client as redis_module
+
+    # Reset any singleton built by a previous test so this test gets
+    # a fresh fakeredis instance (no leftover keys from earlier).
+    redis_module._reset_client_for_tests()
+    fake_client = fake_aioredis.FakeRedis(decode_responses=True)
+    monkeypatch.setattr(
+        redis_module, "_build_client", lambda: fake_client
+    )
+    yield fake_client
+    redis_module._reset_client_for_tests()
 
 
 @pytest.fixture(scope="function")

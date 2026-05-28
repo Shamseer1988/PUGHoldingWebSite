@@ -101,3 +101,13 @@ sentry-sdk[fastapi]==2.18.0
 # surface is migrated yet.
 asyncpg==0.30.0
 aiosqlite==0.20.0  # async SQLite driver for the test suite
+
+# Phase B-2 — Redis client (async). Powers the rate limiter (the
+# in-memory sliding window doesn't survive process boundaries; a
+# multi-worker deployment behind Nginx would otherwise multiply
+# every limit by N) and the public-CMS read-through cache.
+redis==5.2.0
+# In-process Redis fake for the test suite — same API as the real
+# client, no socket. Avoids a hard dependency on a running Redis
+# during ``pytest``.
+fakeredis==2.26.1

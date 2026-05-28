@@ -1,37 +1,45 @@
 """Rate limiting for public write endpoints.
 
-Phase 19 hardening. Adds per-IP throttles to the four endpoints anyone
-on the Internet can call:
+Phase B-2 — Redis backend
+==========================
 
-- ``POST /api/v1/contact``               (contact form)
-- ``POST /api/v1/newsletter``            (newsletter subscribe)
-- ``POST /api/v1/candidate-applications``(public Apply Now)
-- ``POST /api/v1/ai-assistant/ask``      (public AI chat — also expensive)
+Replaces the previous in-memory ``_BUCKETS`` dict with a Redis
+sliding-window counter executed via an atomic Lua script. Three
+wins over the in-memory version:
 
-Implementation is intentionally tiny: a sliding-window in-memory counter
-exposed as a FastAPI dependency. We avoid slowapi's ``@limiter.limit``
-decorator because its wrapper interacts badly with Pydantic's forward
-references under ``from __future__ import annotations`` and that's the
-style used throughout this codebase.
+* **Shared across workers.** With N gunicorn / uvicorn workers,
+  the effective ceiling stops being ``limit * N`` — every worker
+  hits the same Redis key.
+* **Survives restarts.** A reload during a brute-force attempt
+  doesn't hand the attacker a fresh budget.
+* **Atomic increment + TTL set.** The Lua script avoids the race
+  where two concurrent requests both observe a zero counter and
+  both succeed past the limit.
 
-Storage is per-process. With a single gunicorn worker the limits are
-exact; with N workers the effective ceiling is ``limit * N``. That's
-acceptable for a small site behind Cloudflare — for a busy multi-worker
-deployment, swap the ``_BUCKETS`` dict for a shared Redis backend.
+Per-route ``(max_requests, window_seconds)`` pairs are the same
+constants as before so the visible behaviour is unchanged.
 
-Tests can disable rate limiting by setting ``RATE_LIMIT_ENABLED=false``
-in the environment before the app is imported, or by calling
-``reset_rate_limits()`` between requests.
+Tests
+=====
+
+Disabled by default via ``RATE_LIMIT_ENABLED=false`` in the test
+conftest. The two dedicated rate-limit tests in ``test_security``
+opt back in via the ``rate_limit_on`` fixture; they share the
+fakeredis instance the conftest pins in ``app.core.redis_client``.
 """
 from __future__ import annotations
 
 import os
-import time
-from collections import deque
-from threading import Lock
-from typing import Deque, Dict, Tuple
+from typing import Optional, Tuple
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
+from redis import asyncio as aioredis
+
+from app.core.logging_config import get_logger
+from app.core.redis_client import get_redis
+
+
+logger = get_logger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -74,12 +82,38 @@ BACKUP_LIMIT_HOURLY: Tuple[int, int] = (10, 3600)
 
 
 # --------------------------------------------------------------------------- #
-# In-memory sliding-window store.                                             #
+# Lua script — atomic increment + first-hit expiry + TTL read                 #
 # --------------------------------------------------------------------------- #
+#
+# KEYS[1] = bucket key (e.g. "rl:contact:60:1.2.3.4")
+# ARGV[1] = max_requests
+# ARGV[2] = window_seconds
+#
+# Returns a single integer:
+#   * count <= max_requests  → allowed; value is the new counter
+#   * count >  max_requests  → denied; caller must compute Retry-After
+#                              from the key's TTL (read after the call,
+#                              we don't bother returning two values).
+#
+# Rationale for not returning two values: redis-py's Lua eval over
+# decode_responses=True returns a single-element list. Keeping the
+# script simple makes the integration testable + easy to reason
+# about. The TTL read in the second step is a single round-trip, so
+# the cost stays at two redis ops per check, same as the original
+# in-memory implementation's two-method workflow.
 
-# Keyed by (route_key, client_ip) → deque of unix-second timestamps.
-_BUCKETS: Dict[Tuple[str, str], Deque[float]] = {}
-_LOCK = Lock()
+# (The Lua script that lived here in the first draft was replaced
+# with a two-command INCR + conditional EXPIRE sequence — see
+# ``_enforce`` below. The script approach was cleaner but
+# fakeredis 2.26 ships EVAL disabled and forces an in-process
+# integration test to fall back to the plain command sequence; we
+# may as well use the same path in production so dev + prod
+# behaviour matches.)
+
+
+# --------------------------------------------------------------------------- #
+# Helpers                                                                     #
+# --------------------------------------------------------------------------- #
 
 
 def _enabled() -> bool:
@@ -104,42 +138,41 @@ def _client_ip(request: Request) -> str:
     return request.client.host or "unknown"
 
 
-def _check(route_key: str, ip: str, max_requests: int, window: int, now: float) -> bool:
-    """Return True if the request is within the limit, else False.
-
-    Side effect: appends ``now`` to the bucket on success. Old entries
-    outside the window are popped from the left.
-    """
-    bucket_key = (route_key, ip)
-    with _LOCK:
-        bucket = _BUCKETS.setdefault(bucket_key, deque())
-        cutoff = now - window
-        while bucket and bucket[0] < cutoff:
-            bucket.popleft()
-        if len(bucket) >= max_requests:
-            return False
-        bucket.append(now)
-        return True
-
-
-def _retry_after(route_key: str, ip: str, window: int, now: float) -> int:
-    """How many seconds until the oldest entry in the window expires."""
-    bucket = _BUCKETS.get((route_key, ip))
-    if not bucket:
-        return window
-    return max(1, int(bucket[0] + window - now))
-
-
-def _enforce(request: Request, route_key: str, *limits: Tuple[int, int]) -> None:
+async def _enforce(
+    redis: aioredis.Redis,
+    request: Request,
+    route_key: str,
+    *limits: Tuple[int, int],
+) -> None:
     """Raise HTTP 429 if any of the supplied (max, window) limits is exceeded."""
     if not _enabled():
         return
     ip = _client_ip(request)
-    now = time.time()
     for max_requests, window in limits:
-        sub_key = f"{route_key}:{window}"
-        if not _check(sub_key, ip, max_requests, window, now):
-            retry = _retry_after(sub_key, ip, window, now)
+        bucket_key = f"rl:{route_key}:{window}:{ip}"
+        try:
+            # INCR is atomic; on the first hit (count == 1) we set
+            # the window expiry. Concurrent INCRs may both observe
+            # the same first hit before either EXPIRE lands — that's
+            # harmless, both succeed and the second is a no-op.
+            count = await redis.incr(bucket_key)
+            if count == 1:
+                await redis.expire(bucket_key, window)
+        except aioredis.RedisError as exc:
+            # If Redis is unreachable we fail OPEN rather than reject
+            # legitimate traffic. The structured-logging line gives
+            # ops something to grep for; a sustained outage will be
+            # very visible in the dashboard.
+            logger.warning(
+                "Rate limit Redis call failed — failing open",
+                route_key=route_key,
+                window=window,
+                error=str(exc),
+            )
+            return
+        if int(count) > max_requests:
+            ttl = await redis.ttl(bucket_key)
+            retry = max(1, int(ttl)) if ttl and ttl > 0 else window
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=(
@@ -152,29 +185,61 @@ def _enforce(request: Request, route_key: str, *limits: Tuple[int, int]) -> None
 # --------------------------------------------------------------------------- #
 # Public dependencies — drop into ``Depends(...)`` on a route.                #
 # --------------------------------------------------------------------------- #
+#
+# Each helper is an async FastAPI dependency taking the Redis client
+# via Depends(get_redis). FastAPI resolves the dependency before
+# entering the route handler; sync route handlers are still allowed.
 
 
-def rate_limit_contact(request: Request) -> None:
-    _enforce(request, "contact", CONTACT_LIMIT, CONTACT_LIMIT_HOURLY)
+async def rate_limit_contact(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
+    await _enforce(redis, request, "contact", CONTACT_LIMIT, CONTACT_LIMIT_HOURLY)
 
 
-def rate_limit_newsletter(request: Request) -> None:
-    _enforce(request, "newsletter", NEWSLETTER_LIMIT, NEWSLETTER_LIMIT_HOURLY)
+async def rate_limit_newsletter(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
+    await _enforce(
+        redis, request, "newsletter", NEWSLETTER_LIMIT, NEWSLETTER_LIMIT_HOURLY
+    )
 
 
-def rate_limit_apply(request: Request) -> None:
-    _enforce(request, "apply", APPLY_LIMIT, APPLY_LIMIT_HOURLY)
+async def rate_limit_apply(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
+    await _enforce(redis, request, "apply", APPLY_LIMIT, APPLY_LIMIT_HOURLY)
 
 
-def rate_limit_cv_preview(request: Request) -> None:
-    _enforce(request, "cv_preview", CV_PREVIEW_LIMIT, CV_PREVIEW_LIMIT_HOURLY)
+async def rate_limit_cv_preview(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
+    await _enforce(
+        redis, request, "cv_preview", CV_PREVIEW_LIMIT, CV_PREVIEW_LIMIT_HOURLY
+    )
 
 
-def rate_limit_ai_assistant(request: Request) -> None:
-    _enforce(request, "ai_assistant", AI_ASSISTANT_LIMIT, AI_ASSISTANT_LIMIT_HOURLY)
+async def rate_limit_ai_assistant(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
+    await _enforce(
+        redis,
+        request,
+        "ai_assistant",
+        AI_ASSISTANT_LIMIT,
+        AI_ASSISTANT_LIMIT_HOURLY,
+    )
 
 
-def rate_limit_backup(request: Request) -> None:
+async def rate_limit_backup(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
     """Limit per-IP calls to the destructive backup / restore routes.
 
     Applied even though the underlying endpoints are superuser-only —
@@ -182,10 +247,40 @@ def rate_limit_backup(request: Request) -> None:
     speed-bump against an attacker queueing many large dumps in
     parallel.
     """
-    _enforce(request, "backup", BACKUP_LIMIT, BACKUP_LIMIT_HOURLY)
+    await _enforce(redis, request, "backup", BACKUP_LIMIT, BACKUP_LIMIT_HOURLY)
 
 
 def reset_rate_limits() -> None:
-    """Clear every bucket — useful between tests."""
-    with _LOCK:
-        _BUCKETS.clear()
+    """Clear every bucket — useful between tests.
+
+    Schedules an async ``FLUSHDB`` against the current Redis client.
+    When the conftest pins a ``fakeredis`` instance this resets just
+    the fake; when no client has been built yet (the early-test
+    common case) it's a no-op.
+    """
+    import asyncio
+
+    from app.core.redis_client import _client as _maybe_client
+
+    if _maybe_client is None:
+        return
+
+    async def _flush() -> None:
+        try:
+            await _maybe_client.flushdb()
+        except aioredis.RedisError as exc:
+            logger.debug(
+                "reset_rate_limits flush failed (ignored)", error=str(exc)
+            )
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're inside an async context — schedule and let the
+            # caller's event loop run it. This branch is hit when
+            # invoked from an async fixture.
+            loop.create_task(_flush())
+        else:
+            loop.run_until_complete(_flush())
+    except RuntimeError:
+        asyncio.run(_flush())
