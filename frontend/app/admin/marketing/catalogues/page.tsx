@@ -12,12 +12,14 @@ import {
   Eye,
   EyeOff,
   FileUp,
+  Image as ImageIcon,
   Loader2,
   Pencil,
   Plus,
   QrCode,
   RefreshCw,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -773,7 +775,44 @@ function EditMetadataDialog({
   const [metaDescription, setMetaDescription] = React.useState(
     row.meta_description ?? ""
   );
+  const [qrLogoUrl, setQrLogoUrl] = React.useState<string | null>(
+    row.qr_logo_url
+  );
+  const [logoUploading, setLogoUploading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  async function uploadQrLogo(file: File) {
+    setLogoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const updated = await adminApi.postMultipart<Catalogue>(
+        `${BASE}/${row.id}/qr-logo`,
+        fd
+      );
+      // Bust any cached thumbnail by appending the updated_at ts.
+      setQrLogoUrl(updated.qr_logo_url);
+    } catch (err) {
+      onError((err as AdminApiError).message);
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
+  async function removeQrLogo() {
+    setLogoUploading(true);
+    try {
+      const updated = await adminApi.delete<Catalogue>(
+        `${BASE}/${row.id}/qr-logo`
+      );
+      setQrLogoUrl(updated.qr_logo_url);
+    } catch (err) {
+      onError((err as AdminApiError).message);
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   async function submit() {
     setSaving(true);
@@ -899,6 +938,78 @@ function EditMetadataDialog({
               Featured
             </label>
           </div>
+          <div className="space-y-2 rounded-lg border border-border/60 bg-card/40 p-3">
+            <div className="flex items-center justify-between">
+              <Label className="m-0 flex items-center gap-1.5">
+                <ImageIcon className="h-3.5 w-3.5" />
+                QR logo
+              </Label>
+              <span className="text-[10px] text-muted-foreground">
+                PNG, JPG, SVG or WebP · max 4 MB
+              </span>
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Image stamped into the centre of this catalogue&apos;s QR
+              code. Falls back to a &ldquo;PUG&rdquo; monogram when no
+              logo is set — useful when each branch (Lulu, Ansar Gallery
+              etc.) wants its own brand on the share asset.
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded border border-border/60 bg-background">
+                {qrLogoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={resolveAssetUrl(qrLogoUrl) ?? ""}
+                    alt="Current QR logo"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <ImageIcon className="h-6 w-6 text-muted-foreground/50" />
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.svg,.webp,image/png,image/jpeg,image/svg+xml,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void uploadQrLogo(f);
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={logoUploading || saving}
+                >
+                  {logoUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5" />
+                  )}
+                  {qrLogoUrl ? "Replace" : "Upload"}
+                </Button>
+                {qrLogoUrl && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void removeQrLogo()}
+                    disabled={logoUploading || saving}
+                    className="text-rose-600 hover:text-rose-700"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-1.5">
             <Label>Meta title</Label>
             <Input

@@ -153,6 +153,7 @@ class CatalogueUpdate(BaseModel):
     sort_order: Optional[int] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
+    qr_logo_url: Optional[str] = None
 
 
 class CataloguePageRead(BaseModel):
@@ -176,6 +177,7 @@ class CatalogueRead(BaseModel):
     title: str
     description: Optional[str]
     cover_image_url: Optional[str]
+    qr_logo_url: Optional[str] = None
     pdf_url: Optional[str]
     page_count: int
     processing_status: str

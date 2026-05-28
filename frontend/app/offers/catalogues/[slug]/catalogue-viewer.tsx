@@ -271,13 +271,12 @@ export function CatalogueViewer({ catalogue }: Props) {
   const [size, setSize] = React.useState({ w: 420, h: 600 });
   React.useEffect(() => {
     function measure() {
-      // Reserved chrome:
-      //   ~ 52px sticky layout header
-      //   ~ 52px viewer top bar
-      //   ~ 48px bottom progress bar
-      //   + a little breathing room
-      const reservedV = 52 + 52 + 48 + 16;
-      // Horizontal: nav arrows (~64px each side) + small padding.
+      // Reserved vertical chrome (viewer top bar + progress bar +
+      // small breathing room). The progress bar is hidden on
+      // mobile so we get its 48px back for the page art.
+      const reservedV = isMobile ? 52 + 16 : 52 + 48 + 16;
+      // Horizontal: nav arrow circles (~56px) on each side on
+      // desktop, plus tiny gutter; minimal padding on mobile.
       const reservedH = isMobile ? 16 : 144;
       const availH = Math.max(360, window.innerHeight - reservedV);
       const availW = Math.max(320, window.innerWidth - reservedH);
@@ -304,10 +303,12 @@ export function CatalogueViewer({ catalogue }: Props) {
     <main
       ref={containerRef}
       className={cn(
-        // Calaméo-style dark theatre: dark gradient frames the page
-        // art so the brand-gold accents pop.
-        "relative flex w-full flex-col bg-gradient-to-b from-zinc-900 via-zinc-950 to-black text-zinc-100",
-        fullscreen ? "h-screen" : "h-[calc(100vh-3.5rem)]"
+        // Calaméo-style dark theatre. ``fixed inset-0`` makes the
+        // viewer cover the parent ``/offers`` layout header — the
+        // catalogue should feel like a full-bleed app, not a panel
+        // nested under site chrome.
+        "fixed inset-0 z-50 flex w-full flex-col bg-gradient-to-b from-zinc-900 via-zinc-950 to-black text-zinc-100",
+        fullscreen && "h-screen"
       )}
     >
       {/* ----- Top toolbar ----- */}
@@ -492,13 +493,16 @@ export function CatalogueViewer({ catalogue }: Props) {
         )}
       </div>
 
-      {/* ----- Bottom progress bar ----- */}
+      {/* ----- Bottom progress bar (hidden on mobile — phones have
+          the swipe gesture + on-screen page indicator) ----- */}
       {pageCount > 0 && (
-        <ProgressBar
-          pageIndex={pageIndex}
-          pageCount={pageCount}
-          onSeek={goTo}
-        />
+        <div className="hidden sm:block">
+          <ProgressBar
+            pageIndex={pageIndex}
+            pageCount={pageCount}
+            onSeek={goTo}
+          />
+        </div>
       )}
 
       {thumbsOpen && (

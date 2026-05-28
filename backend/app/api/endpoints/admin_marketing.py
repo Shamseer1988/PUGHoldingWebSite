@@ -638,7 +638,6 @@ def reprocess_catalogue(
 @router.get("/catalogues/{catalogue_id}/qr-code.png")
 def catalogue_qr_code(
     catalogue_id: int,
-    request: Request,
     db: Session = Depends(get_db),
     actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
 ) -> Response:
@@ -648,34 +647,24 @@ def catalogue_qr_code(
     brand badge doesn't break scannability. Returned as an inline
     PNG so the admin UI can either preview it directly or trigger a
     download via the Content-Disposition header.
+
+    The encoded URL always points at the public Next.js viewer —
+    never the backend's own host — so the QR resolves when scanned
+    from a phone outside the local network.
     """
+    from pathlib import Path
+
     from app.core.config import get_settings
     from app.services.qr_codes import build_catalogue_qr
 
     row = _catalogue_or_404(db, catalogue_id)
-
-    # Public viewer URL — derived from the site URL the admin
-    # configured; falls back to the request's own host header for
-    # local dev so the QR still scans when nothing's been set.
     settings = get_settings()
-    site_url = (
-        getattr(settings, "site_url", None)
-        or str(request.base_url).rstrip("/")
-    )
+    site_url = settings.public_site_url.rstrip("/")
     public_url = f"{site_url}/offers/catalogues/{row.slug}"
 
-    # Optional logo overlay — uploaded by admin under Site Settings,
-    # if present. We don't error if it's missing.
-    from pathlib import Path
-
-    logo_path: Path | None = None
-    upload_dir = Path(settings.upload_dir)
-    for candidate in ("brand-logo.png", "logo.png"):
-        p = upload_dir / candidate
-        if p.exists():
-            logo_path = p
-            break
-
+    # Logo lookup order: per-catalogue upload → global brand logo
+    # → "PUG" monogram fallback inside the QR service.
+    logo_path = _resolve_qr_logo_path(settings, row)
     png_bytes = build_catalogue_qr(public_url, logo_path=logo_path)
 
     safe_slug = "".join(
@@ -692,6 +681,150 @@ def catalogue_qr_code(
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
+
+
+def _resolve_qr_logo_path(settings, catalogue: Catalogue):
+    """Resolve which logo image, if any, to stamp into the QR centre.
+
+    Preference order:
+      1. ``catalogue.qr_logo_url`` (uploaded by admin per catalogue)
+      2. ``uploads/brand-logo.png`` or ``uploads/logo.png`` (global)
+      3. ``None`` — the QR service falls back to a ``PUG`` text badge.
+    """
+    from pathlib import Path
+
+    upload_dir = Path(settings.upload_dir)
+
+    if catalogue.qr_logo_url:
+        # Stored as e.g. ``/api/v1/uploads/qr-logos/42.png`` — peel
+        # off the mount prefix so we can resolve a filesystem path.
+        rel = catalogue.qr_logo_url
+        marker = "/uploads/"
+        idx = rel.find(marker)
+        if idx >= 0:
+            rel = rel[idx + len(marker):]
+        candidate = upload_dir / rel
+        if candidate.exists():
+            return candidate
+
+    for name in ("brand-logo.png", "logo.png"):
+        p = upload_dir / name
+        if p.exists():
+            return p
+    return None
+
+
+@router.post(
+    "/catalogues/{catalogue_id}/qr-logo",
+    response_model=CatalogueRead,
+)
+def upload_catalogue_qr_logo(
+    catalogue_id: int,
+    request: Request,
+    file: UploadFile = File(..., description="Brand logo PNG/JPG/SVG"),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+) -> CatalogueRead:
+    """Upload (or replace) the QR-centre brand logo for one catalogue.
+
+    Accepts the common raster + vector formats. The image is stored
+    under ``uploads/qr-logos/{catalogue_id}{ext}`` so re-uploads
+    overwrite the previous file deterministically. The stored URL is
+    served via the public ``/api/v1/uploads`` static mount.
+    """
+    from pathlib import Path
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".svg", ".webp"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Logo must be a PNG, JPG, SVG or WebP image.",
+        )
+
+    row = _catalogue_or_404(db, catalogue_id)
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    logo_dir = Path(settings.upload_dir) / "qr-logos"
+    logo_dir.mkdir(parents=True, exist_ok=True)
+
+    # Delete any previous extension we wrote so the on-disk state
+    # stays in sync with the stored URL.
+    for existing in logo_dir.glob(f"{row.id}.*"):
+        try:
+            existing.unlink()
+        except OSError:
+            pass
+
+    out_path = logo_dir / f"{row.id}{ext}"
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty logo file.")
+    if len(data) > 4 * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail="Logo file exceeds the 4 MB cap.",
+        )
+    out_path.write_bytes(data)
+
+    row.qr_logo_url = f"/api/v1/uploads/qr-logos/{row.id}{ext}"
+    _audit(
+        db,
+        actor,
+        request,
+        action="marketing.catalogue.qr_logo.upload",
+        target_type="catalogue",
+        target_id=row.id,
+        details={"slug": row.slug, "bytes": len(data)},
+    )
+    db.commit()
+    db.refresh(row)
+    return CatalogueRead.model_validate(row)
+
+
+@router.delete(
+    "/catalogues/{catalogue_id}/qr-logo",
+    response_model=CatalogueRead,
+)
+def delete_catalogue_qr_logo(
+    catalogue_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+) -> CatalogueRead:
+    """Remove the per-catalogue QR logo, falling back to the global one."""
+    from pathlib import Path
+
+    row = _catalogue_or_404(db, catalogue_id)
+    if not row.qr_logo_url:
+        return CatalogueRead.model_validate(row)
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    logo_dir = Path(settings.upload_dir) / "qr-logos"
+    for existing in logo_dir.glob(f"{row.id}.*"):
+        try:
+            existing.unlink()
+        except OSError:
+            pass
+
+    row.qr_logo_url = None
+    _audit(
+        db,
+        actor,
+        request,
+        action="marketing.catalogue.qr_logo.delete",
+        target_type="catalogue",
+        target_id=row.id,
+        details={"slug": row.slug},
+    )
+    db.commit()
+    db.refresh(row)
+    return CatalogueRead.model_validate(row)
 
 
 @router.get(

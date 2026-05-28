@@ -56,55 +56,46 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-pug-gold-500/[0.04] to-background">
-      {/* ----- Hero ----- */}
-      <section className="relative overflow-hidden border-b border-border/60 bg-pug-green-600 text-pug-gold-50">
-        <div
-          className="absolute inset-0 opacity-15"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.18), transparent 40%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.12), transparent 45%)",
-          }}
-          aria-hidden
-        />
-        <div className="relative mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-pug-gold-300/90">
-            Paris United Group · Offers
-          </p>
-          <h1 className="mt-3 text-3xl font-semibold leading-tight sm:text-4xl md:text-5xl">
-            The latest catalogues, killer offers and flash sales.
-          </h1>
-          <p className="mt-4 max-w-2xl text-pug-gold-100/80 sm:text-lg">
-            Browse interactive flyers from every Paris United Group
-            hypermarket. New deals every week — no app install required.
-          </p>
+    <main className="min-h-screen bg-background">
+      {/* ----- Compact banner ----- */}
+      <section className="border-b border-border/60 bg-card/40">
+        <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                Paris United Group · Offers
+              </p>
+              <h1 className="mt-0.5 text-xl font-semibold leading-tight sm:text-2xl">
+                Catalogues, killer offers & flash sales.
+              </h1>
+            </div>
 
-          {/* Search */}
-          <form
-            onSubmit={onSubmitSearch}
-            className="mt-8 flex max-w-xl items-center gap-2 rounded-full border border-pug-gold-300/30 bg-pug-green-700/40 p-1.5 backdrop-blur"
-            role="search"
-          >
-            <Search className="ml-3 h-4 w-4 shrink-0 text-pug-gold-300" />
-            <input
-              type="search"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search for a campaign or product…"
-              className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm text-pug-gold-50 outline-none placeholder:text-pug-gold-200/50"
-              aria-label="Search offers"
-            />
-            <button
-              type="submit"
-              className="rounded-full bg-pug-gold-400 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-pug-green-800 transition-colors hover:bg-pug-gold-300"
+            <form
+              onSubmit={onSubmitSearch}
+              className="flex w-full items-center gap-1 rounded-full border border-border/70 bg-background p-1 sm:w-80"
+              role="search"
             >
-              Search
-            </button>
-          </form>
+              <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search catalogues…"
+                className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+                aria-label="Search offers"
+              />
+              <button
+                type="submit"
+                className="rounded-full bg-pug-gold-400 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-pug-green-800 transition-colors hover:bg-pug-gold-300"
+              >
+                Search
+              </button>
+            </form>
+          </div>
 
-          {/* Branch facet */}
+          {/* Branch facet — inline below the row */}
           {index.branches.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <BranchChip
                 label="All branches"
                 active={!currentBranch}
@@ -247,8 +238,8 @@ function BranchChip({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
         active
-          ? "border-pug-gold-300 bg-pug-gold-300 text-pug-green-800"
-          : "border-pug-gold-300/30 bg-pug-green-700/30 text-pug-gold-100 hover:border-pug-gold-300/60"
+          ? "border-pug-gold-400 bg-pug-gold-400 text-pug-green-800"
+          : "border-border/70 bg-background text-foreground/80 hover:border-pug-gold-400/60 hover:text-foreground"
       )}
     >
       <MapPin className="h-3 w-3" />

@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     app_host: str = Field(default="0.0.0.0")
     app_port: int = Field(default=8000)
 
+    # Public-facing site URL used for share links, QR codes, email
+    # links, etc. In dev this is the Next.js host (port 3000); in
+    # production it's the customer-facing domain. The QR-code
+    # endpoint refuses to encode the backend's own ``request.base_url``
+    # (port 8000) because that won't resolve from a phone scan.
+    public_site_url: str = Field(default="http://localhost:3000")
+
     # --- Security ---
     # We keep the insecure default so local dev + the test suite "just
     # work" out of the box. Production deployments MUST override

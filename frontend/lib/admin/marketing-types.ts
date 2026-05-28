@@ -76,6 +76,7 @@ export interface Catalogue {
   title: string;
   description: string | null;
   cover_image_url: string | null;
+  qr_logo_url: string | null;
   pdf_url: string | null;
   page_count: number;
   processing_status: CatalogueProcessingStatus;

@@ -166,6 +166,13 @@ class Catalogue(Base):
     # Rendered cover (first page thumbnail) for inbox cards
     cover_image_url: Mapped[Optional[str]] = mapped_column(String(500))
 
+    # Brand logo stamped into the centre of the catalogue's QR code.
+    # Optional — when unset, the QR endpoint falls back to a generic
+    # "PUG" monogram. Each branch typically uploads its own logo
+    # (Lulu, Ansar Gallery, etc.) so the share asset reads as theirs
+    # rather than the parent group's.
+    qr_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
+
     # Processing
     page_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
