@@ -29,7 +29,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { adminApi, AdminApiError } from "@/lib/admin/api";
+import { AdminApiError } from "@/lib/admin/api";
+import {
+  useAdminRoles,
+  useAdminUsers,
+  useCreateAdminUser,
+  useDeactivateAdminUser,
+  useUpdateAdminUser,
+} from "@/lib/admin/queries";
 import type {
   AdminUser,
   AdminUserCreatePayload,
@@ -92,53 +99,41 @@ export default function UsersAdminPage() {
 
 function UsersAdminBody() {
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = React.useState<AdminUser[] | null>(null);
-  const [roles, setRoles] = React.useState<RoleSummary[]>([]);
   const [scopeFilter, setScopeFilter] = React.useState<"" | Scope>("");
   const [includeInactive, setIncludeInactive] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
+  const [drawerError, setDrawerError] = React.useState<string | null>(null);
 
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<AdminUser | null>(null);
   const [form, setForm] = React.useState<FormState>(EMPTY_FORM);
-  const [saving, setSaving] = React.useState(false);
 
-  React.useEffect(() => {
-    void refresh();
-    void loadRoles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeFilter, includeInactive]);
+  const usersQuery = useAdminUsers({
+    scope: scopeFilter,
+    includeInactive,
+  });
+  const rolesQuery = useAdminRoles();
+  const createUser = useCreateAdminUser();
+  const updateUser = useUpdateAdminUser();
+  const deactivateUser = useDeactivateAdminUser();
 
-  async function loadRoles() {
-    try {
-      const list = await adminApi.get<RoleSummary[]>("/admin/roles");
-      setRoles(list);
-    } catch (err) {
-      setError((err as AdminApiError).message);
-    }
-  }
-
-  async function refresh() {
-    setUsers(null);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (scopeFilter) params.set("scope", scopeFilter);
-      if (!includeInactive) params.set("include_inactive", "false");
-      const url = `/admin/users${
-        params.toString() ? `?${params}` : ""
-      }`;
-      setUsers(await adminApi.get<AdminUser[]>(url));
-    } catch (err) {
-      setError((err as AdminApiError).message);
-    }
-  }
+  const users = usersQuery.data ?? null;
+  const roles = rolesQuery.data ?? [];
+  const saving = createUser.isPending || updateUser.isPending;
+  const pageError =
+    drawerOpen
+      ? null
+      : usersQuery.error?.message ??
+        rolesQuery.error?.message ??
+        deactivateUser.error?.message ??
+        null;
 
   function openNew() {
     setEditing(null);
     setForm(EMPTY_FORM);
-    setError(null);
+    setDrawerError(null);
+    createUser.reset();
+    updateUser.reset();
     setDrawerOpen(true);
   }
 
@@ -152,13 +147,14 @@ function UsersAdminBody() {
       is_superuser: target.is_superuser,
       role_ids: target.roles.map((r) => r.id),
     });
-    setError(null);
+    setDrawerError(null);
+    createUser.reset();
+    updateUser.reset();
     setDrawerOpen(true);
   }
 
   async function save() {
-    setSaving(true);
-    setError(null);
+    setDrawerError(null);
     try {
       if (editing) {
         const body: AdminUserUpdatePayload = {
@@ -168,10 +164,7 @@ function UsersAdminBody() {
           role_ids: form.role_ids,
         };
         if (form.password.trim()) body.password = form.password;
-        await adminApi.patch<AdminUser>(
-          `/admin/users/${editing.id}`,
-          body
-        );
+        await updateUser.mutateAsync({ id: editing.id, body });
         setToast(`Updated ${form.email}.`);
       } else {
         const body: AdminUserCreatePayload = {
@@ -182,15 +175,12 @@ function UsersAdminBody() {
           is_superuser: form.is_superuser,
           role_ids: form.role_ids,
         };
-        await adminApi.post<AdminUser>("/admin/users", body);
+        await createUser.mutateAsync(body);
         setToast(`Created ${body.email}.`);
       }
       setDrawerOpen(false);
-      await refresh();
     } catch (err) {
-      setError((err as AdminApiError).message);
-    } finally {
-      setSaving(false);
+      setDrawerError((err as AdminApiError).message);
     }
   }
 
@@ -203,23 +193,22 @@ function UsersAdminBody() {
       return;
     }
     try {
-      await adminApi.delete(`/admin/users/${target.id}`);
+      await deactivateUser.mutateAsync(target.id);
       setToast(`Deactivated ${target.email}.`);
-      await refresh();
-    } catch (err) {
-      setError((err as AdminApiError).message);
+    } catch {
+      // ``pageError`` surfaces ``deactivateUser.error.message``.
     }
   }
 
   async function reactivate(target: AdminUser) {
     try {
-      await adminApi.patch<AdminUser>(`/admin/users/${target.id}`, {
-        is_active: true,
+      await updateUser.mutateAsync({
+        id: target.id,
+        body: { is_active: true },
       });
       setToast(`Reactivated ${target.email}.`);
-      await refresh();
     } catch (err) {
-      setError((err as AdminApiError).message);
+      setDrawerError((err as AdminApiError).message);
     }
   }
 
@@ -235,12 +224,12 @@ function UsersAdminBody() {
       }
     >
       <Toast message={toast} onClose={() => setToast(null)} />
-      {error && (
+      {pageError && (
         <div
           role="alert"
           className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-200"
         >
-          {error}
+          {pageError}
         </div>
       )}
 
@@ -404,7 +393,7 @@ function UsersAdminBody() {
           setForm={setForm}
           roles={roles}
           saving={saving}
-          error={error}
+          error={drawerError}
           onClose={() => setDrawerOpen(false)}
           onSave={save}
         />
