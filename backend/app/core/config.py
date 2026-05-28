@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,7 +45,10 @@ class Settings(BaseSettings):
     # --- Application ---
     app_name: str = Field(default="PUG Holding API")
     app_env: str = Field(default="development")
-    app_debug: bool = Field(default=True)
+    # Phase A-3: production-safe default. Operators flip this on in dev
+    # via APP_DEBUG=true; the field never gets a True default again so
+    # a forgotten override can't leak the debug surface into prod.
+    app_debug: bool = Field(default=False)
     app_host: str = Field(default="0.0.0.0")
     app_port: int = Field(default=8000)
 
@@ -57,12 +60,12 @@ class Settings(BaseSettings):
     public_site_url: str = Field(default="http://localhost:3000")
 
     # --- Security ---
-    # We keep the insecure default so local dev + the test suite "just
-    # work" out of the box. Production deployments MUST override
-    # SECRET_KEY — ``ensure_production_safety()`` (called from
-    # ``create_app``) refuses to boot if the default leaks into a
-    # production environment.
-    secret_key: str = Field(default=INSECURE_DEFAULT_SECRET_KEY)
+    # Phase A-3: ``secret_key`` is now Optional with a None default. A
+    # boot-time validator below refuses to load Settings when the env
+    # is ``production`` and SECRET_KEY hasn't been set. Dev + tests
+    # still work because the test conftest pins SECRET_KEY via env
+    # before any module reads it (see backend/tests/conftest.py).
+    secret_key: Optional[str] = Field(default=None)
     access_token_expire_minutes: int = Field(default=60)
     refresh_token_expire_days: int = Field(default=7)
     algorithm: str = Field(default="HS256")
@@ -83,6 +86,15 @@ class Settings(BaseSettings):
     # We read it via os.getenv in the `cors_origins` property below,
     # and `extra="ignore"` keeps pydantic-settings from raising on the
     # otherwise-unmatched env var.
+
+    # --- Observability + queue (Phase A-3) ---
+    # Sentry DSN is wired in Phase A-8; declaring the field now keeps
+    # the env shape stable across phases. Redis URL covers both the
+    # ARQ background queue (Phase B-3) and the rate-limit/cache layer
+    # (Phase B-2). Default points at a local redis so docker-compose
+    # development just works.
+    sentry_dsn: Optional[str] = Field(default=None)
+    redis_url: str = Field(default="redis://localhost:6379/0")
 
     # --- Uploads ---
     upload_dir: str = Field(default="app/uploads")
@@ -123,6 +135,34 @@ class Settings(BaseSettings):
     contact_inbound_processed_folder: Optional[str] = Field(default=None)
     contact_inbound_error_folder: Optional[str] = Field(default=None)
     contact_inbound_poll_interval_minutes: int = Field(default=5)
+
+    @model_validator(mode="after")
+    def _require_secret_key_in_production(self) -> "Settings":
+        """Phase A-3: refuse to construct Settings when running in
+        production without a real ``SECRET_KEY``. Fires during settings
+        construction so a misconfigured prod boot fails at import
+        rather than after the first signed JWT.
+
+        Dev + test deployments can leave ``SECRET_KEY`` unset; the
+        application boot path will surface a clearer error later if
+        someone tries to sign without one.
+        """
+        if (self.app_env or "").lower() == "production":
+            if not self.secret_key:
+                raise ValueError(
+                    "SECRET_KEY must be set when APP_ENV=production."
+                )
+            if self.secret_key == INSECURE_DEFAULT_SECRET_KEY:
+                raise ValueError(
+                    "SECRET_KEY is still the public placeholder value — "
+                    "generate a unique secret before deploying to production."
+                )
+            if len(self.secret_key) < MIN_SECRET_KEY_LENGTH:
+                raise ValueError(
+                    f"SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} "
+                    f"characters when APP_ENV=production."
+                )
+        return self
 
     @property
     def cors_origins(self) -> List[str]:

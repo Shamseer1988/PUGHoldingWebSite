@@ -14,6 +14,16 @@ import os
 # in with monkeypatch.setenv.
 os.environ.setdefault("SCHEDULER_ENABLED", "false")
 
+# Phase A-3: ``Settings.secret_key`` no longer carries an insecure
+# placeholder default. Tests still need *something* to sign JWTs with
+# (the auth fixtures hit /admin/auth/login and /hr/auth/login).
+# ``setdefault`` keeps CI overrides intact while pinning a value here
+# so the suite is self-contained when run locally.
+os.environ.setdefault(
+    "SECRET_KEY",
+    "pytest-secret-key-only-used-by-the-test-suite-do-not-deploy",
+)
+
 from typing import Generator  # noqa: E402
 
 import pytest

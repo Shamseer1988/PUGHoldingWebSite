@@ -57,6 +57,17 @@ def create_app() -> FastAPI:
     # CORS allowlist. No-op outside production.
     ensure_production_safety(settings)
 
+    # Phase A-3: only expose the interactive OpenAPI surface in
+    # development. ``/docs``, ``/redoc`` and ``/openapi.json`` leak
+    # the full route surface + every Pydantic schema to anyone who
+    # finds the URL — fine for local development, never appropriate
+    # for prod (and ambiguous for staging / preview environments,
+    # which we also keep closed by default).
+    is_development = (settings.app_env or "").lower() == "development"
+    docs_url = "/docs" if is_development else None
+    redoc_url = "/redoc" if is_development else None
+    openapi_url = "/openapi.json" if is_development else None
+
     app = FastAPI(
         title=settings.app_name,
         version=__version__,
@@ -64,9 +75,9 @@ def create_app() -> FastAPI:
             "Backend API for the Paris United Group Holding corporate website "
             "and HR ATS portal."
         ),
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
         lifespan=lifespan,
     )
 
@@ -86,8 +97,14 @@ def create_app() -> FastAPI:
     cors_kwargs: dict = {
         "allow_origins": settings.cors_origins,
         "allow_credentials": True,
-        "allow_methods": ["*"],
-        "allow_headers": ["*"],
+        # Phase A-3: replace the wildcard ``*`` allowlists with an
+        # explicit set. The methods cover everything the API actually
+        # exposes; the headers cover the JSON content negotiation,
+        # bearer-token auth and the request-id correlator (added in
+        # A-4). Adding a new header requires a deliberate edit here,
+        # which is the point.
+        "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Request-ID"],
         "expose_headers": ["Content-Disposition"],
     }
     if not is_prod:

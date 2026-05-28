@@ -10,6 +10,7 @@ for every other test in the suite).
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import (
     INSECURE_DEFAULT_SECRET_KEY,
@@ -41,22 +42,30 @@ class TestEnsureProductionSafety:
         ensure_production_safety(_settings(app_env="staging"))
 
     def test_production_rejects_default_secret_key(self, monkeypatch):
+        # Phase A-3 moved the secret-key check forward into the
+        # Pydantic model validator, so construction itself fails when
+        # APP_ENV=production carries the placeholder value. The boot
+        # path never reaches ``ensure_production_safety`` in this case.
         monkeypatch.setenv("CORS_ORIGINS", "https://example.com")
-        with pytest.raises(InsecureConfigurationError) as excinfo:
-            ensure_production_safety(
-                _settings(
-                    app_env="production",
-                    secret_key=INSECURE_DEFAULT_SECRET_KEY,
-                )
+        with pytest.raises(ValidationError) as excinfo:
+            _settings(
+                app_env="production",
+                secret_key=INSECURE_DEFAULT_SECRET_KEY,
             )
+        assert "SECRET_KEY" in str(excinfo.value)
+
+    def test_production_rejects_missing_secret_key(self, monkeypatch):
+        # Same gate, missing-value branch — None should be rejected at
+        # construction in production.
+        monkeypatch.setenv("CORS_ORIGINS", "https://example.com")
+        with pytest.raises(ValidationError) as excinfo:
+            _settings(app_env="production", secret_key=None)
         assert "SECRET_KEY" in str(excinfo.value)
 
     def test_production_rejects_short_secret_key(self, monkeypatch):
         monkeypatch.setenv("CORS_ORIGINS", "https://example.com")
-        with pytest.raises(InsecureConfigurationError) as excinfo:
-            ensure_production_safety(
-                _settings(app_env="production", secret_key="too-short")
-            )
+        with pytest.raises(ValidationError) as excinfo:
+            _settings(app_env="production", secret_key="too-short")
         assert "SECRET_KEY" in str(excinfo.value)
 
     def test_production_rejects_missing_cors(self, monkeypatch):
@@ -89,20 +98,24 @@ class TestEnsureProductionSafety:
             _settings(app_env="production", secret_key="a" * 64)
         )
 
-    def test_production_collects_all_problems_in_one_error(self, monkeypatch):
-        # Operator should see every issue at once, not have to play
-        # whack-a-mole one boot at a time.
+    def test_production_collects_cors_problem_after_valid_secret(
+        self, monkeypatch
+    ):
+        # Phase A-3 split responsibility: secret-key issues fail at
+        # Settings() construction (Pydantic validator); CORS issues are
+        # still surfaced by ``ensure_production_safety`` because the
+        # value is read lazily from os.environ outside the model. So a
+        # boot with a strong secret + missing CORS still fails — just
+        # in the second gate.
         monkeypatch.delenv("CORS_ORIGINS", raising=False)
         with pytest.raises(InsecureConfigurationError) as excinfo:
             ensure_production_safety(
                 _settings(
                     app_env="production",
-                    secret_key=INSECURE_DEFAULT_SECRET_KEY,
+                    secret_key="a" * 64,
                 )
             )
-        msg = str(excinfo.value)
-        assert "SECRET_KEY" in msg
-        assert "CORS_ORIGINS" in msg
+        assert "CORS_ORIGINS" in str(excinfo.value)
 
     def test_case_insensitive_app_env_match(self, monkeypatch):
         monkeypatch.delenv("CORS_ORIGINS", raising=False)
