@@ -6,7 +6,7 @@ import { Sparkles } from "lucide-react";
 
 import { Section } from "@/components/site/section";
 import {
-  resolveAssetUrl,
+  normaliseMediaUrl,
   type HomepageTrustedBrand,
   type HomepageTrustedBrandsSection,
 } from "@/lib/public-api";
@@ -400,7 +400,7 @@ function BrandTile({
   brand: HomepageTrustedBrand;
   asAnimationTarget: boolean;
 }) {
-  const logo = resolveAssetUrl(brand.logo_url_alt ?? brand.logo_url);
+  const logo = normaliseMediaUrl(brand.logo_url_alt ?? brand.logo_url);
   const labelId = `brand-${brand.id}`;
   const inner = (
     <div

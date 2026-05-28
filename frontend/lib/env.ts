@@ -38,11 +38,21 @@ const FALLBACK_API = "http://localhost:8000/api/v1";
 const publicApi =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? FALLBACK_API;
 
+// Phase A-7: ``publicMediaBaseUrl`` is the CDN host the backend's
+// storage layer (``app.services.storage``) returns when R2 is
+// configured — e.g. ``https://media.your-domain.com``. When unset
+// (dev, CI, any install that hasn't gone through Phase A-5), the
+// existing local-disk path under ``/api/v1/uploads/…`` keeps
+// flowing through ``resolveAssetUrl`` unchanged, so a fresh checkout
+// still renders images without touching env files.
+const publicMedia = process.env.NEXT_PUBLIC_MEDIA_BASE_URL ?? "";
+
 export const env = {
   apiBaseUrl: isServer
     ? process.env.API_BASE_URL ?? publicApi
     : publicApi,
   publicApiBaseUrl: publicApi,
+  publicMediaBaseUrl: publicMedia,
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   siteName:
     process.env.NEXT_PUBLIC_SITE_NAME ?? "Paris United Group Holding",

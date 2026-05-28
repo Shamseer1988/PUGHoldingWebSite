@@ -65,13 +65,34 @@ const securityHeaders = [
 ];
 
 
+// Phase A-7: derive the public R2 / CDN hostname from
+// ``NEXT_PUBLIC_MEDIA_BASE_URL`` so the same config works for any
+// custom domain the operator wires up in Phase A-5 step 4
+// (e.g. ``media.your-domain.com``). Falls back to a placeholder so a
+// ``next.config`` import doesn't crash in a fresh checkout that
+// hasn't filled in ``.env.local`` yet — the placeholder will never
+// match a real request.
+let r2Host;
+try {
+  r2Host = new URL(
+    process.env.NEXT_PUBLIC_MEDIA_BASE_URL ??
+      "https://placeholder.r2.cloudflarestorage.com",
+  ).hostname;
+} catch {
+  r2Host = "placeholder.r2.cloudflarestorage.com";
+}
+
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
+      // Default R2 bucket URL form ``<account>.r2.cloudflarestorage.com``.
       { protocol: "https", hostname: "**.r2.cloudflarestorage.com" },
+      // Operator's custom R2 / CDN domain when configured.
+      { protocol: "https", hostname: r2Host },
     ],
   },
   async headers() {

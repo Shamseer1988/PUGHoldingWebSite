@@ -2,7 +2,7 @@ import { Quote } from "lucide-react";
 
 import { GlassCard } from "@/components/site/glass-card";
 import type { LeadershipMessage } from "@/lib/admin/types";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 interface LeadershipCardProps {
@@ -15,7 +15,7 @@ export function LeadershipCard({ leader, full = false }: LeadershipCardProps) {
   const body = full
     ? leader.full_message ?? leader.short_message ?? ""
     : leader.short_message ?? "";
-  const photo = resolveAssetUrl(leader.photo_url);
+  const photo = normaliseMediaUrl(leader.photo_url);
 
   return (
     <GlassCard className="flex h-full flex-col gap-5 p-6">

@@ -14,7 +14,7 @@ import { GlassCard } from "@/components/site/glass-card";
 import { Reveal } from "@/components/site/reveal";
 import { Section } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 
 interface HomeAboutSectionProps {
   imageUrl: string | null;
@@ -51,7 +51,7 @@ export function HomeAboutSection({
   const orbY = useTransform(scrollYProgress, [0, 1], ["10%", "-10%"]);
 
   if (!title && !body && !imageUrl) return null;
-  const image = resolveAssetUrl(imageUrl);
+  const image = normaliseMediaUrl(imageUrl);
 
   return (
     <Section className="py-16 sm:py-20">

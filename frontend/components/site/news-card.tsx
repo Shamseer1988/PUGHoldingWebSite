@@ -4,7 +4,7 @@ import { ArrowUpRight, CalendarDays } from "lucide-react";
 import { GlassCard } from "@/components/site/glass-card";
 import { Badge } from "@/components/ui/badge";
 import type { NewsItem } from "@/lib/admin/types";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 const NEWS_CATEGORY_LABELS: Record<NewsItem["category"], string> = {
@@ -21,7 +21,7 @@ interface NewsCardProps {
 
 export function NewsCard({ item, variant = "default" }: NewsCardProps) {
   const featured = variant === "featured";
-  const coverImage = resolveAssetUrl(item.cover_image_url);
+  const coverImage = normaliseMediaUrl(item.cover_image_url);
   return (
     <Link href={`/news/${item.slug}`} className="group block h-full">
       <GlassCard

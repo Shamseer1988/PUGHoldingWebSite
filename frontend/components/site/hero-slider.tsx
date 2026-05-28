@@ -14,7 +14,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import type { HeroSlide } from "@/lib/admin/types";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 interface HeroSliderProps {
@@ -126,8 +126,8 @@ export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
 
   if (slides.length === 0) return null;
   const slide = slides[Math.min(index, slides.length - 1)];
-  const videoUrl = resolveAssetUrl(slide.background_video_url);
-  const imageUrl = resolveAssetUrl(slide.background_image_url);
+  const videoUrl = normaliseMediaUrl(slide.background_video_url);
+  const imageUrl = normaliseMediaUrl(slide.background_image_url);
 
   return (
     <section

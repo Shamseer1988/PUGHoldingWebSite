@@ -1,4 +1,4 @@
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 /** Size presets shared by every place a company logo is rendered.
@@ -54,7 +54,7 @@ export function CompanyLogo({
   className,
 }: CompanyLogoProps) {
   const preset = SIZE_PRESETS[size];
-  const resolved = resolveAssetUrl(logoUrl ?? null);
+  const resolved = normaliseMediaUrl(logoUrl ?? null);
 
   if (resolved) {
     return (

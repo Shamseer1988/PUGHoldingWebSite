@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ResponsiveImage } from "@/components/site/responsive-image";
 import {
-  resolveAssetUrl,
+  normaliseMediaUrl,
   type PublicMediaAsset,
 } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
@@ -97,7 +97,7 @@ export function MediaGallery({ items }: MediaGalleryProps) {
         const tokens = tokenize(asset.tags);
         return {
           asset,
-          url: resolveAssetUrl(asset.url) ?? asset.url,
+          url: normaliseMediaUrl(asset.url) ?? asset.url,
           category: deriveCategory(tokens),
           title: asset.title ?? asset.original_name ?? "Untitled",
           description: asset.alt_text,

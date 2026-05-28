@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import type { MediaVariants } from "@/lib/admin/types";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 
@@ -52,7 +52,7 @@ export function ResponsiveImage({
   priority = false,
   aspectClassName,
 }: ResponsiveImageProps) {
-  const fallbackSrc = resolveAssetUrl(src) ?? src;
+  const fallbackSrc = normaliseMediaUrl(src) ?? src;
 
   const loading = priority ? "eager" : "lazy";
   const decoding: React.ImgHTMLAttributes<HTMLImageElement>["decoding"] =
@@ -78,15 +78,27 @@ export function ResponsiveImage({
     );
   }
 
+  // Phase A-7: rewrite each variant URL through ``normaliseMediaUrl``
+  // so a relative ``/api/v1/uploads/cms/foo.webp`` becomes the absolute
+  // CDN URL when ``NEXT_PUBLIC_MEDIA_BASE_URL`` is set, or the absolute
+  // backend URL otherwise. Without this the browser would resolve the
+  // relative path against the Next.js host and 404.
+  const webpThumb = normaliseMediaUrl(variants.webp.thumb) ?? variants.webp.thumb;
+  const webpMedium = normaliseMediaUrl(variants.webp.medium) ?? variants.webp.medium;
+  const webpLarge = normaliseMediaUrl(variants.webp.large) ?? variants.webp.large;
+  const jpgThumb = normaliseMediaUrl(variants.jpg.thumb) ?? variants.jpg.thumb;
+  const jpgMedium = normaliseMediaUrl(variants.jpg.medium) ?? variants.jpg.medium;
+  const jpgLarge = normaliseMediaUrl(variants.jpg.large) ?? variants.jpg.large;
+
   const webpSrcset = [
-    `${variants.webp.thumb} 480w`,
-    `${variants.webp.medium} 960w`,
-    `${variants.webp.large} 1920w`,
+    `${webpThumb} 480w`,
+    `${webpMedium} 960w`,
+    `${webpLarge} 1920w`,
   ].join(", ");
   const jpgSrcset = [
-    `${variants.jpg.thumb} 480w`,
-    `${variants.jpg.medium} 960w`,
-    `${variants.jpg.large} 1920w`,
+    `${jpgThumb} 480w`,
+    `${jpgMedium} 960w`,
+    `${jpgLarge} 1920w`,
   ].join(", ");
 
   return (
@@ -94,7 +106,7 @@ export function ResponsiveImage({
       <source type="image/webp" srcSet={webpSrcset} sizes={sizes} />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={variants.jpg.medium}
+        src={jpgMedium}
         srcSet={jpgSrcset}
         sizes={sizes}
         alt={alt}

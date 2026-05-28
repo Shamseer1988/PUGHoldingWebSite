@@ -1,4 +1,4 @@
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 interface PageHeroProps {
@@ -35,9 +35,9 @@ export function PageHero({
   centered = false,
   className,
 }: PageHeroProps) {
-  const resolvedVideo = resolveAssetUrl(videoUrl ?? null);
-  const resolvedImage = resolveAssetUrl(imageUrl ?? null);
-  const resolvedMobile = resolveAssetUrl(mobileImageUrl ?? null);
+  const resolvedVideo = normaliseMediaUrl(videoUrl ?? null);
+  const resolvedImage = normaliseMediaUrl(imageUrl ?? null);
+  const resolvedMobile = normaliseMediaUrl(mobileImageUrl ?? null);
   const hasMedia = Boolean(resolvedVideo || resolvedImage);
 
   return (

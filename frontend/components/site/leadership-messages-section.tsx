@@ -7,7 +7,7 @@ import { ArrowUpRight, Quote, Sparkles } from "lucide-react";
 import { HeadingAccent } from "@/components/site/heading-accent";
 import { Section } from "@/components/site/section";
 import {
-  resolveAssetUrl,
+  normaliseMediaUrl,
   type HomepageLeadershipCard,
   type HomepageLeadershipSection,
 } from "@/lib/public-api";
@@ -415,8 +415,8 @@ export function LeadershipMessagesSection({
 // ---------------------------------------------------------------------------
 
 function CardBody({ message }: { message: HomepageLeadershipCard }) {
-  const photo = resolveAssetUrl(message.photo_url ?? null);
-  const signature = resolveAssetUrl(message.signature_image_url ?? null);
+  const photo = normaliseMediaUrl(message.photo_url ?? null);
+  const signature = normaliseMediaUrl(message.signature_image_url ?? null);
   const hasMessage =
     Boolean(message.highlight_quote) ||
     Boolean(message.message_paragraph_1) ||
