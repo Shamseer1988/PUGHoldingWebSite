@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import {
   ArrowUp,
   ArrowUpRight,
@@ -23,6 +24,37 @@ import { parseContactMapEmbed } from "@/lib/contact-map";
 import { FOOTER_COLUMNS, FOOTER_LEGAL_LINKS } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
+// Phase B-5 — framer-motion variants. Replaces the previous GSAP
+// timeline (footer.tsx history) for parity with the rest of the
+// homepage motion idiom. ``whileInView`` + ``viewport.once`` runs
+// the reveal a single time when the footer crosses the viewport,
+// matching the old ScrollTrigger "top 90%, once: true" trigger.
+const REVEAL_EASE = [0.16, 1, 0.3, 1] as const;
+
+const BRAND_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 28 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: REVEAL_EASE } },
+};
+
+const COLUMNS_CONTAINER_VARIANTS: Variants = {
+  hidden: {},
+  visible: { transition: { delayChildren: 0.15, staggerChildren: 0.08 } },
+};
+
+const COLUMN_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: REVEAL_EASE } },
+};
+
+const BOTTOM_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: REVEAL_EASE, delay: 0.45 },
+  },
+};
+
 interface FooterProps {
   settings: SiteSettings;
 }
@@ -41,10 +73,12 @@ interface SocialRow {
 }
 
 export function Footer({ settings }: FooterProps) {
-  const rootRef = React.useRef<HTMLElement | null>(null);
-  const brandRef = React.useRef<HTMLDivElement | null>(null);
-  const navRef = React.useRef<HTMLDivElement | null>(null);
-  const bottomRef = React.useRef<HTMLDivElement | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+  // When the user prefers reduced motion, jump straight to the
+  // "visible" state on first paint — no transitions. Matches the
+  // old GSAP path's matchMedia bail-out: elements appear in their
+  // final position with zero motion.
+  const initial = prefersReducedMotion ? "visible" : "hidden";
 
   const contactRows: ContactRow[] = [];
   if (settings.contact_address) {
@@ -101,92 +135,6 @@ export function Footer({ settings }: FooterProps) {
     });
   }
 
-  // GSAP one-shot reveal — mirrors the pattern used by the Leadership
-  // Messages + Trusted Brands sections so the whole site has a
-  // consistent scroll-in feel. Runs only once when the footer crosses
-  // into view; respects prefers-reduced-motion.
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    (async () => {
-      const { gsap } = await import("gsap");
-      const { ScrollTrigger } = await import("gsap/ScrollTrigger");
-      if (cancelled) return;
-      gsap.registerPlugin(ScrollTrigger);
-
-      const root = rootRef.current;
-      const brand = brandRef.current;
-      const nav = navRef.current;
-      const bottom = bottomRef.current;
-      if (!root) return;
-
-      // Safety net for the timeline below. ScrollTrigger position
-      // calculations sometimes race late layout (font swap, async
-      // image dims, sticky ancestors) on refresh, leaving the
-      // footer permanently at gsap.set's opacity:0. If the timeline
-      // hasn't started after 800ms, jump it to the end so the
-      // footer always becomes visible.
-      let safetyTimer: number | undefined;
-
-      const ctx = gsap.context(() => {
-        // If the footer is already visible at JS-execution time
-        // (hard refresh while scrolled near the bottom), skip the
-        // hide-then-reveal. SSR HTML stays visible — avoids the
-        // 3-4s blank flash before the timeline finishes.
-        const rect = root.getBoundingClientRect();
-        const alreadyInView =
-          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
-        if (alreadyInView) return;
-
-        if (brand) gsap.set(brand, { y: 28, opacity: 0 });
-        const columns = nav?.querySelectorAll<HTMLElement>(
-          "[data-footer-column]"
-        );
-        if (columns?.length) gsap.set(columns, { y: 24, opacity: 0 });
-        if (bottom) gsap.set(bottom, { y: 16, opacity: 0 });
-
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: root,
-            start: "top 90%",
-            once: true,
-          },
-          defaults: { ease: "power3.out" },
-        });
-
-        if (brand) tl.to(brand, { y: 0, opacity: 1, duration: 0.7 }, 0);
-        if (columns?.length) {
-          tl.to(
-            columns,
-            { y: 0, opacity: 1, duration: 0.6, stagger: 0.08 },
-            0.15
-          );
-        }
-        if (bottom) tl.to(bottom, { y: 0, opacity: 1, duration: 0.5 }, 0.45);
-
-        safetyTimer = window.setTimeout(() => {
-          if (!tl.isActive() && tl.progress() === 0) {
-            tl.progress(1);
-          }
-        }, 800);
-      }, root);
-
-      cleanup = () => {
-        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
-        ctx.revert();
-      };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, []);
-
   const scrollToTop = () => {
     if (typeof window === "undefined") return;
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -195,8 +143,10 @@ export function Footer({ settings }: FooterProps) {
   const year = new Date().getFullYear();
 
   return (
-    <footer
-      ref={rootRef}
+    <motion.footer
+      initial={initial}
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.1 }}
       className={cn(
         "relative mt-24 overflow-hidden border-t",
         // Theme-aware container surface. Glass over a soft warm tint
@@ -230,7 +180,7 @@ export function Footer({ settings }: FooterProps) {
       <div className="container relative mx-auto px-4 pb-8 pt-14 lg:pb-10 lg:pt-20">
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-12">
           {/* Brand column — logo, tagline, contact, social */}
-          <div ref={brandRef} className="lg:col-span-5">
+          <motion.div variants={BRAND_VARIANTS} className="lg:col-span-5">
             {/* `Logo` already renders its own <Link href="/"> so we do
                 NOT wrap it in another anchor — that would produce
                 nested <a> tags and trigger a hydration error. */}
@@ -305,16 +255,23 @@ export function Footer({ settings }: FooterProps) {
                 </ul>
               </div>
             )}
-          </div>
+          </motion.div>
 
           {/* Right side — nav columns stacked above the Find-us card so
               the card slots into the otherwise-empty band beneath
               Group / Sectors / Connect, on the same visual row as the
               brand column. */}
-          <div ref={navRef} className="space-y-8 lg:col-span-7 lg:space-y-10">
+          <motion.div
+            variants={COLUMNS_CONTAINER_VARIANTS}
+            className="space-y-8 lg:col-span-7 lg:space-y-10"
+          >
             <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-3">
               {FOOTER_COLUMNS.map((column) => (
-              <div key={column.title} data-footer-column>
+              <motion.div
+                key={column.title}
+                variants={COLUMN_VARIANTS}
+                data-footer-column
+              >
                 <h3 className="relative inline-flex items-center text-xs font-bold uppercase tracking-[0.22em] text-foreground">
                   {column.title}
                   <span
@@ -344,20 +301,20 @@ export function Footer({ settings }: FooterProps) {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </motion.div>
             ))}
             </div>
 
             {/* Find-us card — fills the empty space under the nav columns
                 on lg+ and stacks below everything else on smaller widths. */}
             <FindUsCard settings={settings} />
-          </div>
+          </motion.div>
         </div>
 
         {/* Back-to-top — its own centered row above the bottom bar
             so it doesn't collide with any floating CTA buttons that
             live fixed in the bottom-right corner of the viewport. */}
-        <div ref={bottomRef} className="mt-14">
+        <motion.div variants={BOTTOM_VARIANTS} className="mt-14">
           <div className="relative">
             <span
               aria-hidden
@@ -418,9 +375,9 @@ export function Footer({ settings }: FooterProps) {
               ))}
             </ul>
           </div>
-        </div>
+        </motion.div>
       </div>
-    </footer>
+    </motion.footer>
   );
 }
 

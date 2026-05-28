@@ -26,6 +26,7 @@
 - Never set `force-dynamic` at the layout level — use per-route ISR instead
 - Do not add new dependencies without explaining why an existing package cannot serve the purpose
 - Keep migrations additive; never drop columns — use nullable + backfill pattern
+- **Frontend motion**: prefer `framer-motion` (variants + `whileInView`) for everything new. GSAP is kept only for `hero-slider.tsx` and `featured-companies-showcase.tsx` because they rely on `ScrollTrigger.scrub` (live scroll-linked parallax / active-state) which framer-motion can replicate only with significant extra machinery. Don't reach for GSAP for new work without an equivalent justification.
 
 ## External Services
 - Storage: Cloudflare R2 (S3-compatible, endpoint in .env as R2_ENDPOINT_URL)

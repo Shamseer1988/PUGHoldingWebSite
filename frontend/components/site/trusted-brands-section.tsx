@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { Sparkles } from "lucide-react";
 
 import { Section } from "@/components/site/section";
@@ -11,6 +12,51 @@ import {
   type HomepageTrustedBrandsSection,
 } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
+
+// Phase B-5 — framer-motion variants replacing the previous GSAP
+// timeline. Header → accent → panel → tiles, with each tile staggered
+// by 80ms. Matches the old "Luxury Brand Reveal" sequence at the same
+// durations + offsets so the visual feel is unchanged.
+const REVEAL_EASE = [0.16, 1, 0.3, 1] as const;
+const SOFT_EASE = [0.33, 1, 0.68, 1] as const;
+
+const HEADER_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 30 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: REVEAL_EASE } },
+};
+
+const ACCENT_VARIANTS: Variants = {
+  hidden: { scaleX: 0 },
+  visible: {
+    scaleX: 1,
+    transition: { duration: 0.9, ease: SOFT_EASE, delay: 0.1 },
+  },
+};
+
+const PANEL_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 40, scale: 0.98 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.8, ease: REVEAL_EASE, delay: 0.2 },
+  },
+};
+
+const TILES_CONTAINER_VARIANTS: Variants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.08, delayChildren: 0.35 } },
+};
+
+const TILE_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 24, scale: 0.94 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.6, ease: REVEAL_EASE },
+  },
+};
 
 
 interface TrustedBrandsSectionProps {
@@ -48,11 +94,7 @@ interface TrustedBrandsSectionProps {
  * active brands exist.
  */
 export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
-  const sectionRef = React.useRef<HTMLDivElement | null>(null);
-  const headerRef = React.useRef<HTMLDivElement | null>(null);
-  const accentRef = React.useRef<HTMLSpanElement | null>(null);
-  const panelRef = React.useRef<HTMLDivElement | null>(null);
-  const tilesRootRef = React.useRef<HTMLDivElement | null>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   const brands = React.useMemo(
     () => data.brands.filter((b) => b.is_active),
@@ -64,98 +106,11 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
       ? data.layout_mode
       : "marquee";
 
-  // -------------------------------------------------------------------
-  // GSAP "Luxury Brand Reveal"
-  // -------------------------------------------------------------------
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!data.animation_enabled) return;
-    if (brands.length === 0) return;
-
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (reducedMotion) return;
-
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    (async () => {
-      const { gsap } = await import("gsap");
-      const { ScrollTrigger } = await import("gsap/ScrollTrigger");
-      if (cancelled) return;
-      gsap.registerPlugin(ScrollTrigger);
-
-      const section = sectionRef.current;
-      const header = headerRef.current;
-      const accent = accentRef.current;
-      const panel = panelRef.current;
-      const root = tilesRootRef.current;
-      if (!section) return;
-
-      // Safety net for the timeline below — see footer.tsx for
-      // rationale. Each brand tile is an inline <img>; their async
-      // dimensions can shift the panel after ScrollTrigger has
-      // measured it, leaving the tiles permanently at opacity:0.
-      let safetyTimer: number | undefined;
-
-      const ctx = gsap.context(() => {
-        // If the section is already visible at JS-execution time
-        // (hard refresh preserved scroll), skip the hide-then-reveal
-        // so SSR-rendered tiles stay on-screen — no 3-4s blank flash.
-        const rect = section.getBoundingClientRect();
-        const alreadyInView =
-          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
-        if (alreadyInView) return;
-
-        if (header) gsap.set(header, { y: 30, opacity: 0 });
-        if (accent) gsap.set(accent, { scaleX: 0, transformOrigin: "left center" });
-        if (panel) gsap.set(panel, { y: 40, opacity: 0, scale: 0.98 });
-        const tiles = root?.querySelectorAll<HTMLElement>("[data-brand-tile]") ?? [];
-        if (tiles.length) {
-          gsap.set(tiles, { y: 24, opacity: 0, scale: 0.94 });
-        }
-
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: section,
-            start: "top 80%",
-            end: "bottom 35%",
-            once: true,
-          },
-          defaults: { ease: "power3.out" },
-        });
-
-        if (header) tl.to(header, { y: 0, opacity: 1, duration: 0.7 }, 0);
-        if (accent)
-          tl.to(accent, { scaleX: 1, duration: 0.9, ease: "power2.out" }, 0.1);
-        if (panel)
-          tl.to(panel, { y: 0, opacity: 1, scale: 1, duration: 0.8 }, 0.2);
-        if (tiles.length)
-          tl.to(
-            tiles,
-            { y: 0, opacity: 1, scale: 1, duration: 0.6, stagger: 0.08 },
-            0.35
-          );
-
-        safetyTimer = window.setTimeout(() => {
-          if (!tl.isActive() && tl.progress() === 0) {
-            tl.progress(1);
-          }
-        }, 800);
-      }, section);
-
-      cleanup = () => {
-        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
-        ctx.revert();
-      };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, [data.animation_enabled, brands.length]);
+  // Reduced motion + admin off → render at the final state on first
+  // paint. Otherwise the section orchestrates a top-down reveal via
+  // its variant tree (see HEADER_VARIANTS etc. above).
+  const animationsOff = !data.animation_enabled || prefersReducedMotion;
+  const initial = animationsOff ? "visible" : "hidden";
 
   if (!data.enabled || brands.length === 0) return null;
 
@@ -184,10 +139,15 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
         "dark:[--tb-tile-border:rgba(255,255,255,0.08)]"
       )}
     >
-      <div ref={sectionRef} className="relative isolate">
+      <motion.div
+        initial={initial}
+        whileInView="visible"
+        viewport={{ once: true, amount: 0.15 }}
+        className="relative isolate"
+      >
         {/* Header */}
-        <div
-          ref={headerRef}
+        <motion.div
+          variants={HEADER_VARIANTS}
           className="mx-auto mb-10 max-w-2xl text-center sm:mb-14"
         >
           {data.eyebrow && (
@@ -213,20 +173,20 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
               {data.subtitle}
             </p>
           )}
-          <span
-            ref={accentRef}
+          <motion.span
+            variants={ACCENT_VARIANTS}
             aria-hidden
-            className="mt-6 inline-block h-[2px] w-24 rounded-full"
+            className="mt-6 inline-block h-[2px] w-24 origin-left rounded-full"
             style={{
               background:
                 "linear-gradient(90deg, transparent, var(--tb-gold), transparent)",
             }}
           />
-        </div>
+        </motion.div>
 
         {/* Brand panel */}
-        <div
-          ref={panelRef}
+        <motion.div
+          variants={PANEL_VARIANTS}
           className={cn(
             "relative mx-auto overflow-hidden rounded-[2rem] border p-5 backdrop-blur-2xl sm:p-8",
             // Two shadow stops: outer drop shadow (theme-aware) + inner edge highlight.
@@ -251,13 +211,13 @@ export function TrustedBrandsSection({ data }: TrustedBrandsSectionProps) {
             style={{ background: "var(--tb-green-glow)" }}
           />
 
-          <div ref={tilesRootRef}>
+          <motion.div variants={TILES_CONTAINER_VARIANTS}>
             {layoutMode === "marquee" && <BrandMarquee brands={brands} />}
             {layoutMode === "grid" && <BrandGrid brands={brands} />}
             {layoutMode === "carousel" && <BrandCarousel brands={brands} />}
-          </div>
-        </div>
-      </div>
+          </motion.div>
+        </motion.div>
+      </motion.div>
     </Section>
   );
 }
@@ -402,9 +362,13 @@ function BrandTile({
 }) {
   const logo = normaliseMediaUrl(brand.logo_url_alt ?? brand.logo_url);
   const labelId = `brand-${brand.id}`;
+  // Only the originals (asAnimationTarget=true) participate in the
+  // stagger reveal. The marquee duplicates inherit the visible state
+  // implicitly because they are rendered with no variants attached —
+  // framer-motion treats a plain ``div`` as "no animation, render as-is".
   const inner = (
-    <div
-      {...(asAnimationTarget ? { "data-brand-tile": "" } : {})}
+    <motion.div
+      variants={asAnimationTarget ? TILE_VARIANTS : undefined}
       className={cn(
         "group/tile relative flex h-28 w-44 shrink-0 items-center justify-center overflow-hidden rounded-2xl border backdrop-blur-md transition-all duration-300 sm:h-32 sm:w-52",
         "hover:-translate-y-0.5",
@@ -485,7 +449,7 @@ function BrandTile({
           Featured
         </span>
       )}
-    </div>
+    </motion.div>
   );
 
   if (brand.link_url) {

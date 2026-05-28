@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, type Variants } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 
 import { STATS, type StatItem } from "@/lib/dummy-data/site-content";
 import { cn } from "@/lib/utils";
 
 /**
- * Homepage stats — uniform card row with GSAP scroll choreography.
+ * Homepage stats — uniform card row with framer-motion scroll
+ * choreography (Phase B-5; previously driven by GSAP ScrollTrigger).
  *
  * Replaces the prior bento (whose dark-green hero slab clashed with
  * the warm cream brand surface) with five equal glass-style cards.
@@ -26,126 +27,63 @@ import { cn } from "@/lib/utils";
  * — no jarring colour swap.
  *
  * Animation:
- *   - GSAP ScrollTrigger drives the entry: cards fade-up + scale-in
- *     with 80ms stagger, then the hairline accents scaleX 0 → 1 in
- *     sequence.
+ *   - Cards fade-up + scale-in with 80ms stagger via
+ *     ``staggerChildren`` on the list container.
+ *   - Each card's accent line scaleX 0 → 1 follows the card by a
+ *     250ms delay, the same offset GSAP's "-=0.35" produced.
  *   - The count-up uses the existing IntersectionObserver +
- *     requestAnimationFrame pattern (preserved verbatim from the
- *     prior implementation).
- *   - Both layers respect `prefers-reduced-motion: reduce` — cards
- *     and accents render at their final state on first paint, and
- *     the count-up snaps to the final value.
+ *     requestAnimationFrame pattern (preserved verbatim).
+ *   - All three layers respect ``prefers-reduced-motion: reduce``
+ *     via the local hook below — cards land at their final state
+ *     on first paint, and the count-up snaps.
  *
  * The `tile_variant` / `sparkline_points` fields on StatItem stay
  * supported for back-compat but no longer affect the layout. The
  * optional `trend_percent` / `trend_label` still surface as a small
  * pill in the top-right of any card that has them.
  */
+const REVEAL_EASE = [0.16, 1, 0.3, 1] as const;
+
+const LIST_VARIANTS: Variants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
+};
+
+const CARD_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 32, scale: 0.97 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.7, ease: REVEAL_EASE },
+  },
+};
+
+const ACCENT_VARIANTS: Variants = {
+  hidden: { scaleX: 0 },
+  visible: {
+    scaleX: 1,
+    transition: { duration: 0.5, ease: REVEAL_EASE, delay: 0.25 },
+  },
+};
+
 export function StatsStrip() {
-  const sectionRef = React.useRef<HTMLUListElement | null>(null);
-  const cardRefs = React.useRef<(HTMLLIElement | null)[]>([]);
-  const accentRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const reduced = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (reduced) return;
-
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    (async () => {
-      const { gsap } = await import("gsap");
-      const { ScrollTrigger } = await import("gsap/ScrollTrigger");
-      if (cancelled) return;
-      gsap.registerPlugin(ScrollTrigger);
-
-      const section = sectionRef.current;
-      const cards = cardRefs.current.filter(Boolean) as HTMLElement[];
-      const accents = accentRefs.current.filter(Boolean) as HTMLElement[];
-      if (!section || cards.length === 0) return;
-
-      // Safety net for the timeline below — see footer.tsx for
-      // rationale. If ScrollTrigger never fires, the stats cards
-      // would stay invisible.
-      let safetyTimer: number | undefined;
-
-      const ctx = gsap.context(() => {
-        // If the stats strip is already in view (hard refresh
-        // preserved scroll), skip hide-then-reveal so SSR-rendered
-        // numbers stay visible — no 3-4s blank flash.
-        const rect = section.getBoundingClientRect();
-        const alreadyInView =
-          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
-        if (alreadyInView) return;
-
-        // Hide everything until the timeline runs, so first paint
-        // matches the animation starting position.
-        gsap.set(cards, { y: 32, opacity: 0, scale: 0.97 });
-        gsap.set(accents, { scaleX: 0, transformOrigin: "left center" });
-
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: section,
-            start: "top 80%",
-            once: true,
-          },
-          defaults: { ease: "power3.out" },
-        });
-
-        tl.to(cards, {
-          y: 0,
-          opacity: 1,
-          scale: 1,
-          duration: 0.7,
-          stagger: 0.08,
-        });
-        if (accents.length) {
-          tl.to(
-            accents,
-            {
-              scaleX: 1,
-              duration: 0.5,
-              stagger: 0.08,
-              ease: "power2.out",
-            },
-            "-=0.35"
-          );
-        }
-
-        safetyTimer = window.setTimeout(() => {
-          if (!tl.isActive() && tl.progress() === 0) {
-            tl.progress(1);
-          }
-        }, 800);
-      }, section);
-
-      cleanup = () => {
-        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
-        ctx.revert();
-      };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, []);
+  const reduced = usePrefersReducedMotion();
+  const initial = reduced ? "visible" : "hidden";
 
   return (
-    <ul
-      ref={sectionRef}
+    <motion.ul
       role="list"
+      variants={LIST_VARIANTS}
+      initial={initial}
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.2 }}
       className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-5"
     >
-      {STATS.map((stat, idx) => (
-        <li
+      {STATS.map((stat) => (
+        <motion.li
           key={stat.label}
-          ref={(el) => {
-            cardRefs.current[idx] = el;
-          }}
+          variants={CARD_VARIANTS}
           aria-label={ariaLabelFor(stat)}
           className={cn(
             "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-pug-green-900/[0.08] bg-white/70 p-5 backdrop-blur-sm shadow-[0_1px_2px_rgba(15,42,28,0.04)] sm:p-6",
@@ -176,18 +114,16 @@ export function StatsStrip() {
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               {stat.label}
             </p>
-            <span
+            <motion.span
               aria-hidden
-              ref={(el) => {
-                accentRefs.current[idx] = el;
-              }}
-              className="block h-px w-12 bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0"
+              variants={ACCENT_VARIANTS}
+              className="block h-px w-12 origin-left bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0"
               style={{ willChange: "transform" }}
             />
           </div>
-        </li>
+        </motion.li>
       ))}
-    </ul>
+    </motion.ul>
   );
 }
 
