@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs";
+
 /** @type {import('next').NextConfig} */
 
 // ---------------------------------------------------------------------------
@@ -151,4 +153,25 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+// Phase A-8: Sentry wrap. ``withSentryConfig`` is what hooks
+// ``instrumentation.ts`` + the three ``sentry.*.config.ts`` files
+// into the bundle so the SDK actually loads at runtime. Source-map
+// upload is intentionally disabled here because it requires a
+// ``SENTRY_AUTH_TOKEN`` that lives outside this repo — when an
+// operator wants nicer stack traces in the dashboard they can flip
+// ``sourcemaps.disable`` to ``false`` and add the token to their
+// CI environment. Runtime error capture works without it.
+export default withSentryConfig(nextConfig, {
+  silent: !process.env.CI,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  // Skip the auth-token-gated upload step.
+  sourcemaps: {
+    disable: true,
+  },
+  // Don't proxy events through a Next.js API route — we ship them
+  // straight to Sentry's ingest endpoint. Tunnel routes are
+  // useful when ad-blockers eat the requests, but they bypass our
+  // own CSP and add latency.
+  tunnelRoute: undefined,
+});

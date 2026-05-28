@@ -63,6 +63,27 @@ def create_app() -> FastAPI:
     # CORS allowlist. No-op outside production.
     ensure_production_safety(settings)
 
+    # Phase A-8: initialise Sentry as early as possible inside
+    # ``create_app`` so it captures exceptions raised during the rest
+    # of the boot (router import, middleware wiring, lifespan
+    # startup). The FastAPI / starlette integrations are pulled in
+    # transitively by the ``[fastapi]`` extra on sentry-sdk — no
+    # explicit middleware registration needed.
+    #
+    # Skipped entirely when no DSN is configured (the common dev /
+    # CI path) — Sentry has zero runtime overhead in that case.
+    # ``send_default_pii=False`` prevents accidental leaks of
+    # request bodies / headers / cookies into the error events.
+    if settings.sentry_dsn:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=0.1,
+            environment=settings.app_env,
+            send_default_pii=False,
+        )
+
     # Phase A-3: only expose the interactive OpenAPI surface in
     # development. ``/docs``, ``/redoc`` and ``/openapi.json`` leak
     # the full route surface + every Pydantic schema to anyone who

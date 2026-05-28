@@ -87,3 +87,9 @@ structlog==24.4.0
 # instead of local disk. Local-disk fallback is preserved for
 # unconfigured installs.
 boto3==1.35.0
+
+# Phase A-8 — Sentry error tracking. The ``[fastapi]`` extra pulls
+# in starlette/asgi integration shims so ``sentry_sdk.init()`` is
+# all the wiring we need — no explicit middleware registration.
+# Inert when ``SENTRY_DSN`` is unset; behaviour-free in dev / tests.
+sentry-sdk[fastapi]==2.18.0
