@@ -93,3 +93,11 @@ boto3==1.35.0
 # all the wiring we need — no explicit middleware registration.
 # Inert when ``SENTRY_DSN`` is unset; behaviour-free in dev / tests.
 sentry-sdk[fastapi]==2.18.0
+
+# Phase B-1.0 — async DB drivers. Used by the new ``async_engine``
+# and ``AsyncSessionLocal`` in ``app.core.database``, alongside the
+# existing sync stack (psycopg2 + Session). New code can opt into
+# async via ``Depends(get_async_db)``; nothing in the existing
+# surface is migrated yet.
+asyncpg==0.30.0
+aiosqlite==0.20.0  # async SQLite driver for the test suite

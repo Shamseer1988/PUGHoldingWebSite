@@ -210,6 +210,28 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
+    @property
+    def sqlalchemy_async_database_uri(self) -> str:
+        """Phase B-1.0: async-engine DSN derived from the sync one.
+
+        Swaps the ``+psycopg2`` driver suffix for ``+asyncpg``. If the
+        caller already provided an asyncpg DSN via ``DATABASE_URL``
+        (e.g. in CI), it passes through untouched. Vanilla
+        ``postgresql://…`` URLs are upgraded to
+        ``postgresql+asyncpg://`` so the operator doesn't have to
+        remember the driver suffix.
+        """
+        sync = self.sqlalchemy_database_uri
+        if "+asyncpg" in sync:
+            return sync
+        if "+psycopg2" in sync:
+            return sync.replace("+psycopg2", "+asyncpg", 1)
+        if sync.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + sync[len("postgresql://"):]
+        # SQLite / other drivers — caller is expected to pass an
+        # already-async-compatible URL (e.g. ``sqlite+aiosqlite://``).
+        return sync
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

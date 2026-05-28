@@ -24,11 +24,17 @@ os.environ.setdefault(
     "pytest-secret-key-only-used-by-the-test-suite-do-not-deploy",
 )
 
-from typing import Generator  # noqa: E402
+from typing import AsyncGenerator, Generator  # noqa: E402
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -40,7 +46,7 @@ from app.auth.permissions import (
     MARKETING_ROLES,
 )
 from app.auth.security import hash_password
-from app.core.database import Base, get_db
+from app.core.database import Base, get_async_db, get_db
 from app.core.rate_limit import reset_rate_limits
 from app.main import app
 from app.models.auth import (
@@ -120,6 +126,93 @@ def client(db_engine) -> Generator[TestClient, None, None]:
             yield c
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+# ---------------------------------------------------------------------------
+# Async fixtures (Phase B-1.1) — mirror the sync trio above against the
+# aiosqlite driver. Use in net-new tests that exercise the async stack
+# (Phase B-2 cache layer, B-3 ARQ tasks, etc.). Existing tests are
+# unaffected because pytest only instantiates a fixture when a test
+# requests it by name.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(scope="function")
+async def async_db_engine():
+    """Async in-memory SQLite engine with a shared connection.
+
+    ``StaticPool`` + ``check_same_thread=False`` keeps the single
+    connection alive across the fixture's coroutine and the
+    application's request coroutines so they see each other's
+    writes — same trick as the sync ``db_engine`` fixture above.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        yield engine
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def async_db_session(async_db_engine) -> AsyncGenerator[AsyncSession, None]:
+    """An ``AsyncSession`` bound to the test engine.
+
+    Use this for tests that exercise async services / repositories
+    directly. For tests that hit an HTTP endpoint, prefer the
+    ``async_client`` fixture below — it wires the same engine into
+    the FastAPI app via ``dependency_overrides`` so a request +
+    direct query observe each other's writes.
+    """
+    TestingAsyncSession = async_sessionmaker(
+        bind=async_db_engine,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
+    async with TestingAsyncSession() as session:
+        yield session
+
+
+@pytest_asyncio.fixture(scope="function")
+async def async_client(async_db_engine):
+    """``httpx.AsyncClient`` against the app with ``get_async_db``
+    overridden to point at the test engine.
+
+    httpx's ``ASGITransport`` skips the network — requests go
+    straight through Starlette's app callable — so this is as fast
+    as a sync ``TestClient`` and runs inside the event loop the
+    test coroutine is using.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    TestingAsyncSession = async_sessionmaker(
+        bind=async_db_engine,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
+
+    async def _override_get_async_db() -> AsyncGenerator[AsyncSession, None]:
+        async with TestingAsyncSession() as session:
+            yield session
+
+    app.dependency_overrides[get_async_db] = _override_get_async_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_async_db, None)
 
 
 # ---------------------------------------------------------------------------
