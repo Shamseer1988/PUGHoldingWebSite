@@ -1,0 +1,68 @@
+# Phase B-6 — backend CI.
+#
+# Runs the pytest suite against an isolated environment that mirrors the
+# default local-dev setup: SQLite in-memory DB (no Postgres required),
+# fakeredis (no Redis required), no ARQ worker, no external services.
+# All of that wiring lives in ``backend/tests/conftest.py`` — we just
+# kick pytest and let the fixtures stand the world up.
+#
+# Triggered on every push + PR that touches the backend tree (or this
+# workflow file). Keeping the path filter tight means a frontend-only
+# PR doesn't burn backend minutes.
+name: backend
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+
+# Cancel in-progress runs for the same ref when a new commit lands.
+# Saves CI minutes during rapid push-fix-push cycles.
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          # Reuses ``backend/requirements.txt`` as the cache key —
+          # invalidates automatically when a dep is added or pinned.
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        env:
+          # Match conftest's defaults so the workflow doesn't rely on
+          # the test runner ``setdefault``-ing them. Pinned here for
+          # explicit visibility in the workflow log.
+          SECRET_KEY: ci-test-secret-key-do-not-deploy
+          SCHEDULER_ENABLED: "false"
+          RATE_LIMIT_ENABLED: "false"
+          ARQ_ENABLED: "false"
+          APP_ENV: development
+        run: python -m pytest -q --no-header
