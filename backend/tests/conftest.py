@@ -22,7 +22,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.auth.permissions import HR_PERMISSIONS, HR_ROLES, HR_ROLES_BY_NAME
+from app.auth.permissions import (
+    HR_PERMISSIONS,
+    HR_ROLES,
+    HR_ROLES_BY_NAME,
+    MARKETING_PERMISSIONS,
+    MARKETING_ROLES,
+)
 from app.auth.security import hash_password
 from app.core.database import Base, get_db
 from app.core.rate_limit import reset_rate_limits
@@ -151,6 +157,14 @@ def seed_auth(db_session: Session) -> dict[str, object]:
         perm = Permission(key=key, scope=SCOPE_HR, description=description)
         hr_perms[key] = perm
         db_session.add(perm)
+
+    # Marketing — same shape as HR. Scope=system so the role can be
+    # held by a user logging into the website portal.
+    marketing_perms: dict[str, Permission] = {}
+    for key, description in MARKETING_PERMISSIONS:
+        perm = Permission(key=key, scope=SCOPE_SYSTEM, description=description)
+        marketing_perms[key] = perm
+        db_session.add(perm)
     db_session.flush()
 
     # 2. Roles — Website + all seven HR roles from the catalogue
@@ -173,10 +187,29 @@ def seed_auth(db_session: Session) -> dict[str, object]:
         )
         # Super Admin should also have website permission so legacy
         # tests that exercise both portals via this user still work.
+        # Same goes for every marketing permission — superuser bypasses
+        # checks anyway but the explicit grant keeps audit reads clean.
         if spec.name == "Super Admin":
-            role.permissions = role.permissions + [p_website]
+            role.permissions = role.permissions + [p_website] + list(
+                marketing_perms.values()
+            )
         roles[spec.name] = role
         db_session.add(role)
+
+    # Marketing-only roles — let the test suite log in as a marketing
+    # admin / viewer that has zero HR exposure.
+    for spec in MARKETING_ROLES:
+        role = Role(
+            name=spec.name,
+            scope=SCOPE_SYSTEM,
+            description=spec.description,
+            permissions=[
+                marketing_perms[k] for k in spec.permissions if k in marketing_perms
+            ],
+        )
+        roles[spec.name] = role
+        db_session.add(role)
+
     db_session.flush()
 
     # 3. Users — one per role plus the legacy ``hr@pug.example.com``
@@ -223,6 +256,16 @@ def seed_auth(db_session: Session) -> dict[str, object]:
         ["Interviewer"],
     )
     u_viewer = _mk_user("viewer@pug.example.com", "Viewer", ["Viewer / Auditor"])
+    u_marketingmgr = _mk_user(
+        "marketingmgr@pug.example.com",
+        "Marketing Manager",
+        ["Marketing Manager"],
+    )
+    u_marketingviewer = _mk_user(
+        "marketingviewer@pug.example.com",
+        "Marketing Viewer",
+        ["Marketing Viewer"],
+    )
     u_inactive = _mk_user(
         "disabled@pug.example.com",
         "Disabled User",
@@ -232,7 +275,8 @@ def seed_auth(db_session: Session) -> dict[str, object]:
 
     users_list = [
         u_super, u_web, u_hr, u_hradmin, u_hrexec, u_dept,
-        u_interviewer, u_viewer, u_inactive,
+        u_interviewer, u_viewer, u_marketingmgr, u_marketingviewer,
+        u_inactive,
     ]
     db_session.add_all(users_list)
     db_session.commit()

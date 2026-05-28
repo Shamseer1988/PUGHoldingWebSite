@@ -45,12 +45,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth.dependencies import (
     get_request_context,
+    require_any_permission,
     require_permission,
     require_website_admin,
 )
 from app.auth.permissions import (
     PERM_MARKETING_CAMPAIGNS_MANAGE,
+    PERM_MARKETING_CAMPAIGNS_READ,
     PERM_MARKETING_CATALOGUES_MANAGE,
+    PERM_MARKETING_CATALOGUES_READ,
+    PERM_MARKETING_DASHBOARD_VIEW,
 )
 from app.core.database import get_db
 from app.models.auth import User
@@ -77,6 +81,26 @@ from app.schemas.marketing import (
     MarketingDashboardTopCatalogue,
     ReconcileCountersResult,
 )
+# Dependency aliases — GETs accept either the manage key or the
+# narrower read key so a "Marketing Viewer" role can browse without
+# being granted write access. The dashboard accepts any marketing
+# key (including dashboard:view) because analytics is the safest
+# surface to expose to non-CRUD analysts.
+_CAMPAIGNS_VIEWER = require_any_permission(
+    PERM_MARKETING_CAMPAIGNS_READ, PERM_MARKETING_CAMPAIGNS_MANAGE
+)
+_CATALOGUES_VIEWER = require_any_permission(
+    PERM_MARKETING_CATALOGUES_READ, PERM_MARKETING_CATALOGUES_MANAGE
+)
+_DASHBOARD_VIEWER = require_any_permission(
+    PERM_MARKETING_DASHBOARD_VIEW,
+    PERM_MARKETING_CAMPAIGNS_READ,
+    PERM_MARKETING_CAMPAIGNS_MANAGE,
+    PERM_MARKETING_CATALOGUES_READ,
+    PERM_MARKETING_CATALOGUES_MANAGE,
+)
+
+
 from app.services.audit_log import record_audit
 from app.services.catalogue_processor import (
     CatalogueProcessingError,
@@ -192,7 +216,7 @@ def _serialize_campaign(
 @router.get("/campaigns", response_model=List[CampaignRead])
 def list_campaigns(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_permission(PERM_MARKETING_CAMPAIGNS_MANAGE)),
+    actor: User = Depends(_CAMPAIGNS_VIEWER),
     include_inactive: bool = Query(default=True),
     branch: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None, max_length=200),
@@ -274,7 +298,7 @@ def create_campaign(
 def get_campaign(
     campaign_id: int,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_permission(PERM_MARKETING_CAMPAIGNS_MANAGE)),
+    actor: User = Depends(_CAMPAIGNS_VIEWER),
 ) -> CampaignRead:
     row = _campaign_or_404(db, campaign_id)
     counts = _catalogue_counts(db, [row.id])
@@ -356,7 +380,7 @@ def delete_campaign(
 @router.get("/catalogues", response_model=List[CatalogueRead])
 def list_catalogues(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+    actor: User = Depends(_CATALOGUES_VIEWER),
     campaign_id: Optional[int] = Query(default=None),
     status_filter: Optional[str] = Query(default=None, alias="status"),
     search: Optional[str] = Query(default=None, max_length=200),
@@ -496,7 +520,7 @@ def upload_catalogue(
 def get_catalogue(
     catalogue_id: int,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+    actor: User = Depends(_CATALOGUES_VIEWER),
 ) -> CatalogueDetail:
     row = db.execute(
         select(Catalogue)
@@ -646,7 +670,7 @@ def reprocess_catalogue(
 def catalogue_qr_code(
     catalogue_id: int,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+    actor: User = Depends(_CATALOGUES_VIEWER),
 ) -> Response:
     """Generate a branded PNG QR code for the catalogue's public URL.
 
@@ -840,7 +864,7 @@ def delete_catalogue_qr_logo(
 def catalogue_analytics(
     catalogue_id: int,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+    actor: User = Depends(_CATALOGUES_VIEWER),
 ) -> CatalogueAnalytics:
     row = _catalogue_or_404(db, catalogue_id)
     total_views = int(
@@ -1017,7 +1041,7 @@ def marketing_dashboard(
     ),
     top_n: int = Query(default=5, ge=1, le=20),
     recent_n: int = Query(default=15, ge=1, le=50),
-    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+    actor: User = Depends(_DASHBOARD_VIEWER),
     db: Session = Depends(get_db),
 ) -> MarketingDashboard:
     """One-shot read-model for the admin Marketing → Dashboard page.

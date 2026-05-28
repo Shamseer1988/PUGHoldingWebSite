@@ -94,10 +94,14 @@ PERM_HR_USERS_MANAGE = "hr:users:manage"  # super admin only
 
 # Marketing — Digital Offers & Catalogues module --------------------------
 # Lives under the website scope (any user with SCOPE_WEBSITE who holds
-# these keys can manage campaigns / catalogues). The two keys are kept
-# separate so future roles can split content authoring from campaign
-# scheduling.
+# these keys can use the marketing surface). Split into read / manage
+# levels so a viewer role (analytics-only) and a manager role
+# (full CRUD) can coexist; dashboard has its own ``view`` key so the
+# operator can grant analytics without granting CRUD.
+PERM_MARKETING_DASHBOARD_VIEW = "marketing:dashboard:view"
+PERM_MARKETING_CAMPAIGNS_READ = "marketing:campaigns:read"
 PERM_MARKETING_CAMPAIGNS_MANAGE = "marketing:campaigns:manage"
+PERM_MARKETING_CATALOGUES_READ = "marketing:catalogues:read"
 PERM_MARKETING_CATALOGUES_MANAGE = "marketing:catalogues:manage"
 
 
@@ -157,6 +161,26 @@ HR_PERMISSIONS: Tuple[Tuple[str, str], ...] = (
 
 # Index for quick lookup
 HR_PERMISSION_KEYS = frozenset(key for key, _ in HR_PERMISSIONS)
+
+
+# Marketing module — collapsed under one "MARKETING" header in the
+# admin role matrix so a Marketing Manager / Viewer role is a clean
+# single block instead of two scattered checkboxes.
+MARKETING_PERMISSIONS: Tuple[Tuple[str, str], ...] = (
+    (PERM_MARKETING_DASHBOARD_VIEW, "View the Marketing analytics dashboard"),
+    (PERM_MARKETING_CAMPAIGNS_READ, "Browse offer campaigns (read-only)"),
+    (PERM_MARKETING_CAMPAIGNS_MANAGE, "Create and manage offer campaigns"),
+    (PERM_MARKETING_CATALOGUES_READ, "Browse catalogues and pages (read-only)"),
+    (PERM_MARKETING_CATALOGUES_MANAGE, "Upload, edit and reprocess catalogues"),
+)
+
+MARKETING_PERMISSION_KEYS = frozenset(k for k, _ in MARKETING_PERMISSIONS)
+_ALL_MARKETING = tuple(k for k, _ in MARKETING_PERMISSIONS)
+_MARKETING_READ_ONLY = (
+    PERM_MARKETING_DASHBOARD_VIEW,
+    PERM_MARKETING_CAMPAIGNS_READ,
+    PERM_MARKETING_CATALOGUES_READ,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +381,50 @@ HR_ROLES: Tuple[RoleSpec, ...] = (
 HR_ROLES_BY_NAME = {spec.name: spec for spec in HR_ROLES}
 
 
+# Marketing — two role tiers. Manager has the full read+manage set;
+# Viewer is read + dashboard analytics, no CRUD. Both are website-
+# scoped so they don't accidentally bleed into the HR portal.
+ROLE_MARKETING_MANAGER = "Marketing Manager"
+ROLE_MARKETING_VIEWER = "Marketing Viewer"
+
+
+MARKETING_ROLES: Tuple[RoleSpec, ...] = (
+    RoleSpec(
+        name=ROLE_MARKETING_MANAGER,
+        description=(
+            "Marketing portal admin — full access to campaigns, catalogues, "
+            "PDF compressor and the analytics dashboard. Cannot touch HR, "
+            "users or site settings."
+        ),
+        permissions=_ALL_MARKETING,
+    ),
+    RoleSpec(
+        name=ROLE_MARKETING_VIEWER,
+        description=(
+            "Marketing analyst — read-only access to campaigns and "
+            "catalogues plus the analytics dashboard. Cannot upload, "
+            "edit or delete."
+        ),
+        permissions=_MARKETING_READ_ONLY,
+    ),
+)
+
+MARKETING_ROLES_BY_NAME = {spec.name: spec for spec in MARKETING_ROLES}
+
+
 __all__ = [
+    # marketing
+    "PERM_MARKETING_DASHBOARD_VIEW",
+    "PERM_MARKETING_CAMPAIGNS_READ",
+    "PERM_MARKETING_CAMPAIGNS_MANAGE",
+    "PERM_MARKETING_CATALOGUES_READ",
+    "PERM_MARKETING_CATALOGUES_MANAGE",
+    "MARKETING_PERMISSIONS",
+    "MARKETING_PERMISSION_KEYS",
+    "MARKETING_ROLES",
+    "MARKETING_ROLES_BY_NAME",
+    "ROLE_MARKETING_MANAGER",
+    "ROLE_MARKETING_VIEWER",
     # constants
     "PERM_HR_DASHBOARD_VIEW",
     "PERM_HR_JOBS_VIEW",

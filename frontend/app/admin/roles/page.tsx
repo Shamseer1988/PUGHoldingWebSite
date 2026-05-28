@@ -466,17 +466,35 @@ function PermissionMatrix({
   onChange: (next: Set<number>) => void;
   disabled?: boolean;
 }) {
-  // Group by the prefix of the permission key (e.g. "hr:jobs:approve"
-  // -> area "jobs"). Falls back to "general" for non-namespaced keys.
+  // Permission grouping. Most permission keys are
+  // ``namespace:area:action`` (e.g. ``hr:jobs:approve``), and we
+  // group by the middle segment so HR's 30+ keys split cleanly into
+  // Jobs / Candidates / Interviews / etc. Small namespaces
+  // (``marketing``, ``website``) have few keys and read better as
+  // a single block, so we collapse them under the namespace
+  // instead — that's how the user sees "MARKETING" with both the
+  // campaign + catalogue + dashboard checkboxes inside it.
+  const NAMESPACE_GROUPED = new Set(["marketing", "website"]);
   const groups = React.useMemo(() => {
     const out: Record<string, PermissionInfo[]> = {};
     for (const p of permissions) {
       const parts = p.key.split(":");
+      const namespace = parts[0] ?? "general";
       const area = parts.length >= 2 ? parts[1] : "general";
-      if (!out[area]) out[area] = [];
-      out[area].push(p);
+      const groupKey = NAMESPACE_GROUPED.has(namespace) ? namespace : area;
+      if (!out[groupKey]) out[groupKey] = [];
+      out[groupKey].push(p);
+    }
+    // Sort permissions inside each group by key so manage > read
+    // ordering stays predictable.
+    for (const list of Object.values(out)) {
+      list.sort((a, b) => a.key.localeCompare(b.key));
     }
     return Object.entries(out).sort((a, b) => a[0].localeCompare(b[0]));
+    // NAMESPACE_GROUPED is a module-level constant in spirit — list
+    // is intentionally short so dropping a key here is the only
+    // touch-point for adding a new collapsed namespace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [permissions]);
 
   function toggle(id: number, checked: boolean) {
