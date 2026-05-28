@@ -252,7 +252,10 @@ export default function HrCandidatesPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="cands-search"
-                placeholder="Name, email or mobile"
+                // Phase C-4: search now matches the candidate's CV
+                // body too — Postgres FTS on prod, ILIKE fallback on
+                // SQLite test envs. Same call-site, wider coverage.
+                placeholder="Name, email, mobile, or CV content"
                 value={filters.q ?? ""}
                 onChange={(e) =>
                   setFilters({ ...filters, q: e.target.value })
