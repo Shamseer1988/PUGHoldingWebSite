@@ -68,3 +68,8 @@ APScheduler==3.10.4
 # pdf2image which shells out to Poppler) and doesn't require a system
 # binary, so it works on any container we deploy to.
 PyMuPDF==1.24.10
+
+# QR codes — branded PNGs for catalogue sharing. ``[pil]`` extra
+# pulls in Pillow which is already required for image rebake +
+# catalogue rendering.
+qrcode[pil]==7.4.2

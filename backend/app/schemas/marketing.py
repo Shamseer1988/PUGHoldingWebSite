@@ -245,7 +245,11 @@ class OffersIndex(BaseModel):
     killer_offers: List[OffersIndexCampaign] = Field(default_factory=list)
     flash_sales: List[OffersIndexCampaign] = Field(default_factory=list)
     all_campaigns: List[OffersIndexCampaign] = Field(default_factory=list)
-    standalone_catalogues: List[OffersIndexCatalogue] = Field(default_factory=list)
+    # Every active+ready catalogue, regardless of campaign attachment.
+    # The landing renders this as a "Catalogues" section so a flyer
+    # always shows up — even if its parent campaign is inactive, has
+    # the wrong date range, or wasn't created at all.
+    all_catalogues: List[OffersIndexCatalogue] = Field(default_factory=list)
     branches: List[str] = Field(default_factory=list)
 
 

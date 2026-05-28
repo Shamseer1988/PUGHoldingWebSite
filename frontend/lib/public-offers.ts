@@ -50,7 +50,7 @@ export interface OffersIndex {
   killer_offers: OfferIndexCampaign[];
   flash_sales: OfferIndexCampaign[];
   all_campaigns: OfferIndexCampaign[];
-  standalone_catalogues: OffersIndexCatalogue[];
+  all_catalogues: OffersIndexCatalogue[];
   branches: string[];
 }
 
@@ -112,7 +112,7 @@ export async function getOffersIndex(query?: {
       killer_offers: [],
       flash_sales: [],
       all_campaigns: [],
-      standalone_catalogues: [],
+      all_catalogues: [],
       branches: [],
     }
   );

@@ -635,6 +635,65 @@ def reprocess_catalogue(
     return CatalogueDetail.model_validate(row)
 
 
+@router.get("/catalogues/{catalogue_id}/qr-code.png")
+def catalogue_qr_code(
+    catalogue_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
+) -> Response:
+    """Generate a branded PNG QR code for the catalogue's public URL.
+
+    The code uses the highest error-correction level so the central
+    brand badge doesn't break scannability. Returned as an inline
+    PNG so the admin UI can either preview it directly or trigger a
+    download via the Content-Disposition header.
+    """
+    from app.core.config import get_settings
+    from app.services.qr_codes import build_catalogue_qr
+
+    row = _catalogue_or_404(db, catalogue_id)
+
+    # Public viewer URL — derived from the site URL the admin
+    # configured; falls back to the request's own host header for
+    # local dev so the QR still scans when nothing's been set.
+    settings = get_settings()
+    site_url = (
+        getattr(settings, "site_url", None)
+        or str(request.base_url).rstrip("/")
+    )
+    public_url = f"{site_url}/offers/catalogues/{row.slug}"
+
+    # Optional logo overlay — uploaded by admin under Site Settings,
+    # if present. We don't error if it's missing.
+    from pathlib import Path
+
+    logo_path: Path | None = None
+    upload_dir = Path(settings.upload_dir)
+    for candidate in ("brand-logo.png", "logo.png"):
+        p = upload_dir / candidate
+        if p.exists():
+            logo_path = p
+            break
+
+    png_bytes = build_catalogue_qr(public_url, logo_path=logo_path)
+
+    safe_slug = "".join(
+        ch if ch.isalnum() or ch in "-_" else "-" for ch in row.slug
+    )
+    filename = f"qr-{safe_slug}.png"
+
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, max-age=60",
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
 @router.get(
     "/catalogues/{catalogue_id}/analytics", response_model=CatalogueAnalytics
 )

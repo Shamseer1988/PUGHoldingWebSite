@@ -183,14 +183,14 @@ def list_offers(
     killer = [c for c in cards if c.is_killer_offer]
     flash = [c for c in cards if c.is_flash_sale]
 
-    # Standalone catalogues — active+ready catalogues that nobody
-    # attached to a campaign yet. We still want them browsable so the
-    # public surface degrades gracefully when an operator uploads a
-    # catalogue without picking a campaign.
-    standalone_stmt = (
+    # Every active+ready catalogue — regardless of campaign attachment.
+    # The previous "standalone only" filter caused the landing to look
+    # empty whenever a campaign existed but had the wrong date window
+    # or was set inactive. Surfacing every catalogue here means the
+    # landing always has content as long as one catalogue has rendered.
+    catalogue_stmt = (
         select(Catalogue)
         .where(
-            Catalogue.campaign_id.is_(None),
             Catalogue.is_active.is_(True),
             Catalogue.processing_status == CATALOGUE_READY,
         )
@@ -199,19 +199,17 @@ def list_offers(
             Catalogue.sort_order.asc(),
             desc(Catalogue.created_at),
         )
-        .limit(24)
+        .limit(48)
     )
-    # Light text filter mirrors the campaign search so the catalogues
-    # land in the same result set when the user types a keyword.
     if q:
         needle = f"%{q.strip().lower()}%"
-        standalone_stmt = standalone_stmt.where(
+        catalogue_stmt = catalogue_stmt.where(
             or_(
                 func.lower(Catalogue.title).like(needle),
                 func.lower(Catalogue.description).like(needle),
             )
         )
-    standalone = [
+    all_catalogues = [
         OffersIndexCatalogue(
             slug=c.slug,
             title=c.title,
@@ -219,11 +217,12 @@ def list_offers(
             cover_image_url=c.cover_image_url,
             page_count=c.page_count,
         )
-        for c in db.execute(standalone_stmt).scalars()
+        for c in db.execute(catalogue_stmt).scalars()
     ]
 
     # Branch facet — pull every distinct branch from the surfaced
-    # set so the filter only shows options that actually have content.
+    # campaign set so the filter only shows options that actually
+    # have content.
     branches = sorted({c.branch for c in cards if c.branch})
 
     return OffersIndex(
@@ -231,7 +230,7 @@ def list_offers(
         killer_offers=killer[:8],
         flash_sales=flash[:8],
         all_campaigns=cards,
-        standalone_catalogues=standalone,
+        all_catalogues=all_catalogues,
         branches=branches,
     )
 

@@ -10,10 +10,12 @@ import {
   Download,
   ExternalLink,
   Eye,
+  EyeOff,
   FileUp,
   Loader2,
   Pencil,
   Plus,
+  QrCode,
   RefreshCw,
   Trash2,
   X,
@@ -118,6 +120,58 @@ export default function CataloguesPage() {
     } catch (err) {
       setError((err as AdminApiError).message);
     }
+  }
+
+  async function togglePublished(row: Catalogue) {
+    try {
+      await adminApi.patch(`${BASE}/${row.id}`, {
+        is_active: !row.is_active,
+      });
+      setToast(
+        row.is_active
+          ? `Unpublished "${row.title}".`
+          : `Published "${row.title}".`
+      );
+      await refresh();
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    }
+  }
+
+  function openQrCode(row: Catalogue) {
+    // Authenticated endpoint — fetch as blob so the bearer token
+    // travels with the request, then open the resulting object URL
+    // in a new tab. Browsers don't send Authorization headers via a
+    // plain ``<a target=_blank>`` so the direct deep-link wouldn't
+    // work for admin-only endpoints.
+    void (async () => {
+      try {
+        const session = await import("@/lib/auth").then((m) =>
+          m.loadSession("admin")
+        );
+        if (!session) {
+          setError("Not authenticated.");
+          return;
+        }
+        const env = await import("@/lib/env").then((m) => m.env);
+        const url = `${env.apiBaseUrl}/admin/marketing/catalogues/${row.id}/qr-code.png`;
+        const resp = await fetch(url, {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+        });
+        if (!resp.ok) {
+          throw new Error(`QR code request failed (${resp.status})`);
+        }
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        window.open(objectUrl, "_blank", "noopener");
+        // Best-effort revoke after the new tab has had time to load.
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "QR code request failed"
+        );
+      }
+    })();
   }
 
   async function remove(row: Catalogue) {
@@ -295,11 +349,46 @@ export default function CataloguesPage() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        onClick={() => togglePublished(row)}
+                        aria-label={
+                          row.is_active
+                            ? `Unpublish ${row.title}`
+                            : `Publish ${row.title}`
+                        }
+                        title={
+                          row.is_active
+                            ? "Unpublish (hide from public site)"
+                            : "Publish (show on public site)"
+                        }
+                        className={cn(
+                          row.is_active
+                            ? "text-emerald-700 hover:text-emerald-800"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {row.is_active ? (
+                          <Eye className="h-4 w-4" />
+                        ) : (
+                          <EyeOff className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
                         onClick={() => setViewing(row)}
                         aria-label="Preview pages"
                         title="Preview"
                       >
-                        <Eye className="h-4 w-4" />
+                        <BookOpen className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => openQrCode(row)}
+                        aria-label={`QR code for ${row.title}`}
+                        title="QR code (branded PNG)"
+                      >
+                        <QrCode className="h-4 w-4" />
                       </Button>
                       <Button
                         size="icon"

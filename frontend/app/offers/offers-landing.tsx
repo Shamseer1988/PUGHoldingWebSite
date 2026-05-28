@@ -178,16 +178,16 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
         </SectionBlock>
       )}
 
-      {/* ----- Standalone catalogues ----- */}
-      {index.standalone_catalogues.length > 0 && (
+      {/* ----- Catalogues (every active+ready catalogue) ----- */}
+      {index.all_catalogues.length > 0 && (
         <SectionBlock
           eyebrow="Catalogues"
           icon={BookOpen}
-          title="Individual catalogues."
-          subtitle="Standalone flyers not yet part of a campaign — open one to start flipping pages."
+          title="Browse the full library."
+          subtitle="Every active flyer — tap to open the page-flip viewer."
         >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {index.standalone_catalogues.map((c) => (
+            {index.all_catalogues.map((c) => (
               <CatalogueCard key={c.slug} catalogue={c} />
             ))}
           </div>
@@ -196,7 +196,7 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
 
       {/* ----- Global empty state ----- */}
       {index.all_campaigns.length === 0 &&
-        index.standalone_catalogues.length === 0 && (
+        index.all_catalogues.length === 0 && (
           <SectionBlock
             eyebrow="Nothing yet"
             icon={Tag}

@@ -5,6 +5,8 @@ import Link from "next/link";
 import {
   CheckCircle2,
   ExternalLink,
+  Eye,
+  EyeOff,
   Flame,
   Image as ImageIcon,
   Loader2,
@@ -76,6 +78,22 @@ export default function CampaignsPage() {
         `${BASE}?${params.toString()}`
       );
       setRows(data);
+    } catch (err) {
+      setError((err as AdminApiError).message);
+    }
+  }
+
+  async function togglePublished(row: OfferCampaign) {
+    try {
+      await adminApi.patch(`${BASE}/${row.id}`, {
+        is_active: !row.is_active,
+      });
+      setToast(
+        row.is_active
+          ? `Unpublished "${row.title}".`
+          : `Published "${row.title}".`
+      );
+      await refresh();
     } catch (err) {
       setError((err as AdminApiError).message);
     }
@@ -282,6 +300,32 @@ export default function CampaignsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex items-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => togglePublished(row)}
+                        aria-label={
+                          row.is_active
+                            ? `Unpublish ${row.title}`
+                            : `Publish ${row.title}`
+                        }
+                        title={
+                          row.is_active
+                            ? "Unpublish (hide from /offers)"
+                            : "Publish (show on /offers)"
+                        }
+                        className={cn(
+                          row.is_active
+                            ? "text-emerald-700 hover:text-emerald-800"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {row.is_active ? (
+                          <Eye className="h-4 w-4" />
+                        ) : (
+                          <EyeOff className="h-4 w-4" />
+                        )}
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"
