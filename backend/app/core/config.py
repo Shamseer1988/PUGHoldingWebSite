@@ -100,6 +100,32 @@ class Settings(BaseSettings):
     upload_dir: str = Field(default="app/uploads")
     max_upload_size_mb: int = Field(default=20)
 
+    # --- Cloudflare R2 (Phase A-6) ---
+    # When all four required fields are set (host + creds + bucket),
+    # the storage factory in ``app.services.storage`` returns
+    # ``R2StorageBackend``. Otherwise it falls back to the local-disk
+    # backend that mirrors the pre-R2 behaviour, so unconfigured
+    # installs (dev, CI, fresh staging) keep working without a
+    # cloud account. ``r2_public_base_url`` is optional — when unset
+    # the backend constructs the long ``<account>.r2.cloudflarestorage.com``
+    # URL itself.
+    r2_endpoint_url: Optional[str] = Field(default=None)
+    r2_access_key_id: Optional[str] = Field(default=None)
+    r2_secret_access_key: Optional[str] = Field(default=None)
+    r2_bucket_name: str = Field(default="pug-holding-media")
+    r2_public_base_url: Optional[str] = Field(default=None)
+
+    @property
+    def r2_configured(self) -> bool:
+        """True when every required R2 setting is present, so the
+        storage factory should hand back the R2 backend."""
+        return bool(
+            self.r2_endpoint_url
+            and self.r2_access_key_id
+            and self.r2_secret_access_key
+            and self.r2_bucket_name
+        )
+
     # --- Azure OpenAI (placeholders) ---
     azure_openai_endpoint: Optional[str] = Field(default=None)
     azure_openai_api_key: Optional[str] = Field(default=None)

@@ -1269,22 +1269,80 @@ async def upload_image(
     filename = f"{content_hash[:16]}.{ext}"
     target = base / filename
 
+    # Write locally first so the image optimiser can read from disk —
+    # ``optimize_image`` works against a Path, not a bytes blob. We
+    # then push the resulting files to the configured storage backend
+    # (R2 in production, local disk in dev) and clean up the local
+    # copy when the backend is remote so the upload dir doesn't grow
+    # forever.
     if not target.exists():
         target.write_bytes(data)
 
-    # Public URL — served by the StaticFiles mount in app/main.py.
-    url = f"/api/v1/uploads/cms/{filename}"
-
     # Resize + WebP variants so the public site doesn't ship the
     # full-res original. See app/services/image_optimization.py.
+    # The optimiser writes variant files alongside ``target``; we'll
+    # re-read each one below to push it through the storage backend.
     from app.services.image_optimization import optimize_image
+    from app.services.storage import LocalStorageBackend, get_storage
 
     variant_set = optimize_image(
         target,
         public_base_url="/api/v1/uploads/cms",
         mime_type=file.content_type,
     )
-    variants_payload = variant_set.as_dict() if variant_set is not None else None
+
+    # Phase A-6: push the original + every variant through the
+    # storage abstraction. With R2 configured, ``upload`` returns an
+    # ``https://media.…/cms/<file>`` URL; with the local backend it
+    # returns the existing ``/api/v1/uploads/cms/<file>`` path so the
+    # StaticFiles mount keeps serving it.
+    storage = get_storage()
+    storage_is_local = isinstance(storage, LocalStorageBackend)
+
+    url = await storage.upload(
+        f"cms/{filename}", data, file.content_type
+    )
+
+    variants_payload = None
+    if variant_set is not None:
+        rebuilt = {"webp": {}, "jpg": {}}
+        for fmt, urls in variant_set.as_dict().items():
+            for variant, local_url in urls.items():
+                # ``optimize_image`` produced ``/api/v1/uploads/cms/<name>``
+                # — translate back to a filesystem path so we can read
+                # the bytes and hand them to the backend.
+                variant_name = Path(local_url).name
+                variant_path = base / variant_name
+                if not variant_path.exists():
+                    # Optimiser skipped this format / variant — leave
+                    # the original URL alone so the row doesn't carry
+                    # a dangling reference.
+                    rebuilt[fmt][variant] = local_url
+                    continue
+                content_type = "image/webp" if fmt == "webp" else "image/jpeg"
+                with variant_path.open("rb") as fh:
+                    variant_bytes = fh.read()
+                rebuilt[fmt][variant] = await storage.upload(
+                    f"cms/{variant_name}", variant_bytes, content_type
+                )
+                # With remote storage active, the local variant file
+                # is now redundant — the storage backend owns the
+                # canonical copy.
+                if not storage_is_local:
+                    try:
+                        variant_path.unlink()
+                    except OSError:
+                        pass
+        variants_payload = rebuilt
+
+    # When the original lives in R2, the local copy we wrote so the
+    # optimiser could see it is now redundant. ``unlink(missing_ok)``
+    # because a previous identical upload may have already cleaned up.
+    if not storage_is_local:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     # Phase 5 follow-up — persist a MediaAsset row so the gallery can
     # list this file. Dedupe by file_hash; if a row already exists,

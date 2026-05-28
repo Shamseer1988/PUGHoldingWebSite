@@ -79,3 +79,11 @@ qrcode[pil]==7.4.2
 # colourised console output in development so a human can read a
 # tail. Same ``get_logger()`` helper across the codebase.
 structlog==24.4.0
+
+# Phase A-6 — Cloudflare R2 object storage. R2 is S3-compatible so
+# the standard ``boto3`` client works as-is once pointed at the R2
+# endpoint URL. Used by ``app.services.storage`` to upload public
+# media (CMS images + catalogue assets) to a CDN-fronted bucket
+# instead of local disk. Local-disk fallback is preserved for
+# unconfigured installs.
+boto3==1.35.0
