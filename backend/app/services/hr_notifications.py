@@ -18,7 +18,7 @@ transaction is never rolled back by a transient SMTP issue.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.orm import Session
@@ -110,6 +110,7 @@ def send_notification(
     actor_id: Optional[int] = None,
     subject_override: Optional[str] = None,
     check_feature_flag: Optional[str] = None,
+    dedupe_within_seconds: int = 120,
 ) -> EmailLog:
     """Send a templated branded email and persist an EmailLog row.
 
@@ -118,10 +119,71 @@ def send_notification(
     (and the log row is marked failed with that reason) if the flag is
     off. This lets admins disable individual notification streams from
     the Admin Email Settings page.
+
+    ``dedupe_within_seconds`` — short-window idempotency guard. When
+    ``related_type`` and ``related_id`` are both set, the function
+    first looks for an EmailLog with the same
+    ``(template_key, related_type, related_id)`` and status in
+    ``{pending, sent}`` created in the last N seconds. If one exists
+    we return it instead of resending — protecting against:
+
+      * uvicorn ``--reload`` interrupting an in-flight POST while
+        the browser auto-retries the same request after the worker
+        comes back up;
+      * a double-clicked "Send Reply" / "Submit" / status-transition
+        button;
+      * any HTTP client with implicit retry-on-connection-close.
+
+    Set ``dedupe_within_seconds=0`` to disable. Sends without a
+    ``related_type``/``related_id`` (test emails, ad-hoc sends) skip
+    the check by construction.
     """
     to_list = _normalize_emails(to_emails)
     cc_list = _normalize_emails(cc_emails)
     bcc_list = _normalize_emails(bcc_emails)
+
+    # ----- Idempotency: suppress accidental duplicates -----
+    if (
+        dedupe_within_seconds > 0
+        and related_type
+        and related_id
+    ):
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=dedupe_within_seconds
+        )
+        existing = (
+            db.query(EmailLog)
+            .filter(
+                EmailLog.template_key == template_key,
+                EmailLog.related_type == related_type,
+                EmailLog.related_id == related_id,
+                EmailLog.status.in_([EMAIL_LOG_SENT, EMAIL_LOG_PENDING]),
+                EmailLog.created_at >= cutoff,
+            )
+            .order_by(EmailLog.created_at.desc())
+            .first()
+        )
+        if existing is not None:
+            now = datetime.now(timezone.utc)
+            existing_created = (
+                existing.created_at
+                if existing.created_at.tzinfo
+                else existing.created_at.replace(tzinfo=timezone.utc)
+            )
+            age_seconds = int((now - existing_created).total_seconds())
+            logger.warning(
+                "Suppressed duplicate notification "
+                "(template=%s related=%s/%s, last attempt %ds ago, "
+                "status=%s) — within %ds dedup window. Caller probably "
+                "hit a uvicorn --reload mid-request or a retried POST.",
+                template_key,
+                related_type,
+                related_id,
+                age_seconds,
+                existing.status,
+                dedupe_within_seconds,
+            )
+            return existing
 
     log = EmailLog(
         scope=scope,
