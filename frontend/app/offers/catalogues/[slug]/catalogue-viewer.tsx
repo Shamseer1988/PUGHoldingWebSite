@@ -167,6 +167,68 @@ export function CatalogueViewer({ catalogue }: Props) {
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
+  // -----------------------------------------------------------------
+  // Pinch-to-zoom (touch). Two-finger gesture on the viewer body
+  // controls the same ``zoom`` state the toolbar buttons use. We
+  // only intercept events with ≥ 2 touches so single-finger swipes
+  // still reach react-pageflip for page navigation.
+  //
+  // ``zoomRef`` mirrors state so the handler closure can read the
+  // current zoom without re-binding the listener on every change
+  // — re-binding mid-gesture would lose the initial-distance
+  // anchor and make the zoom jumpy.
+  // -----------------------------------------------------------------
+  const zoomRef = React.useRef(zoom);
+  React.useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let pinching = false;
+    let initialDist = 0;
+    let initialZoom = 1;
+
+    function distance(touches: TouchList) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length >= 2) {
+        pinching = true;
+        initialDist = distance(e.touches);
+        initialZoom = zoomRef.current;
+        // Prevent the page-flip swipe from firing during a pinch.
+        e.preventDefault();
+      }
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (!pinching || e.touches.length < 2) return;
+      const ratio = distance(e.touches) / Math.max(1, initialDist);
+      setZoom(clampZoom(initialZoom * ratio));
+      e.preventDefault();
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (e.touches.length < 2) pinching = false;
+    }
+
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
+
   function toggleFullscreen() {
     const el = containerRef.current;
     if (!el) return;
@@ -424,7 +486,7 @@ export function CatalogueViewer({ catalogue }: Props) {
           </p>
         ) : (
           <div
-            className="transition-transform duration-200"
+            className="transition-transform duration-100 ease-out"
             style={{
               transform: `scale(${zoom})`,
               transformOrigin: "center",
@@ -520,6 +582,47 @@ export function CatalogueViewer({ catalogue }: Props) {
           onJump={goTo}
           onClose={() => setOutlineOpen(false)}
         />
+      )}
+
+      {/* ----- Mobile zoom dock — pinch is the primary gesture but
+          we surface explicit +/- buttons too because pinch
+          discoverability is poor and zoom is impossible on stylus-
+          only / single-touch devices. Hidden ≥ sm where the
+          toolbar already exposes the same controls. ----- */}
+      {ready && (
+        <div className="pointer-events-auto absolute bottom-3 right-3 z-20 flex flex-col gap-1.5 rounded-full border border-white/15 bg-black/60 p-1 shadow-lg backdrop-blur sm:hidden">
+          <button
+            type="button"
+            onClick={() => setZoom((z) => clampZoom(z + 0.15))}
+            disabled={zoom >= MAX_ZOOM - 0.001}
+            aria-label="Zoom in"
+            className={cn(
+              "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-100",
+              zoom >= MAX_ZOOM - 0.001
+                ? "cursor-not-allowed opacity-30"
+                : "hover:bg-white/15"
+            )}
+          >
+            <ZoomIn className="h-5 w-5" />
+          </button>
+          <span className="text-center font-mono text-[10px] text-zinc-300">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => setZoom((z) => clampZoom(z - 0.15))}
+            disabled={zoom <= MIN_ZOOM + 0.001}
+            aria-label="Zoom out"
+            className={cn(
+              "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-100",
+              zoom <= MIN_ZOOM + 0.001
+                ? "cursor-not-allowed opacity-30"
+                : "hover:bg-white/15"
+            )}
+          >
+            <ZoomOut className="h-5 w-5" />
+          </button>
+        </div>
       )}
     </main>
   );
