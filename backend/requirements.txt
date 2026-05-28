@@ -73,3 +73,9 @@ PyMuPDF==1.24.10
 # pulls in Pillow which is already required for image rebake +
 # catalogue rendering.
 qrcode[pil]==7.4.2
+
+# Phase A-4 — structured logging. JSON output in production so log
+# aggregators (Datadog, Loki, Cloudwatch) parse fields directly;
+# colourised console output in development so a human can read a
+# tail. Same ``get_logger()`` helper across the codebase.
+structlog==24.4.0

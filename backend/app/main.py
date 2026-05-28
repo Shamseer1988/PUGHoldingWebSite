@@ -7,7 +7,6 @@ middleware that every later phase will rely on.
 """
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,9 +18,16 @@ from app import __version__
 from app.api import api_router
 from app.core.cache_headers import PublicCacheHeadersMiddleware
 from app.core.config import ensure_production_safety, get_settings
+from app.core.logging_config import configure_logging, get_logger
+from app.core.request_id import RequestIDMiddleware
 
 
-logger = logging.getLogger(__name__)
+# Phase A-4: configure structlog before the first logger is bound.
+# ``get_logger`` does this lazily too, but doing it explicitly here
+# pins the env at import-time so the second pass inside ``create_app``
+# is just a no-op.
+configure_logging(app_env=get_settings().app_env)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -127,6 +133,14 @@ def create_app() -> FastAPI:
         else "",
     )
     app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+    # Phase A-4: request-id correlator. Starlette wraps middleware
+    # in registration order from the inside out, so calling
+    # ``add_middleware`` here AFTER CORS makes RequestIDMiddleware the
+    # outermost layer — it fires on every request (including CORS
+    # preflight ``OPTIONS`` that CORSMiddleware would otherwise
+    # short-circuit) and stamps ``X-Request-ID`` on every response.
+    app.add_middleware(RequestIDMiddleware)
 
     # Phase 19: rate limiting for the public write endpoints is applied
     # per-route via FastAPI dependencies — see app.core.rate_limit.

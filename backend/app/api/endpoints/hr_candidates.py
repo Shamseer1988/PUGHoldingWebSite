@@ -11,11 +11,15 @@
 """
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+# Phase A-4: structured-logging pattern demonstration. The HR candidate
+# surface logs failures during CV parse / auto-review, and those lines
+# need to correlate with the request-id stamped by the middleware.
+from app.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 from fastapi import (
     APIRouter,
@@ -1624,9 +1628,7 @@ def change_application_status(
                     application_id=app.id, actor_id=user.id
                 )
         except Exception:  # pragma: no cover - never break the response
-            import logging
-
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "Status-change email dispatch failed"
             )
 
@@ -1834,9 +1836,7 @@ def bulk_change_application_status(
                         application_id=app_id, actor_id=user.id
                     )
         except Exception:  # pragma: no cover - never break the response
-            import logging
-
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "Bulk-status email dispatch failed"
             )
 

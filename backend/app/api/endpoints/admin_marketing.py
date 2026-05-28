@@ -24,9 +24,14 @@ website-scope guard) AND one of the marketing permission keys.
 """
 from __future__ import annotations
 
-import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
+
+# Phase A-4: this file is one of the demonstration sites for the new
+# structured-logging helper. Replace ``logging.getLogger`` with
+# ``get_logger`` so every log line the marketing surface emits carries
+# the structured fields the rest of the stack already does.
+from app.core.logging_config import get_logger
 
 from fastapi import (
     APIRouter,
@@ -109,7 +114,7 @@ from app.services.catalogue_processor import (
 )
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 router = APIRouter(
