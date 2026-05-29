@@ -124,10 +124,11 @@ export function Navbar({ companies, items }: NavbarProps) {
                 </NavIconButton>
 
                 {/* ThemeToggle accepts `className` — we override the
-                    base Button's size/shape to match NavIconButton. */}
-                <ThemeToggle
-                  className={cn(NAV_ICON_BUTTON_CLASSES, "hidden sm:inline-flex")}
-                />
+                    base Button's size/shape to match NavIconButton.
+                    Visible on mobile too (sits between the search /
+                    language / Join Us cluster) because dark-mode users
+                    expect the toggle reachable from every breakpoint. */}
+                <ThemeToggle className={NAV_ICON_BUTTON_CLASSES} />
 
                 {/* Phase C-1: language switcher. Hidden on mobile to
                     keep the right rail uncluttered; mobile users can

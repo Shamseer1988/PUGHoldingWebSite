@@ -78,7 +78,7 @@ export function StatsStrip() {
       initial={initial}
       whileInView="visible"
       viewport={{ once: true, amount: 0.2 }}
-      className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-5"
+      className="grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-5"
     >
       {STATS.map((stat) => (
         <motion.li
@@ -86,7 +86,7 @@ export function StatsStrip() {
           variants={CARD_VARIANTS}
           aria-label={ariaLabelFor(stat)}
           className={cn(
-            "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-pug-green-900/[0.08] bg-white/70 p-5 backdrop-blur-sm shadow-[0_1px_2px_rgba(15,42,28,0.04)] sm:p-6",
+            "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-pug-green-900/[0.08] bg-white/70 p-3.5 backdrop-blur-sm shadow-[0_1px_2px_rgba(15,42,28,0.04)] sm:p-6",
             "dark:border-white/10 dark:bg-white/[0.04]",
             // Hover lift gated by motion-safe so reduced-motion users
             // see no transform.
@@ -96,28 +96,28 @@ export function StatsStrip() {
           )}
           style={{ willChange: "transform, opacity" }}
         >
-          <header className="flex items-start justify-between gap-3">
+          <header className="flex items-start justify-between gap-2">
             <span
               aria-hidden
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-pug-gold-500/25 bg-pug-gold-500/10 text-pug-gold-700 dark:text-pug-gold-300"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-pug-gold-500/25 bg-pug-gold-500/10 text-pug-gold-700 dark:text-pug-gold-300 sm:h-9 sm:w-9 sm:rounded-xl"
             >
-              <stat.icon className="h-4 w-4" />
+              <stat.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </span>
             <TrendPill percent={stat.trend_percent} label={stat.trend_label} />
           </header>
 
-          <strong className="mt-6 block text-[2.5rem] font-medium leading-none tracking-tight tabular-nums text-pug-green-900 dark:text-foreground sm:text-5xl">
+          <strong className="mt-3 block text-2xl font-medium leading-none tracking-tight tabular-nums text-pug-green-900 dark:text-foreground sm:mt-6 sm:text-5xl">
             <Counter target={stat.value} suffix={stat.suffix} />
           </strong>
 
-          <div className="mt-3 space-y-2">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="mt-1.5 space-y-1.5 sm:mt-3 sm:space-y-2">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-[10.5px] sm:tracking-[0.18em]">
               {stat.label}
             </p>
             <motion.span
               aria-hidden
               variants={ACCENT_VARIANTS}
-              className="block h-px w-12 origin-left bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0"
+              className="block h-px w-8 origin-left bg-gradient-to-r from-pug-gold-500 to-pug-gold-500/0 sm:w-12"
               style={{ willChange: "transform" }}
             />
           </div>
