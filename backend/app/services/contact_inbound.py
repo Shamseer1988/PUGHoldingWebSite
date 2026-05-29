@@ -1209,34 +1209,216 @@ def _move_to(
     *,
     mark_seen: bool,
 ) -> None:
-    """Best-effort move to ``folder`` (Sent/Processed/Errors).
+    """Best-effort relocation of ``uid`` to ``folder``.
 
-    Tries IMAP MOVE first (RFC 6851); on servers without the
-    extension falls back to COPY + STORE \\Deleted + EXPUNGE so the
-    user's inbox doesn't keep growing forever. If everything fails
-    we just leave the message in place — the +\\Seen flag still
-    keeps it out of the next poll.
+    Sequence:
+
+    1. ``\\Seen`` if requested (matched ticket → mailbox owner has no
+       further obligation to read it in Outlook).
+    2. RFC 6851 ``UID MOVE`` — atomic, single round-trip; preferred.
+    3. RFC 3501 ``UID COPY`` + ``UID STORE +FLAGS (\\Deleted)`` +
+       ``EXPUNGE`` — works on servers without RFC 6851.
+    4. **Auto-create** the destination folder when both 2 and 3 fail
+       (common cause: admin typed a Processed-folder name into the
+       UI but never created the folder via OWA on the polled
+       mailbox). Then re-attempt MOVE / COPY.
+
+    Every step logs its outcome at INFO (success) or WARNING
+    (failure with server response). If all four steps still fail
+    the message stays in INBOX with ``\\Seen`` set — workable
+    fallback because the UID watermark already advanced past it.
     """
     if mark_seen:
         _mark_seen(client, uid)
     if not folder:
         return
-    try:
-        status, _ = client.uid("move", uid, folder)
-        if status == "OK":
-            return
-    except Exception:  # noqa: BLE001
-        pass
-    # COPY+delete fallback
-    try:
-        status, _ = client.uid("copy", uid, folder)
-        if status == "OK":
-            client.uid("store", uid, "+FLAGS", r"(\Deleted)")
-            client.expunge()
-    except Exception:  # noqa: BLE001
-        logger.exception(
-            "Could not relocate UID %r to %s — left in inbox", uid, folder
+
+    uid_str = _uid_to_str(uid)
+
+    if _try_uid_move(client, uid, folder, uid_str):
+        return
+    if _try_uid_copy_delete(client, uid, folder, uid_str):
+        return
+
+    # Both failed — most likely the destination doesn't exist on this
+    # mailbox. Try to create it and retry.
+    logger.warning(
+        "IMAP MOVE + COPY both refused UID=%s -> %r — attempting "
+        "auto-create of the destination folder.",
+        uid_str,
+        folder,
+    )
+    if not _try_create_folder(client, folder):
+        logger.warning(
+            "Could not relocate UID=%s to %r — folder creation refused too. "
+            "Verify the Processed folder name in Email Configuration -> "
+            "IMAP inbox matches what OWA shows; some mailboxes nest "
+            "folders under INBOX (use 'INBOX/%s' instead of '%s'). "
+            "Message left in INBOX with \\Seen set.",
+            uid_str,
+            folder,
+            folder,
+            folder,
         )
+        return
+
+    if _try_uid_move(client, uid, folder, uid_str, suffix=" (after auto-create)"):
+        return
+    if _try_uid_copy_delete(client, uid, folder, uid_str, suffix=" (after auto-create)"):
+        return
+
+    logger.warning(
+        "Could not relocate UID=%s to %r even after auto-create — "
+        "this is unusual. Message left in INBOX with \\Seen set.",
+        uid_str,
+        folder,
+    )
+
+
+def _uid_to_str(uid: bytes) -> str:
+    """Render a UID for logs without crashing on weird bytes."""
+    if isinstance(uid, (bytes, bytearray)):
+        return uid.decode("ascii", errors="replace")
+    return str(uid)
+
+
+def _imap_data_to_str(data: object) -> str:
+    """Squash IMAP response payloads into a single readable string.
+
+    imaplib hands back lists of bytes / tuples / None. We just want a
+    debuggable representation for the warning log — never used for
+    control flow.
+    """
+    if data is None:
+        return ""
+    if isinstance(data, (bytes, bytearray)):
+        return data.decode("ascii", errors="replace")
+    if isinstance(data, list):
+        parts: List[str] = []
+        for entry in data:
+            if entry is None:
+                continue
+            if isinstance(entry, tuple):
+                parts.append(
+                    " ".join(_imap_data_to_str(e) for e in entry)
+                )
+            else:
+                parts.append(_imap_data_to_str(entry))
+        return " ".join(parts).strip()
+    return str(data)
+
+
+def _try_uid_move(
+    client: imaplib.IMAP4,
+    uid: bytes,
+    folder: str,
+    uid_str: str,
+    *,
+    suffix: str = "",
+) -> bool:
+    """RFC 6851 — atomic server-side move."""
+    try:
+        status, data = client.uid("move", uid, folder)
+    except imaplib.IMAP4.error as exc:
+        logger.debug(
+            "IMAP MOVE UID=%s -> %r raised: %s", uid_str, folder, exc
+        )
+        return False
+    if status == "OK":
+        logger.info(
+            "IMAP MOVE UID=%s -> %r OK%s", uid_str, folder, suffix
+        )
+        return True
+    logger.warning(
+        "IMAP MOVE UID=%s -> %r returned %s: %s",
+        uid_str,
+        folder,
+        status,
+        _imap_data_to_str(data),
+    )
+    return False
+
+
+def _try_uid_copy_delete(
+    client: imaplib.IMAP4,
+    uid: bytes,
+    folder: str,
+    uid_str: str,
+    *,
+    suffix: str = "",
+) -> bool:
+    """COPY + STORE \\Deleted + EXPUNGE — the pre-RFC-6851 way."""
+    try:
+        status, data = client.uid("copy", uid, folder)
+    except imaplib.IMAP4.error as exc:
+        logger.debug(
+            "IMAP COPY UID=%s -> %r raised: %s", uid_str, folder, exc
+        )
+        return False
+    if status != "OK":
+        logger.warning(
+            "IMAP COPY UID=%s -> %r returned %s: %s",
+            uid_str,
+            folder,
+            status,
+            _imap_data_to_str(data),
+        )
+        return False
+    # COPY succeeded; now tombstone the original and expunge so it
+    # disappears from INBOX. Failures here are non-fatal — the
+    # relocation already worked, the original just lingers until the
+    # next pass.
+    try:
+        client.uid("store", uid, "+FLAGS", r"(\Deleted)")
+        client.expunge()
+    except imaplib.IMAP4.error as exc:
+        logger.warning(
+            "IMAP COPY UID=%s -> %r OK but STORE/EXPUNGE failed (%s) — "
+            "message now exists in both folders until the next cleanup",
+            uid_str,
+            folder,
+            exc,
+        )
+        return True
+    logger.info(
+        "IMAP COPY+EXPUNGE UID=%s -> %r OK%s",
+        uid_str,
+        folder,
+        suffix,
+    )
+    return True
+
+
+def _try_create_folder(client: imaplib.IMAP4, folder: str) -> bool:
+    """Create ``folder`` if it doesn't exist. Idempotent: a server
+    that responds "already exists" counts as success because that
+    means the folder is there, just our previous MOVE/COPY hit some
+    other quirk (subscription state, nested path, etc.)."""
+    try:
+        status, data = client.create(folder)
+    except imaplib.IMAP4.error as exc:
+        logger.warning(
+            "IMAP CREATE %r raised: %s — cannot auto-create", folder, exc
+        )
+        return False
+    if status == "OK":
+        logger.info("IMAP CREATE %r OK — folder auto-provisioned", folder)
+        return True
+    text = _imap_data_to_str(data).lower()
+    if "exist" in text:
+        logger.info(
+            "IMAP CREATE %r reported 'already exists' — proceeding "
+            "with retry path",
+            folder,
+        )
+        return True
+    logger.warning(
+        "IMAP CREATE %r returned %s: %s",
+        folder,
+        status,
+        _imap_data_to_str(data),
+    )
+    return False
 
 
 # ---------------------------------------------------------------------------
