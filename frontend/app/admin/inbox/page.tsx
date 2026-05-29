@@ -613,6 +613,10 @@ function ChatBubble({
   onRetry?: () => void;
   retrying: boolean;
 }) {
+  // Declared at the top so Rules of Hooks survive the early-return
+  // for system messages below.
+  const [showFullEmail, setShowFullEmail] = React.useState(false);
+
   // System messages — state-machine notes ("Marked completed by …",
   // "Reopened by …") render as a centred chip rather than a chat
   // bubble so they read as audit-trail context, not conversation.
@@ -631,6 +635,20 @@ function ChatBubble({
 
   const outbound = bubble.direction === "outbound";
   const failed = bubble.email_status === "failed";
+  // Inbound replies sent from email clients (Outlook, Gmail Android,
+  // Apple Mail) almost always bundle the quoted previous message into
+  // the body — divider line + "From:/Sent:/To:/Subject:" + full prior
+  // email. The backend's strip_quoted_reply extracts just the new
+  // content into ``clean_body_text``. Prefer that for display so the
+  // chat reads like a chat; expose a toggle for the rare case an
+  // operator needs to see what was quoted.
+  const cleanText = bubble.clean_body_text?.trim() ?? "";
+  const hasStrippedHistory =
+    !outbound &&
+    cleanText.length > 0 &&
+    cleanText.length < bubble.body.trim().length;
+  const displayBody =
+    hasStrippedHistory && !showFullEmail ? cleanText : bubble.body;
   return (
     <div
       className={cn(
@@ -660,8 +678,19 @@ function ChatBubble({
           )}
         </div>
         <p className="whitespace-pre-wrap text-sm leading-relaxed">
-          {bubble.body}
+          {displayBody}
         </p>
+        {hasStrippedHistory && (
+          <button
+            type="button"
+            onClick={() => setShowFullEmail((v) => !v)}
+            className="mt-1 text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {showFullEmail
+              ? "Hide quoted history"
+              : "Show full email (with quoted history)"}
+          </button>
+        )}
         {bubble.has_attachments && bubble.attachments.length > 0 && (
           <ul className="mt-2 space-y-1">
             {bubble.attachments.map((a) => (
