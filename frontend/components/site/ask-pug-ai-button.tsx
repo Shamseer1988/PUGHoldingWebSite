@@ -239,7 +239,7 @@ export function AskPugAiButton() {
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-pug-gold-300" />
           </span>
         </span>
-        <span className="hidden sm:inline">Ask PUG AI</span>
+        <span className="hidden sm:inline">Ask AI</span>
       </button>
 
       <AnimatePresence>
