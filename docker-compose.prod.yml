@@ -30,7 +30,7 @@
 #        POSTGRES_PASSWORD       (strong random — required by Postgres)
 #        POSTGRES_DB             (defaults to ``pug_holding`` if absent)
 #        PUBLIC_SITE_URL=https://parisunitedgroup.com
-#        CORS_ALLOWED_ORIGINS=https://parisunitedgroup.com,https://www.parisunitedgroup.com
+#        CORS_ORIGINS=https://parisunitedgroup.com,https://www.parisunitedgroup.com
 #        plus R2_*, AZURE_OPENAI_*, SENTRY_DSN_BACKEND as you use them
 #
 #   2. frontend/.env.local present with:
