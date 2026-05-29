@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -127,6 +127,14 @@ class EmailSetting(Base):
     imap_create_new_tickets: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # M365-friendly progress tracking. The poller's keyword-based
+    # design ($PUG-Inspected) doesn't work on Exchange Online, so on
+    # M365 we resume from the highest IMAP UID we've inspected per
+    # folder. ``imap_last_seen_uid_validity`` mirrors RFC 3501's
+    # UIDVALIDITY semantics — a folder reset discards the watermark
+    # rather than silently skipping new mail forever.
+    imap_last_seen_uid: Mapped[Optional[int]] = mapped_column(BigInteger)
+    imap_last_seen_uid_validity: Mapped[Optional[int]] = mapped_column(BigInteger)
     last_imap_test_status: Mapped[str] = mapped_column(
         String(16), nullable=False,
         default=TEST_STATUS_NEVER, server_default=TEST_STATUS_NEVER,

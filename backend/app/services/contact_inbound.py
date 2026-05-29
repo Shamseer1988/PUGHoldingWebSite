@@ -338,8 +338,11 @@ def poll_inbox(db: Session, *, limit: int = 50) -> InboundPollSummary:
             summary.finished_at = datetime.now(timezone.utc)
             return summary
 
-        uids = _search_uninspected(client, limit)
+        uids, strategy, uidvalidity = _search_uninspected(
+            db, client, config, limit
+        )
         summary.fetched = len(uids)
+        max_seen_uid: Optional[int] = None
         for uid in uids:
             outcome = _process_one(db, client, uid, config)
             summary.outcomes.append(outcome)
@@ -355,6 +358,29 @@ def poll_inbox(db: Session, *, limit: int = 50) -> InboundPollSummary:
                     # Reply was written but no matched ticket means we
                     # opened a brand-new conversation for it.
                     summary.new_tickets += 1
+            # Track the highest UID we touched this cycle. Bumping
+            # for skipped + errored UIDs too means a folder full of
+            # unmatched mail doesn't get rescanned every poll — the
+            # Message-ID dedup still catches re-inserts on the rare
+            # path where the server hands us the same message twice.
+            try:
+                uid_int = int(uid)
+            except (TypeError, ValueError):
+                continue
+            if max_seen_uid is None or uid_int > max_seen_uid:
+                max_seen_uid = uid_int
+
+        # Persist the watermark only when we used the UID strategy.
+        # The keyword strategy keeps its own progress via the
+        # ``$PUG-Inspected`` flag on each UID and doesn't need DB
+        # state. Capture UIDVALIDITY at the same time so a future
+        # folder-reset can be detected.
+        if strategy == _STRATEGY_UID and max_seen_uid is not None:
+            _persist_uid_watermark(
+                db,
+                max_uid=max_seen_uid,
+                uidvalidity=uidvalidity,
+            )
     finally:
         try:
             client.close()
@@ -755,11 +781,17 @@ def _login_oauth2(
 # Lets us skip ourselves on subsequent polls *without* touching the
 # ``\Seen`` flag — so non-ticket mail stays unread in the user's
 # Outlook / Gmail / native mail client. Standard ``$``-prefixed
-# keywords are widely supported (Gmail, Exchange Online, Dovecot,
-# Cyrus). For the rare server that rejects custom keywords we fall
-# back to a UNSEEN search + still avoid duplicates via the
-# ``email_message_id`` dedup on ContactReply.
+# keywords are widely supported by RFC 3501-compliant servers
+# (Gmail, Dovecot, Cyrus). Microsoft 365 / Exchange Online silently
+# rejects them — we fall back to UID watermark tracking there (see
+# :func:`_search_uninspected` below).
 IMAP_INSPECTED_KEYWORD = "$PUG-Inspected"
+
+# Strategy values returned by :func:`_search_uninspected`. The
+# string identifies which path the poller took so ``poll_inbox`` can
+# decide whether to persist a UID watermark afterwards.
+_STRATEGY_KEYWORD = "keyword"
+_STRATEGY_UID = "uid_watermark"
 
 
 def _select_folder(client: imaplib.IMAP4, folder: str) -> None:
@@ -768,35 +800,172 @@ def _select_folder(client: imaplib.IMAP4, folder: str) -> None:
         raise imaplib.IMAP4.error(f"SELECT failed for folder {folder!r}")
 
 
-def _search_uninspected(client: imaplib.IMAP4, limit: int) -> List[bytes]:
+def _get_uidvalidity(client: imaplib.IMAP4) -> Optional[int]:
+    """Read UIDVALIDITY from the most recent SELECT response.
+
+    RFC 3501 § 2.3.1.1 — the server sends ``* OK [UIDVALIDITY n]``
+    as an untagged response when the client SELECTs a folder.
+    imaplib stashes those in ``client.untagged_responses``; we peek
+    there rather than re-SELECTing (which would clear other
+    untagged state like \\Recent).
+
+    Returns ``None`` if the server didn't advertise UIDVALIDITY —
+    in that case the watermark path degrades gracefully to "UID
+    only" tracking without validity checks.
+    """
+    raw = client.untagged_responses.get("UIDVALIDITY") or []
+    if not raw:
+        return None
+    first = raw[0]
+    if isinstance(first, (bytes, bytearray)):
+        first = first.decode("ascii", errors="ignore")
+    try:
+        return int(first)
+    except (TypeError, ValueError):
+        return None
+
+
+def _search_uninspected(
+    db: Session,
+    client: imaplib.IMAP4,
+    config: ResolvedImapConfig,
+    limit: int,
+) -> Tuple[List[bytes], str, Optional[int]]:
     """Return up to ``limit`` UIDs we haven't yet inspected.
 
-    Searches by our custom ``$PUG-Inspected`` keyword so the user's
-    Read/Unread state in Outlook stays untouched. Falls back to the
-    legacy UNSEEN criterion on servers that reject the keyword
-    (very rare in 2026, but the polite degradation keeps the poller
-    alive on weird hosts).
+    Tries two strategies in priority order:
+
+    1. ``UNKEYWORD $PUG-Inspected`` — preferred. Non-destructive:
+       leaves \\Seen untouched so the mailbox owner's Read/Unread
+       state stays as their Outlook left it. Works on every IMAP
+       server that complies with RFC 3501 keyword semantics.
+
+    2. **UID watermark** — used when the server rejects custom
+       keywords (Microsoft 365 / Exchange Online). The poller
+       resumes from ``UID > last_seen_uid``, persisting the new
+       high-water mark after each cycle. Decoupled from \\Seen
+       entirely, so Outlook's auto-mark-as-read behaviour can't
+       race the poll cycle. On the very first poll under this path
+       (no prior watermark, or after a UIDVALIDITY reset) we use
+       ``UNSEEN`` once to backfill any pending mail, then snap to
+       UID tracking for everything afterwards.
+
+    Returns ``(uids, strategy, uidvalidity)``:
+
+    * ``uids`` — UIDs to fetch, oldest-first (so the watermark
+      advances monotonically as we process them).
+    * ``strategy`` — :data:`_STRATEGY_KEYWORD` or
+      :data:`_STRATEGY_UID`. The caller uses this to decide whether
+      to persist a watermark after processing.
+    * ``uidvalidity`` — the value the server reported on SELECT,
+      or ``None`` for the keyword path (we don't need it there).
     """
+    # --- Strategy 1: keyword-based (preserves Read/Unread state) ---
     try:
         status, data = client.uid(
             "search", None, f"UNKEYWORD {IMAP_INSPECTED_KEYWORD}"
         )
-        if status != "OK":
-            raise imaplib.IMAP4.error("UNKEYWORD search not OK")
+        if status == "OK":
+            uids = data[0].split() if data and data[0] else []
+            return uids[:limit], _STRATEGY_KEYWORD, None
     except imaplib.IMAP4.error:
+        pass  # Fall through to UID watermark.
+
+    # --- Strategy 2: UID watermark (Microsoft 365 path) ---
+    uidvalidity = _get_uidvalidity(client)
+    row = db.get(EmailSetting, 1)
+    last_uid = row.imap_last_seen_uid if row is not None else None
+    stored_validity = (
+        row.imap_last_seen_uid_validity if row is not None else None
+    )
+
+    if (
+        uidvalidity is not None
+        and stored_validity is not None
+        and stored_validity != uidvalidity
+    ):
+        # Folder was recreated — every existing UID is now invalid
+        # (RFC 3501 § 2.3.1.1). Discard our watermark and rebuild
+        # from UNSEEN on this cycle.
         logger.warning(
-            "IMAP server rejected UNKEYWORD %s — falling back to UNSEEN "
-            "(non-ticket mail will be marked Seen). Use a server that "
-            "supports IMAP4rev1 keywords for the recommended behaviour.",
-            IMAP_INSPECTED_KEYWORD,
+            "IMAP UIDVALIDITY changed for %s (%s -> %s); discarding "
+            "watermark and resuming from UNSEEN this cycle",
+            config.folder,
+            stored_validity,
+            uidvalidity,
         )
-        status, data = client.uid("search", None, "UNSEEN")
-        if status != "OK" or not data or data[0] is None:
-            return []
-    if not data or data[0] is None:
-        return []
-    uids = data[0].split()
-    return uids[:limit]
+        last_uid = None
+
+    if last_uid:
+        criterion = f"UID {int(last_uid) + 1}:*"
+    else:
+        # First run under the UID strategy. Use UNSEEN once to pick
+        # up any pending unread mail, then the post-cycle persist
+        # step snaps a watermark so subsequent polls track by UID.
+        logger.info(
+            "IMAP custom keywords unsupported on %s — initialising UID "
+            "watermark (one UNSEEN pass) for folder %s",
+            (config.host or "").lower(),
+            config.folder,
+        )
+        criterion = "UNSEEN"
+
+    status, data = client.uid("search", None, criterion)
+    if status != "OK" or not data or data[0] is None:
+        return [], _STRATEGY_UID, uidvalidity
+
+    raw_uids = data[0].split()
+    if not raw_uids:
+        return [], _STRATEGY_UID, uidvalidity
+
+    # Ascending so the watermark advances monotonically; ``limit``
+    # bounds a single poll in case of a large backfill (next poll
+    # picks up where this one left off because the watermark
+    # already covers what we processed).
+    try:
+        sorted_uids = sorted(raw_uids, key=lambda b: int(b))
+    except ValueError:
+        # Defensive — the server returned something that didn't
+        # parse as an integer UID. Skip the cycle rather than
+        # crash; the next poll will retry.
+        logger.warning(
+            "IMAP returned non-integer UID(s) for %s — skipping cycle",
+            config.folder,
+        )
+        return [], _STRATEGY_UID, uidvalidity
+    return sorted_uids[:limit], _STRATEGY_UID, uidvalidity
+
+
+def _persist_uid_watermark(
+    db: Session,
+    *,
+    max_uid: int,
+    uidvalidity: Optional[int],
+) -> None:
+    """Record the highest UID we've inspected on this poll cycle.
+
+    Called from :func:`poll_inbox` after processing finishes. We
+    bump the watermark **even when a message was skipped or errored**
+    so a folder full of unprocessable mail doesn't get re-scanned
+    every five minutes. Idempotency is preserved by the
+    Message-ID dedup on ``ContactReply`` — re-fetching the same
+    UID after a crash would not double-insert a reply.
+    """
+    row = db.get(EmailSetting, 1)
+    if row is None:
+        return  # Singleton row always exists after first save.
+    changed = False
+    if (row.imap_last_seen_uid or 0) != max_uid:
+        row.imap_last_seen_uid = max_uid
+        changed = True
+    if (
+        uidvalidity is not None
+        and row.imap_last_seen_uid_validity != uidvalidity
+    ):
+        row.imap_last_seen_uid_validity = uidvalidity
+        changed = True
+    if changed:
+        db.commit()
 
 
 def _mark_inspected(client: imaplib.IMAP4, uid: bytes) -> None:
@@ -970,7 +1139,17 @@ def _create_ticket_from_email(
 def _fetch_message(
     client: imaplib.IMAP4, uid: bytes
 ) -> Optional[email.message.Message]:
-    status, data = client.uid("fetch", uid, "(RFC822)")
+    """Pull a single message body off the server without touching
+    its ``\\Seen`` flag.
+
+    ``BODY.PEEK[]`` returns the same bytes as ``RFC822`` but is
+    explicitly non-destructive (RFC 3501 § 6.4.5) — critical on
+    Microsoft 365 where any \\Seen toggle would race the UID
+    watermark strategy. Matched tickets still get explicitly
+    marked Seen later via :func:`_move_to`; non-ticket mail stays
+    in whatever Read/Unread state Outlook had it in.
+    """
+    status, data = client.uid("fetch", uid, "(BODY.PEEK[])")
     if status != "OK" or not data:
         return None
     for entry in data:
