@@ -185,10 +185,13 @@ export const adminApi = {
       : "/admin/cms/uploads/image";
     return postMultipart<UploadedImage>(path, fd);
   },
-  uploadMedia<T>(file: File): Promise<T> {
+  uploadMedia<T>(file: File, folder?: string): Promise<T> {
     const fd = new FormData();
     fd.append("file", file);
-    return postMultipart<T>("/admin/cms/media/upload", fd);
+    const path = folder
+      ? `/admin/cms/media/upload?folder=${encodeURIComponent(folder)}`
+      : "/admin/cms/media/upload";
+    return postMultipart<T>(path, fd);
   },
   /**
    * Run pg_dump server-side and stream the resulting .dump file back

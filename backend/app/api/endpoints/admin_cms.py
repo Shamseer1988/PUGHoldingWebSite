@@ -1506,8 +1506,25 @@ async def upload_media(
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
     file: UploadFile = File(...),
+    folder: Optional[str] = Query(
+        default=None,
+        description=(
+            "Optional subfolder under ``cms/`` to route this upload into "
+            "(e.g. ``gallery``, ``companies/logos``, ``marketing``). "
+            "Lowercase letters / digits / hyphens / slashes only, 1-4 "
+            "segments. Empty / missing => flat ``cms/`` root."
+        ),
+    ),
 ) -> MediaUploadResult:
-    """Accept either an image OR a video and add it to the media gallery."""
+    """Accept either an image OR a video and add it to the media gallery.
+
+    Routes the upload through :func:`app.services.storage.get_storage` so
+    R2-configured installs get the file pushed to Cloudflare R2 (with the
+    custom-domain URL returned to the client) and local installs keep
+    using the ``StaticFiles`` mount. Image variants (WebP + JPEG thumb /
+    medium / large) follow the same backend so the public site fetches
+    everything from the same origin.
+    """
     content_type = file.content_type or ""
     if content_type in ALLOWED_IMAGE_MIME:
         ext = ALLOWED_IMAGE_MIME[content_type]
@@ -1536,30 +1553,74 @@ async def upload_media(
             detail=f"File too large ({len(data)} bytes). Max {max_bytes}.",
         )
 
-    settings = get_settings()
-    base = Path(settings.upload_dir) / "cms"
-    base.mkdir(parents=True, exist_ok=True)
+    # Hash first so we can short-circuit on dedup before paying for an
+    # R2 PUT + image-optimization pass. Same content uploaded twice in
+    # a row is a single MediaAsset row + zero storage round-trips.
     content_hash = hashlib.sha256(data).hexdigest()
     filename = f"{content_hash[:16]}.{ext}"
-    target = base / filename
-    if not target.exists():
-        target.write_bytes(data)
-    url = f"/api/v1/uploads/cms/{filename}"
+    existing = db.execute(
+        select(MediaAsset).where(MediaAsset.file_hash == content_hash)
+    ).scalar_one_or_none()
+    if existing is not None:
+        if file.filename and not existing.original_name:
+            existing.original_name = file.filename
+        db.commit()
+        db.refresh(existing)
+        return MediaUploadResult(
+            asset=MediaAssetRead.model_validate(existing),
+            deduped=True,
+        )
 
-    # Generate WebP + JPEG variants for images so the public site
-    # serves a fraction of the original byte size. Video uploads
-    # and SVGs skip this step (the helper returns None).
+    # Validate + normalise the subfolder. Empty => flat ``cms/`` root.
+    prefix = _resolve_cms_subfolder(folder)
+    storage_key = f"{prefix}/{filename}"
+
+    from app.services.storage import get_storage
+
+    storage = get_storage()
+    url = await storage.upload(storage_key, data, content_type)
+
+    # Generate WebP + JPEG variants in a tempdir, push each one through
+    # the same storage backend, then drop the tempdir. The optimizer
+    # only knows how to write next to a source file on disk, so we
+    # stage the upload there rather than refactoring its signature.
     variants_payload: Optional[dict] = None
     if kind == MEDIA_KIND_IMAGE:
+        import tempfile
         from app.services.image_optimization import optimize_image
 
-        variant_set = optimize_image(
-            target,
-            public_base_url="/api/v1/uploads/cms",
-            mime_type=content_type,
-        )
-        if variant_set is not None:
-            variants_payload = variant_set.as_dict()
+        with tempfile.TemporaryDirectory(prefix="pug-upload-") as tmp_dir:
+            tmp_source = Path(tmp_dir) / filename
+            tmp_source.write_bytes(data)
+            # ``public_base_url`` is a placeholder — we rewrite the
+            # variant URLs to whatever the storage backend returns
+            # below, so the optimizer's URL is only used to pick the
+            # variant filenames (stem-thumb.webp / -medium.jpg / …).
+            variant_set = optimize_image(
+                tmp_source,
+                public_base_url="placeholder",
+                mime_type=content_type,
+            )
+            if variant_set is not None:
+                webp_urls: dict[str, str] = {}
+                jpg_urls: dict[str, str] = {}
+                for label, placeholder_url in variant_set.webp.items():
+                    variant_name = placeholder_url.rsplit("/", 1)[-1]
+                    variant_path = tmp_source.with_name(variant_name)
+                    webp_urls[label] = await storage.upload(
+                        f"{prefix}/{variant_name}",
+                        variant_path.read_bytes(),
+                        "image/webp",
+                    )
+                for label, placeholder_url in variant_set.jpg.items():
+                    variant_name = placeholder_url.rsplit("/", 1)[-1]
+                    variant_path = tmp_source.with_name(variant_name)
+                    jpg_urls[label] = await storage.upload(
+                        f"{prefix}/{variant_name}",
+                        variant_path.read_bytes(),
+                        "image/jpeg",
+                    )
+                variants_payload = {"webp": webp_urls, "jpg": jpg_urls}
 
     asset, deduped = _upsert_media_asset(
         db,
@@ -1573,9 +1634,6 @@ async def upload_media(
         uploaded_by_id=user.id,
     )
 
-    # Persist variants whether or not this is a dedup hit — re-running
-    # the optimizer for a deduped file is harmless and lets us pick up
-    # variants for assets uploaded before the pipeline existed.
     if variants_payload is not None and asset.variants != variants_payload:
         asset.variants = variants_payload
         db.flush()
@@ -1597,6 +1655,7 @@ async def upload_media(
                 "size": len(data),
                 "mime_type": content_type,
                 "original_name": file.filename,
+                "folder": prefix,
             },
             commit=False,
         )

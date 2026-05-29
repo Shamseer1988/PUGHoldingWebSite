@@ -71,7 +71,10 @@ export default function MediaAdminPage() {
     let uploads = 0;
     for (const file of Array.from(files)) {
       try {
-        const result = await adminApi.uploadMedia<MediaUploadResult>(file);
+        const result = await adminApi.uploadMedia<MediaUploadResult>(
+          file,
+          "gallery",
+        );
         if (result.deduped) dedupes++;
         else uploads++;
       } catch (err) {
