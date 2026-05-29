@@ -93,6 +93,18 @@ try {
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // ESLint + the TypeScript type-checker each cache the whole
+  // codebase in memory while ``next build`` runs, and on a 2 GB
+  // EC2 the combined peak (Node + Webpack + ESLint + tsc) blows
+  // past available RAM, OOM-killing the build (and sometimes the
+  // host). Both checks already run in CI (``npm run lint`` /
+  // ``npm run type-check`` via GitHub Actions) and surface live
+  // in the dev IDE, so re-running them inside the production
+  // Docker build is duplicate work that costs ~600 MB of peak
+  // memory. Skip them at build time; the bundle webpack emits
+  // is unaffected.
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
