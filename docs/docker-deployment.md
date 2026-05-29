@@ -114,6 +114,8 @@ SECRET_KEY=<run: python3 -c "import secrets; print(secrets.token_urlsafe(64))">
 PUBLIC_SITE_URL=https://parisunitedgroup.com
 CORS_ALLOWED_ORIGINS=https://parisunitedgroup.com,https://www.parisunitedgroup.com
 
+# All three must be present — the Postgres container reads them
+# directly from ``backend/.env`` via the compose's ``env_file:`` block.
 POSTGRES_USER=pug_user
 POSTGRES_PASSWORD=<strong random>
 POSTGRES_DB=pug_holding
