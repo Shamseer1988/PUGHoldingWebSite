@@ -48,6 +48,23 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
 
+# ``NEXT_PUBLIC_*`` env vars are baked into the JS bundle (and the
+# CSP header in next.config.mjs) at ``npm run build`` time, not at
+# runtime. The root .dockerignore correctly excludes .env files for
+# safety, so we wire these in via Docker build args instead — pass
+# them through docker-compose.prod.yml's ``build.args`` block.
+#
+# Missing values fall back to the dev default in next.config.mjs
+# (``http://localhost:8000/api/v1``), which would break admin login
+# on a public domain because the browser tries to fetch
+# ``http://localhost:8000/...`` from the user's own machine.
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_SENTRY_DSN
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
+    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+
 COPY frontend/ /app/
 RUN npm run build
 

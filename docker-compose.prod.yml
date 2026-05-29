@@ -161,6 +161,20 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       target: runner
+      # ``NEXT_PUBLIC_*`` values are baked into the JS bundle (and
+      # next.config.mjs's CSP header) at ``npm run build`` time. We
+      # forward them via build.args so the production build embeds
+      # the public origin instead of falling back to the dev
+      # localhost:8000 default — that fallback breaks admin login
+      # and any other client-side fetch on a public deployment.
+      #
+      # Shell env / project-root .env can override; if neither is
+      # set, the values below assume the parisunitedgroup.com
+      # production deployment. Change the defaults for other domains.
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://parisunitedgroup.com/api/v1}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://parisunitedgroup.com}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN-}
     restart: unless-stopped
     depends_on:
       - backend
