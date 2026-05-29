@@ -18,7 +18,7 @@ transaction is never rolled back by a transient SMTP issue.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.orm import Session
@@ -33,13 +33,22 @@ from app.models.hr_ats import (
     CandidateJobApplication,
     EmailLog,
     Interview,
+    InterviewFeedback,
     JobOpening,
+    OfferTracking,
 )
 from app.services.email import EmailResult, EmailService
 from app.services.email_templates import (
     RenderedEmail,
     TPL_CANDIDATE_APPLICATION_RECEIVED,
     TPL_CANDIDATE_REJECTED,
+    TPL_INTERVIEW_FEEDBACK_SUBMITTED,
+    TPL_OFFER_ACCEPTED,
+    TPL_OFFER_APPROVAL_REQUESTED,
+    TPL_OFFER_APPROVED,
+    TPL_OFFER_DECLINED,
+    TPL_OFFER_ISSUED,
+    TPL_OFFER_JOINED,
     TPL_CANDIDATE_SELECTED,
     TPL_CANDIDATE_SHORTLISTED,
     TPL_INTERVIEW_CANCELLED,
@@ -101,6 +110,7 @@ def send_notification(
     actor_id: Optional[int] = None,
     subject_override: Optional[str] = None,
     check_feature_flag: Optional[str] = None,
+    dedupe_within_seconds: int = 120,
 ) -> EmailLog:
     """Send a templated branded email and persist an EmailLog row.
 
@@ -109,10 +119,71 @@ def send_notification(
     (and the log row is marked failed with that reason) if the flag is
     off. This lets admins disable individual notification streams from
     the Admin Email Settings page.
+
+    ``dedupe_within_seconds`` — short-window idempotency guard. When
+    ``related_type`` and ``related_id`` are both set, the function
+    first looks for an EmailLog with the same
+    ``(template_key, related_type, related_id)`` and status in
+    ``{pending, sent}`` created in the last N seconds. If one exists
+    we return it instead of resending — protecting against:
+
+      * uvicorn ``--reload`` interrupting an in-flight POST while
+        the browser auto-retries the same request after the worker
+        comes back up;
+      * a double-clicked "Send Reply" / "Submit" / status-transition
+        button;
+      * any HTTP client with implicit retry-on-connection-close.
+
+    Set ``dedupe_within_seconds=0`` to disable. Sends without a
+    ``related_type``/``related_id`` (test emails, ad-hoc sends) skip
+    the check by construction.
     """
     to_list = _normalize_emails(to_emails)
     cc_list = _normalize_emails(cc_emails)
     bcc_list = _normalize_emails(bcc_emails)
+
+    # ----- Idempotency: suppress accidental duplicates -----
+    if (
+        dedupe_within_seconds > 0
+        and related_type
+        and related_id
+    ):
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=dedupe_within_seconds
+        )
+        existing = (
+            db.query(EmailLog)
+            .filter(
+                EmailLog.template_key == template_key,
+                EmailLog.related_type == related_type,
+                EmailLog.related_id == related_id,
+                EmailLog.status.in_([EMAIL_LOG_SENT, EMAIL_LOG_PENDING]),
+                EmailLog.created_at >= cutoff,
+            )
+            .order_by(EmailLog.created_at.desc())
+            .first()
+        )
+        if existing is not None:
+            now = datetime.now(timezone.utc)
+            existing_created = (
+                existing.created_at
+                if existing.created_at.tzinfo
+                else existing.created_at.replace(tzinfo=timezone.utc)
+            )
+            age_seconds = int((now - existing_created).total_seconds())
+            logger.warning(
+                "Suppressed duplicate notification "
+                "(template=%s related=%s/%s, last attempt %ds ago, "
+                "status=%s) — within %ds dedup window. Caller probably "
+                "hit a uvicorn --reload mid-request or a retried POST.",
+                template_key,
+                related_type,
+                related_id,
+                age_seconds,
+                existing.status,
+                dedupe_within_seconds,
+            )
+            return existing
 
     log = EmailLog(
         scope=scope,
@@ -533,6 +604,184 @@ def notify_interview_cancelled(
         interview_id=interview_id,
         actor_id=actor_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — interview feedback + offer-lifecycle dispatchers.
+# ---------------------------------------------------------------------------
+
+
+def notify_interview_feedback_submitted(
+    *, feedback_id: int, actor_id: Optional[int] = None
+) -> None:
+    """Internal email to HR Manager / Executive when an interviewer
+    submits feedback for a round. Audience: hr_notification_emails
+    list from EmailSetting."""
+
+    def _build(db: Session) -> Optional[dict]:
+        fb = db.get(InterviewFeedback, feedback_id)
+        if fb is None or fb.interview is None:
+            return None
+        iv = fb.interview
+        candidate = iv.application.candidate if iv.application else None
+        job = iv.application.job_opening if iv.application else None
+        settings = EmailService.get_or_create_settings(db)
+        to_emails = _normalize_emails(settings.hr_notification_emails)
+        if not to_emails:
+            return None
+        ctx: Dict[str, Any] = {
+            "candidate_name": candidate.full_name if candidate else "",
+            "job_title": job.title if job else "",
+            "round_name": iv.round_name,
+            "interviewer_email": _actor_email(db, fb.submitted_by_id) or "",
+            "recommendation": fb.recommendation or "submitted",
+            "rating": fb.rating,
+        }
+        return {
+            "template_key": TPL_INTERVIEW_FEEDBACK_SUBMITTED,
+            "to_emails": to_emails,
+            "context": ctx,
+            "related_type": "interview_feedback",
+            "related_id": str(feedback_id),
+            "actor_id": actor_id,
+            "check_feature_flag": "interview_email_enabled",
+        }
+
+    _dispatch(_build)
+
+
+def _offer_ctx(offer: OfferTracking) -> Dict[str, Any]:
+    """Shared context for every offer-related template."""
+    app = offer.application
+    candidate = app.candidate if app else None
+    job = app.job_opening if app else None
+    return {
+        "candidate_name": candidate.full_name if candidate else "",
+        "candidate_email": candidate.email if candidate else "",
+        "job_title": job.title if job else "",
+        "position": offer.position,
+        "salary_offered": offer.salary_offered,
+        "joining_date": (
+            offer.joining_date.isoformat() if offer.joining_date else None
+        ),
+        "offer_letter_number": offer.offer_letter_number,
+        "work_location": offer.work_location,
+        "decline_reason": offer.decline_reason,
+        "joined_at": (
+            offer.joined_at.strftime("%Y-%m-%d")
+            if offer.joined_at
+            else None
+        ),
+    }
+
+
+def _offer_internal_email(
+    *,
+    template_key: str,
+    offer_id: int,
+    actor_id: Optional[int],
+) -> None:
+    """Internal (HR-facing) offer email — sends to the
+    hr_notification_emails list. Used by approval-requested /
+    approved / accepted / declined / joined templates."""
+
+    def _build(db: Session) -> Optional[dict]:
+        offer = db.get(OfferTracking, offer_id)
+        if offer is None:
+            return None
+        settings = EmailService.get_or_create_settings(db)
+        to_emails = _normalize_emails(settings.hr_notification_emails)
+        if not to_emails:
+            return None
+        ctx = _offer_ctx(offer)
+        ctx["actor_email"] = _actor_email(db, actor_id)
+        return {
+            "template_key": template_key,
+            "to_emails": to_emails,
+            "context": ctx,
+            "related_type": "offer",
+            "related_id": str(offer_id),
+            "actor_id": actor_id,
+            "check_feature_flag": "offer_email_enabled",
+        }
+
+    _dispatch(_build)
+
+
+def notify_offer_approval_requested(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_APPROVAL_REQUESTED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_approved(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_APPROVED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_accepted(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_ACCEPTED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_declined(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_DECLINED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_joined(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    _offer_internal_email(
+        template_key=TPL_OFFER_JOINED,
+        offer_id=offer_id,
+        actor_id=actor_id,
+    )
+
+
+def notify_offer_issued(
+    *, offer_id: int, actor_id: Optional[int] = None
+) -> None:
+    """Candidate-facing offer letter notification. Goes to the
+    candidate's email rather than the internal HR list."""
+
+    def _build(db: Session) -> Optional[dict]:
+        offer = db.get(OfferTracking, offer_id)
+        if offer is None or offer.application is None:
+            return None
+        candidate = offer.application.candidate
+        if candidate is None or not candidate.email:
+            return None
+        return {
+            "template_key": TPL_OFFER_ISSUED,
+            "to_emails": [candidate.email],
+            "context": _offer_ctx(offer),
+            "related_type": "offer",
+            "related_id": str(offer_id),
+            "actor_id": actor_id,
+            "check_feature_flag": "offer_email_enabled",
+        }
+
+    _dispatch(_build)
 
 
 def _interview_email(

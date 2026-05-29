@@ -6,15 +6,18 @@ Form submission endpoints write to the same tables the admin manages.
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context
+from app.core.cache import cache_response
 from app.core.database import get_db
 from app.core.rate_limit import (
     rate_limit_ai_assistant,
@@ -71,7 +74,11 @@ from app.schemas.hr_ats import (
     PublicAIAskResponse,
     PublicCvParsePreview,
 )
-from app.ai.public_assistant import answer_question, log_query
+from app.ai.public_assistant import (
+    answer_question,
+    log_query,
+    stream_answer_question,
+)
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
@@ -82,6 +89,7 @@ from app.services.cv_storage import CvUploadError, store_cv_bytes
 from app.models.hr_ats import SOURCE_PUBLIC_FORM
 from app.services.audit_log import record_audit
 from app.services.hr_notifications import notify_candidate_application_received
+from app.services.hr_realtime import broadcast_candidate_application_new
 
 
 logger = logging.getLogger(__name__)
@@ -174,6 +182,7 @@ def list_public_navigation(
 
 
 @router.get("/companies", response_model=List[CompanyRead])
+@cache_response("public:companies", ttl_seconds=300, vary_by=("category",))
 def list_active_companies(
     db: Session = Depends(get_db),
     category: Optional[str] = Query(
@@ -402,6 +411,9 @@ def get_homepage_trusted_brands(
 
 
 @router.get("/news", response_model=List[NewsRead])
+@cache_response(
+    "public:news", ttl_seconds=300, vary_by=("featured", "limit")
+)
 def list_published_news(
     db: Session = Depends(get_db),
     featured: Optional[bool] = Query(default=None),
@@ -615,6 +627,7 @@ def list_public_media(
 
 
 @router.get("/site-settings", response_model=SiteSettingRead)
+@cache_response("public:settings", ttl_seconds=600)
 def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
     settings = db.get(SiteSetting, 1)
     if settings is None:
@@ -733,9 +746,26 @@ def create_contact_message(
     *,
     request: Request,
 ):
-    from app.models.cms import ContactMessage
+    from datetime import datetime, timezone
+
+    from app.models.cms import (
+        CONTACT_STATUS_NEW,
+        ContactMessage,
+        ContactReply,
+        SENDER_CUSTOMER,
+    )
+    from app.services.contact_threading import (
+        generate_thread_token,
+        generate_ticket_number,
+    )
 
     ctx = get_request_context(request)
+    now = datetime.now(timezone.utc)
+    # Generate ticket id + thread token. Retry once on the (very
+    # unlikely) collision the unique index would catch.
+    ticket_number = generate_ticket_number(db, now=now)
+    thread_token = generate_thread_token()
+
     msg = ContactMessage(
         name=payload.name.strip(),
         email=str(payload.email).strip().lower(),
@@ -743,8 +773,31 @@ def create_contact_message(
         department=payload.department,
         subject=payload.subject,
         message=payload.message,
+        ticket_number=ticket_number,
+        thread_token=thread_token,
+        status=CONTACT_STATUS_NEW,
+        priority="normal",
+        source="website_contact",
+        last_message_at=now,
+        last_customer_reply_at=now,
     )
     db.add(msg)
+    db.flush()
+
+    # First "reply" row mirrors the inbound submission so the admin
+    # chat view renders the original message as a chat bubble.
+    db.add(
+        ContactReply(
+            contact_message_id=msg.id,
+            direction="inbound",
+            sender_type=SENDER_CUSTOMER,
+            sender_name=msg.name,
+            sender_email=msg.email,
+            subject=msg.subject,
+            body=msg.message,
+            email_status="received",
+        )
+    )
     db.flush()
 
     record_audit(
@@ -1132,6 +1185,27 @@ async def submit_candidate_application(
             "Failed to dispatch application-received email for %s", result.application.id
         )
 
+    # Phase C-2: push a real-time toast to every HR operator with a
+    # live console open. Best-effort — never raises (the helper
+    # swallows internally), so a slow WS client can't roll the
+    # public response back.
+    await broadcast_candidate_application_new(
+        candidate_id=result.candidate.id,
+        candidate_name=result.candidate.full_name,
+        application_id=result.application.id,
+        job_title=(
+            result.application.job_opening.title
+            if result.application.job_opening is not None
+            else None
+        ),
+        job_slug=(
+            result.application.job_opening.slug
+            if result.application.job_opening is not None
+            else None
+        ),
+        source="public_form",
+    )
+
     return ApplicationSubmissionResponse(
         candidate_id=result.candidate.id,
         application_id=result.application.id,
@@ -1198,6 +1272,109 @@ def ask_pug_ai(
         was_fallback=result.was_fallback,
         session_id=payload.session_id,
         model_name=result.model_name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase C-5 — Streaming variant of /ai-assistant/ask
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/ai-assistant/ask-stream",
+    dependencies=[Depends(rate_limit_ai_assistant)],
+)
+def ask_pug_ai_stream(
+    payload: PublicAIAskRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-Sent Events stream of the public assistant's answer.
+
+    Wire format: ``text/event-stream`` framed as
+
+        data: {"type": "delta", "text": "<chunk>"}\\n\\n
+        data: {"type": "delta", "text": "<chunk>"}\\n\\n
+        ...
+        data: {"type": "done", "mode": "...", "session_id": "...",
+                "model_name": "...", "was_fallback": false}\\n\\n
+
+    Mock / disabled / fallback modes emit the same shape — they
+    just ship the entire answer as a single ``delta`` followed by
+    the closing ``done``. The frontend doesn't branch on mode.
+
+    Rate limited the same as the blocking endpoint (10/min, 60/hour
+    per IP) — streaming changes perceived latency, not request
+    quota. The accompanying ``PublicAIQuery`` row is written once
+    the stream completes; a client that disconnects mid-stream
+    still gets logged with whatever was produced up to that point.
+    """
+    history = [
+        {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
+        for m in (payload.history or [])
+        if isinstance(m, dict)
+    ]
+    ctx = get_request_context(request)
+
+    def _sse() -> Iterable[str]:
+        # We accumulate the final ``AskResult`` so the log row reflects
+        # the full text the visitor saw, even if individual ``delta``
+        # frames are small.
+        final_result = None
+        try:
+            for kind, payload_item in stream_answer_question(
+                db,
+                question=payload.question,
+                history=history,
+            ):
+                if kind == "delta":
+                    yield (
+                        "data: "
+                        + json.dumps({"type": "delta", "text": payload_item})
+                        + "\n\n"
+                    )
+                elif kind == "done":
+                    final_result = payload_item
+                    yield (
+                        "data: "
+                        + json.dumps(
+                            {
+                                "type": "done",
+                                "mode": payload_item.mode,
+                                "session_id": payload.session_id,
+                                "model_name": payload_item.model_name,
+                                "was_fallback": payload_item.was_fallback,
+                            }
+                        )
+                        + "\n\n"
+                    )
+        finally:
+            if final_result is not None:
+                try:
+                    log_query(
+                        db,
+                        question=payload.question,
+                        result=final_result,
+                        session_id=payload.session_id,
+                        ip_address=ctx["ip_address"],
+                        user_agent=ctx["user_agent"],
+                    )
+                except Exception:  # noqa: BLE001 — logging must never raise
+                    logger.exception(
+                        "Failed to log AI query for session %s",
+                        payload.session_id,
+                    )
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={
+            # Disable buffering at any intermediate proxy so chunks
+            # actually reach the browser as they're produced.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 

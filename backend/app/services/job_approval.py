@@ -171,6 +171,10 @@ def submit_for_approval(
     # Submitting always clears any prior rejection metadata.
     job.rejected_by_id = None
     job.rejected_at = None
+    # The changes-requested note has been addressed by this submission.
+    job.changes_requested_by_id = None
+    job.changes_requested_at = None
+    job.changes_requested_notes = None
 
     return record_approval_history(
         db,
@@ -224,6 +228,10 @@ def approve_job(
         # Approval auto-publishes — make the job visible immediately.
         old_publish = job.publish_status
         job.publish_status = PUBLISH_STATUS_PUBLISHED
+        # Phase-2 denormalised audit fields — same actor approved and
+        # auto-published, so the publish audit is also attributed here.
+        job.published_by_id = actor.id
+        job.published_at = _utc_now()
         record_approval_history(
             db,
             job=job,
@@ -303,6 +311,10 @@ def request_revision(
     old_status = job.approval_status
     job.approval_status = APPROVAL_STATUS_REVISION_REQUIRED
     job.approval_remarks = remarks
+    # Phase-2 denormalised audit fields
+    job.changes_requested_by_id = actor.id
+    job.changes_requested_at = _utc_now()
+    job.changes_requested_notes = remarks
 
     return record_approval_history(
         db,
@@ -343,6 +355,9 @@ def publish_job(
 
     old_publish = job.publish_status
     job.publish_status = PUBLISH_STATUS_PUBLISHED
+    # Phase-2 denormalised audit fields
+    job.published_by_id = actor.id
+    job.published_at = _utc_now()
 
     return record_approval_history(
         db,

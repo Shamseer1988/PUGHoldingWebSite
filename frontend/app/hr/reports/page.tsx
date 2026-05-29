@@ -332,8 +332,11 @@ function ReportRunner({
         {data && data.rows.length === 0 && !loading && (
           <HrEmptyState
             icon={FileBarChart}
-            title="No matching rows"
-            description="Loosen the filters and try again."
+            title="No records found for the selected filter"
+            description={
+              "This report is ready, but no rows match the current filter. " +
+              "Loosen the filters or pick a wider date range."
+            }
           />
         )}
       </div>

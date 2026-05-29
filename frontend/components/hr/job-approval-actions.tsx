@@ -18,8 +18,12 @@ import type { ApprovalStatus, JobOpening, PublishStatus } from "@/lib/hr/types";
 interface Props {
   job: JobOpening;
   onUpdated: (job: JobOpening) => void;
-  /** Whether this user can approve (HR Manager). */
+  /** Whether this user can approve / reject / request revision (HR Manager). */
   canApprove?: boolean;
+  /** Whether this user can submit drafts for approval / publish (HR Admin+). */
+  canSubmit?: boolean;
+  /** Whether this user can publish / unpublish (HR Manager). */
+  canPublish?: boolean;
 }
 
 type Action =
@@ -43,7 +47,13 @@ const ACTION_LABEL: Record<Action, string> = {
  * Approval workflow buttons for an HR Job. Picks which buttons to show
  * based on the job's current approval / publish status.
  */
-export function JobApprovalActions({ job, onUpdated, canApprove = true }: Props) {
+export function JobApprovalActions({
+  job,
+  onUpdated,
+  canApprove = true,
+  canSubmit = true,
+  canPublish = canApprove,
+}: Props) {
   const [remarks, setRemarks] = React.useState("");
   const [showRemarks, setShowRemarks] = React.useState<Action | null>(null);
   const [busy, setBusy] = React.useState<Action | null>(null);
@@ -125,7 +135,10 @@ export function JobApprovalActions({ job, onUpdated, canApprove = true }: Props)
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
-        {approval === "draft" || approval === "rejected" || approval === "revision_required" ? (
+        {canSubmit &&
+        (approval === "draft" ||
+          approval === "rejected" ||
+          approval === "revision_required") ? (
           renderBtn("submit-approval", <Send className="h-3.5 w-3.5" />, "default")
         ) : null}
 
@@ -141,11 +154,11 @@ export function JobApprovalActions({ job, onUpdated, canApprove = true }: Props)
           ? renderBtn("reject", <XCircle className="h-3.5 w-3.5" />, "destructive")
           : null}
 
-        {approval === "approved" && publish !== "published"
+        {canPublish && approval === "approved" && publish !== "published"
           ? renderBtn("publish", <Eye className="h-3.5 w-3.5" />, "default")
           : null}
 
-        {approval === "approved" && publish === "published"
+        {canPublish && approval === "approved" && publish === "published"
           ? renderBtn("unpublish", <EyeOff className="h-3.5 w-3.5" />, "secondary")
           : null}
       </div>

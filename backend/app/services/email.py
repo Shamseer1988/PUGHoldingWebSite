@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
-from typing import Optional
+from typing import Mapping, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -81,6 +81,18 @@ class EmailResult:
     success: bool
     message: str
     sent_at: Optional[datetime] = None
+
+
+@dataclass(frozen=True)
+class ContactReplyEmailResult(EmailResult):
+    """Result of ``send_contact_reply`` — augments EmailResult with the
+    threading headers we picked, so the caller can persist them on the
+    ContactReply row for the next IMAP round-trip."""
+
+    message_id: Optional[str] = None
+    in_reply_to: Optional[str] = None
+    references_header: Optional[str] = None
+    subject: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -197,45 +209,101 @@ class EmailService:
         *,
         contact_message: ContactMessage,
         reply_body: str,
-    ) -> EmailResult:
-        """Email an admin-typed reply back to the original contact sender."""
+        admin_name: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[Sequence[str]] = None,
+        message_id_override: Optional[str] = None,
+    ) -> "ContactReplyEmailResult":
+        """Email an admin-typed reply back to the original contact sender.
+
+        Builds a branded HTML email via
+        :data:`app.services.email_templates.TPL_CONTACT_REPLY`, sets the
+        threading headers IMAP needs to round-trip a customer reply
+        back to the same conversation, and returns the assigned
+        Message-ID alongside the usual success/failure status so the
+        caller can persist it on the ContactReply row.
+        """
+        # Lazy imports to avoid circular dependency at module load.
+        from app.services import email_templates
+        from app.services.contact_threading import (
+            THREAD_HEADER_NAME,
+            build_outbound_headers,
+            format_reply_subject,
+        )
+
         config = cls.get_config(db)
+
+        # ------------------------------------------------------------
+        # Build the branded body
+        # ------------------------------------------------------------
         original_subject = (contact_message.subject or "your enquiry").strip()
-        subject = (
-            original_subject
-            if original_subject.lower().startswith("re:")
-            else f"Re: {original_subject}"
-        )
+        # Read the configured contact mailbox / brand details from env
+        # — these are surfaced in the email footer + the "reply to"
+        # nudge. If unset we fall back to the SMTP reply-to.
+        from app.core.config import get_settings
 
-        original_summary = (
-            f"\n\n---\nYour original message on "
-            f"{contact_message.created_at:%Y-%m-%d %H:%M UTC}:\n"
-            f"{contact_message.message.strip()}"
+        settings = get_settings()
+        support_email = (
+            getattr(settings, "contact_reply_to_email", None)
+            or config.reply_to
+            or config.from_email
         )
-        body_text = f"{reply_body.strip()}{original_summary}\n\n— Paris United Group Holding"
+        ctx = {
+            "customer_name": contact_message.name,
+            "ticket_number": contact_message.ticket_number,
+            "reply_body": reply_body,
+            "admin_name": admin_name,
+            "original_subject": original_subject,
+            "original_message": contact_message.message,
+            "support_email": support_email,
+            "website_url": None,
+            "brand_logo_url": None,
+            "email_footer_text": None,
+        }
+        rendered = email_templates.render(email_templates.TPL_CONTACT_REPLY, ctx)
 
-        body_html = (
-            f"<div style=\"font-family:Inter,Arial,sans-serif;color:#17382f;"
-            f"max-width:600px;margin:0 auto;padding:24px;\">"
-            f"<div style=\"white-space:pre-wrap;line-height:1.55;\">"
-            f"{_escape(reply_body.strip())}</div>"
-            f"<hr style=\"margin:24px 0;border:0;border-top:1px solid #e4e0d6;\" />"
-            f"<p style=\"font-size:12px;color:#61736b;margin:0;\">"
-            f"Your original message on "
-            f"{contact_message.created_at:%Y-%m-%d %H:%M UTC}:</p>"
-            f"<blockquote style=\"margin:8px 0 0;padding:0 0 0 12px;"
-            f"border-left:2px solid #e4e0d6;color:#61736b;white-space:pre-wrap;"
-            f"font-size:13px;\">{_escape(contact_message.message.strip())}</blockquote>"
-            f"<p style=\"font-size:12px;color:#61736b;margin-top:24px;\">"
-            f"— Paris United Group Holding</p></div>"
+        subject = format_reply_subject(original_subject, contact_message.ticket_number)
+
+        # ------------------------------------------------------------
+        # Build the threading headers
+        # ------------------------------------------------------------
+        ref_chain: list[str] = []
+        if references:
+            ref_chain.extend([r for r in references if r])
+        threading = build_outbound_headers(
+            thread_token=contact_message.thread_token,
+            in_reply_to=in_reply_to,
+            references=ref_chain,
         )
+        if message_id_override:
+            # Used by retry-failed-reply so the second attempt reuses
+            # the same Message-ID it stored on the row.
+            threading["Message-ID"] = message_id_override
 
-        return cls._send_with_config(
+        # ------------------------------------------------------------
+        # Send + return the Message-ID alongside the result
+        # ------------------------------------------------------------
+        result = cls._send_with_config(
             config,
             to_email=contact_message.email,
             subject=subject,
-            body_text=body_text,
-            body_html=body_html,
+            body_text=rendered.text,
+            body_html=rendered.html,
+            extra_headers=threading,
+            # Reply-To MUST be the inbound support mailbox so customer
+            # replies land where the IMAP processor can find them. If
+            # unset, fall back to the SMTP reply_to / from address.
+            reply_to_override=support_email or None,
+        )
+
+        return ContactReplyEmailResult(
+            success=result.success,
+            message=result.message,
+            sent_at=result.sent_at,
+            message_id=threading["Message-ID"],
+            in_reply_to=threading.get("In-Reply-To"),
+            references_header=threading.get("References"),
+            subject=subject,
         )
 
     # ---------------------------------------------------------------
@@ -252,6 +320,7 @@ class EmailService:
         body_text: str,
         body_html: Optional[str] = None,
         reply_to_override: Optional[str] = None,
+        extra_headers: Optional[Mapping[str, str]] = None,
     ) -> EmailResult:
         if not config.enabled:
             return EmailResult(success=False, message="Email is disabled in the admin configuration.")
@@ -267,6 +336,18 @@ class EmailService:
         reply_to = reply_to_override or config.reply_to
         if reply_to:
             msg["Reply-To"] = reply_to
+        # Threading headers (Message-ID, In-Reply-To, References, plus
+        # our custom X-PUG-Contact-Thread). Set BEFORE the body so the
+        # MIME builder sees them on the root part.
+        if extra_headers:
+            for name, value in extra_headers.items():
+                if value is None:
+                    continue
+                # ``EmailMessage`` allows setting Message-ID via __setitem__
+                # but errors on duplicate writes; replace if it exists.
+                if name in msg:
+                    del msg[name]
+                msg[name] = value
         msg.set_content(body_text)
         if body_html:
             msg.add_alternative(body_html, subtype="html")

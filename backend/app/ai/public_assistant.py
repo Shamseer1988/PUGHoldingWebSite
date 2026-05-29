@@ -469,28 +469,15 @@ def _live_answer(
     config: ResolvedAIConfig,
     extra_public_prompt: Optional[str],
 ) -> AskResult:
-    if not (
-        config.azure_endpoint
-        and config.azure_deployment
-        and config.azure_api_key
-    ):
-        raise AIConfigError(
-            "AI is set to 'live' but Azure endpoint / deployment / API key are not configured."
-        )
+    # Phase C-6: provider abstraction. See ``candidate_review._generate_live``
+    # for the rationale on the error-vocabulary translation.
+    from app.ai.providers import ProviderError, get_chat_provider
+    from app.ai.providers.factory import ProviderConfigError
 
     try:
-        from openai import AzureOpenAI  # imported lazily
-    except ImportError as exc:  # pragma: no cover
-        raise AIConfigError(
-            "openai package is not installed. Run `pip install -r requirements.txt`."
-        ) from exc
-
-    client = AzureOpenAI(
-        api_key=config.azure_api_key,
-        api_version=config.azure_api_version or "2024-08-01-preview",
-        azure_endpoint=config.azure_endpoint,
-        timeout=config.request_timeout_seconds,
-    )
+        provider = get_chat_provider(config)
+    except ProviderConfigError as exc:
+        raise AIConfigError(str(exc)) from exc
 
     system_prompt = SYSTEM_PROMPT
     if extra_public_prompt and extra_public_prompt.strip():
@@ -499,17 +486,16 @@ def _live_answer(
     user_prompt = _build_user_prompt(question, context, history)
 
     try:
-        completion = client.chat.completions.create(
-            model=config.azure_deployment,
-            temperature=config.temperature,
-            max_tokens=min(config.max_output_tokens, 600),
+        completion = provider.complete(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            temperature=config.temperature,
+            max_tokens=min(config.max_output_tokens, 600),
         )
-    except Exception as exc:  # noqa: BLE001
-        raise AIProviderError(f"Azure OpenAI call failed: {exc}") from exc
+    except ProviderError as exc:
+        raise AIProviderError(str(exc)) from exc
 
     raw = completion.model_dump()
     answer = ""
@@ -528,6 +514,164 @@ def _live_answer(
         model_name=config.model_name or config.azure_deployment,
         prompt_tokens=usage.get("prompt_tokens"),
         completion_tokens=usage.get("completion_tokens"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Phase C-5 — Streaming variant
+# ---------------------------------------------------------------------------
+
+
+def stream_answer_question(
+    db: Session,
+    *,
+    question: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    setting: Optional[AISetting] = None,
+):
+    """Generator twin of :func:`answer_question`.
+
+    Yields ``(kind, payload)`` tuples — never raises. ``kind`` is one
+    of ``"delta"`` (a token chunk), ``"done"`` (final ``AskResult``,
+    which the caller logs + ships as the closing SSE frame) or
+    ``"error"`` (an error message string; production code surfaces
+    this as the answer text and a fallback frame).
+
+    Mock + disabled modes return the whole answer in a single
+    ``delta`` followed by a ``done`` — the wire format is identical
+    so the frontend doesn't branch on mode.
+    """
+    question = (question or "").strip()
+    if not question:
+        result = AskResult(
+            answer="Please ask me something about Paris United Group.",
+            mode=AI_MODE_DISABLED,
+            was_fallback=True,
+        )
+        yield ("delta", result.answer)
+        yield ("done", result)
+        return
+
+    setting = setting if setting is not None else db.get(AISetting, 1)
+    config = resolve_config(setting)
+    public_enabled = setting.public_enabled if setting is not None else True
+    extra_public_prompt = (
+        setting.public_extra_system_prompt if setting is not None else None
+    )
+
+    context = load_public_context(db)
+
+    if not public_enabled or config.mode == AI_MODE_DISABLED:
+        result = _fallback_answer(context, mode=AI_MODE_DISABLED, fallback=True)
+        yield ("delta", result.answer)
+        yield ("done", result)
+        return
+
+    if config.mode == AI_MODE_MOCK:
+        result = _mock_answer(question, context)
+        yield ("delta", result.answer)
+        yield ("done", result)
+        return
+
+    # Live mode — stream tokens from Azure OpenAI.
+    try:
+        yield from _live_answer_stream(
+            question=question,
+            context=context,
+            history=history,
+            config=config,
+            extra_public_prompt=extra_public_prompt,
+        )
+    except (AIConfigError, AIProviderError) as exc:
+        logger.warning("Public AI live mode failed; falling back: %s", exc)
+        result = _fallback_answer(context, mode=config.mode, fallback=True)
+        result.answer = (
+            "Sorry — I couldn't reach the AI service right now. "
+            + result.answer
+        )
+        yield ("delta", result.answer)
+        yield ("done", result)
+
+
+def _live_answer_stream(
+    *,
+    question: str,
+    context: PublicContext,
+    history: Optional[List[Dict[str, str]]],
+    config: ResolvedAIConfig,
+    extra_public_prompt: Optional[str],
+):
+    """Stream chunks from Azure OpenAI using ``stream=True``.
+
+    Yields ``("delta", text)`` tuples per token chunk and a final
+    ``("done", AskResult)`` once the stream completes. Errors raise
+    ``AIProviderError`` — the orchestrator above converts that to a
+    fallback frame so the visitor always sees a response.
+    """
+    # Phase C-6: provider abstraction. The provider's
+    # ``complete_stream`` already opts into ``include_usage`` so the
+    # last frame carries token counts.
+    from app.ai.providers import ProviderError, get_chat_provider
+    from app.ai.providers.factory import ProviderConfigError
+
+    try:
+        provider = get_chat_provider(config)
+    except ProviderConfigError as exc:
+        raise AIConfigError(str(exc)) from exc
+
+    system_prompt = SYSTEM_PROMPT
+    if extra_public_prompt and extra_public_prompt.strip():
+        system_prompt = f"{system_prompt}\n\nADDITIONAL CONTEXT FROM ADMIN:\n{extra_public_prompt.strip()}"
+
+    user_prompt = _build_user_prompt(question, context, history)
+
+    chunks: List[str] = []
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+
+    try:
+        for chunk in provider.complete_stream(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=config.temperature,
+            max_tokens=min(config.max_output_tokens, 600),
+        ):
+            # Usage frame: arrives last when ``include_usage`` is on
+            # and carries no ``choices`` payload.
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                prompt_tokens = getattr(usage, "prompt_tokens", None)
+                completion_tokens = getattr(usage, "completion_tokens", None)
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            piece = getattr(delta, "content", None) or ""
+            if piece:
+                chunks.append(piece)
+                yield ("delta", piece)
+    except ProviderError as exc:
+        raise AIProviderError(str(exc)) from exc
+
+    answer = "".join(chunks).strip()
+    if not answer:
+        raise AIProviderError("Azure OpenAI returned an empty response.")
+
+    yield (
+        "done",
+        AskResult(
+            answer=answer,
+            mode=AI_MODE_LIVE,
+            model_name=config.model_name or config.azure_deployment,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        ),
     )
 
 

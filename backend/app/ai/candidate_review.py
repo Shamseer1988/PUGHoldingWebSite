@@ -416,24 +416,17 @@ def _generate_mock(context: Dict[str, Any], config: ResolvedAIConfig) -> AIRevie
 
 
 def _generate_live(context: Dict[str, Any], config: ResolvedAIConfig) -> AIReviewResult:
-    if not (config.azure_endpoint and config.azure_deployment and config.azure_api_key):
-        raise AIConfigError(
-            "AI is set to 'live' but Azure endpoint / deployment / API key are not configured."
-        )
+    # Phase C-6: provider abstraction. ``get_chat_provider`` raises a
+    # ``ProviderConfigError`` when endpoint / deployment / API key are
+    # unset — we wrap it as ``AIConfigError`` to preserve the existing
+    # error vocabulary the orchestrator catches.
+    from app.ai.providers import ProviderError, get_chat_provider
+    from app.ai.providers.factory import ProviderConfigError
 
     try:
-        from openai import AzureOpenAI  # imported lazily
-    except ImportError as exc:  # pragma: no cover
-        raise AIConfigError(
-            "openai package is not installed. Run `pip install -r requirements.txt`."
-        ) from exc
-
-    client = AzureOpenAI(
-        api_key=config.azure_api_key,
-        api_version=config.azure_api_version or "2024-08-01-preview",
-        azure_endpoint=config.azure_endpoint,
-        timeout=config.request_timeout_seconds,
-    )
+        provider = get_chat_provider(config)
+    except ProviderConfigError as exc:
+        raise AIConfigError(str(exc)) from exc
 
     system_prompt = SYSTEM_PROMPT
     if config.extra_system_prompt:
@@ -442,18 +435,17 @@ def _generate_live(context: Dict[str, Any], config: ResolvedAIConfig) -> AIRevie
     user_prompt = _build_user_prompt(context)
 
     try:
-        completion = client.chat.completions.create(
-            model=config.azure_deployment,
-            temperature=config.temperature,
-            max_tokens=config.max_output_tokens,
-            response_format={"type": "json_object"},
+        completion = provider.complete(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            temperature=config.temperature,
+            max_tokens=config.max_output_tokens,
+            response_format={"type": "json_object"},
         )
-    except Exception as exc:  # noqa: BLE001 — wrap any client error
-        raise AIProviderError(f"Azure OpenAI call failed: {exc}") from exc
+    except ProviderError as exc:
+        raise AIProviderError(str(exc)) from exc
 
     raw = completion.model_dump()
     content = ""

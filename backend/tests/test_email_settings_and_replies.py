@@ -101,7 +101,21 @@ def test_crypto_decrypt_invalid_token_returns_none():
 # ---------------------------------------------------------------------------
 
 
-def test_email_settings_get_creates_singleton(client, seed_auth, db_session: Session):
+def test_email_settings_get_creates_singleton(
+    client, seed_auth, db_session: Session, monkeypatch
+):
+    # Force an empty SMTP env so this test is hermetic against a
+    # developer-supplied .env that ships real credentials. ``Settings``
+    # is lru-cached, so ``monkeypatch.delenv`` alone wouldn't work —
+    # we blank the smtp_* attributes on the cached singleton instead.
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "smtp_password", None, raising=False)
+    monkeypatch.setattr(settings, "smtp_username", None, raising=False)
+    monkeypatch.setattr(settings, "smtp_host", None, raising=False)
+    monkeypatch.setattr(settings, "smtp_from_email", None, raising=False)
+
     headers = _login_super(client, seed_auth)
     response = client.get(EMAIL, headers=headers)
     assert response.status_code == 200
@@ -290,11 +304,22 @@ def test_test_email_when_disabled_returns_friendly_message(client, seed_auth):
 
 
 def _seed_inbound(db_session: Session) -> ContactMessage:
+    # ticket_number + thread_token are NOT NULL after the contact-ticket
+    # schema upgrade; supply them via the same generators the public
+    # submit endpoint uses so the row is shaped identically to one
+    # created via the API.
+    from app.services.contact_threading import (
+        generate_thread_token,
+        generate_ticket_number,
+    )
+
     msg = ContactMessage(
         name="Jane Visitor",
         email="jane@example.com",
         subject="Pricing question",
         message="Hi, what is the price?",
+        ticket_number=generate_ticket_number(db_session),
+        thread_token=generate_thread_token(),
     )
     db_session.add(msg)
     db_session.commit()

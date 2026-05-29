@@ -4,7 +4,8 @@ import { Section } from "@/components/site/section";
 import { getNews, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "News & Events" };
-export const revalidate = 60;
+// Phase A-1: listing — refresh every 5 min.
+export const revalidate = 300;
 
 export default async function NewsPage() {
   const [allNews, page] = await Promise.all([

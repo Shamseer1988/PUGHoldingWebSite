@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import {
+  Archive,
+  ArchiveRestore,
   Briefcase,
   CheckCircle2,
   Edit3,
@@ -14,10 +16,20 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
+import { ConfirmReasonDialog } from "@/components/hr/confirm-reason-dialog";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { JobApprovalActions } from "@/components/hr/job-approval-actions";
 import { JobApprovalBadge } from "@/components/hr/job-approval-badge";
+import { JobApprovalTimeline } from "@/components/hr/job-approval-timeline";
+import {
+  PERM_HR_JOBS_APPROVE,
+  PERM_HR_JOBS_CREATE,
+  PERM_HR_JOBS_DELETE,
+  PERM_HR_JOBS_EDIT,
+  PERM_HR_JOBS_PUBLISH,
+} from "@/lib/hr/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +110,7 @@ const EMPTY_FORM: JobFormState = {
 };
 
 export default function HrJobsPage() {
+  const perms = usePermission();
   const [items, setItems] = React.useState<JobOpening[] | null>(null);
   const [editing, setEditing] = React.useState<JobOpening | null>(null);
   const [form, setForm] = React.useState<JobFormState>(EMPTY_FORM);
@@ -230,20 +243,31 @@ export default function HrJobsPage() {
     }
   }
 
-  async function remove(job: JobOpening) {
-    if (
-      !confirm(
-        `Delete “${job.title}”? This removes the job permanently and cannot be undone.`
-      )
-    )
-      return;
-    try {
-      await hrApi.delete(`/hr/jobs/${job.id}`);
+  // Phase 8 — destructive actions go through a reason-capturing modal
+  // rather than a browser confirm(). The reason is sent in the request
+  // body and recorded on the audit row.
+  const [confirmJob, setConfirmJob] = React.useState<
+    | { job: JobOpening; action: "delete" | "archive" | "unarchive" }
+    | null
+  >(null);
+
+  async function performJobAction(
+    job: JobOpening,
+    action: "delete" | "archive" | "unarchive",
+    reason: string,
+  ): Promise<void> {
+    if (action === "delete") {
+      await hrApi.delete(`/hr/jobs/${job.id}`, { reason });
       setToast("Job deleted.");
-      await refresh();
-    } catch (err) {
-      setError((err as HrApiError).message);
+    } else if (action === "archive") {
+      await hrApi.post(`/hr/jobs/${job.id}/archive`, { reason });
+      setToast("Job archived.");
+    } else {
+      await hrApi.post(`/hr/jobs/${job.id}/unarchive`, {});
+      setToast("Job restored.");
     }
+    setConfirmJob(null);
+    await refresh();
   }
 
   // Derive filter dropdown options from the current list.
@@ -261,10 +285,12 @@ export default function HrJobsPage() {
       title="Job openings"
       description="Manage active, on-hold, and closed job postings."
       actions={
-        <Button onClick={openNew} size="sm" aria-label="Add a new job opening">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New job</span>
-        </Button>
+        perms.has(PERM_HR_JOBS_CREATE) ? (
+          <Button onClick={openNew} size="sm" aria-label="Add a new job opening">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">New job</span>
+          </Button>
+        ) : null
       }
     >
       <Toast message={toast} onClose={() => setToast(null)} />
@@ -412,6 +438,9 @@ export default function HrJobsPage() {
                       />
                       <JobApprovalActions
                         job={job}
+                        canApprove={perms.has(PERM_HR_JOBS_APPROVE)}
+                        canSubmit={perms.has(PERM_HR_JOBS_CREATE)}
+                        canPublish={perms.has(PERM_HR_JOBS_PUBLISH)}
                         onUpdated={(updated) => {
                           setItems((prev) =>
                             (prev ?? []).map((j) =>
@@ -459,23 +488,57 @@ export default function HrJobsPage() {
                             <PlayCircle className="h-4 w-4 text-emerald-600" />
                           </Button>
                         )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => openEdit(job)}
-                          aria-label={`Edit ${job.title}`}
-                        >
-                          <Edit3 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => remove(job)}
-                          aria-label={`Delete ${job.title}`}
-                          className="text-rose-600 hover:text-rose-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {perms.has(PERM_HR_JOBS_EDIT) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => openEdit(job)}
+                            aria-label={`Edit ${job.title}`}
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {perms.has(PERM_HR_JOBS_DELETE) && !job.is_archived && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() =>
+                              setConfirmJob({ job, action: "archive" })
+                            }
+                            aria-label={`Archive ${job.title}`}
+                            title="Archive (soft-delete, keeps history)"
+                            className="text-amber-600 hover:text-amber-700"
+                          >
+                            <Archive className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {perms.has(PERM_HR_JOBS_DELETE) && job.is_archived && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() =>
+                              setConfirmJob({ job, action: "unarchive" })
+                            }
+                            aria-label={`Restore ${job.title}`}
+                            title="Restore from archive"
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {perms.has(PERM_HR_JOBS_DELETE) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() =>
+                              setConfirmJob({ job, action: "delete" })
+                            }
+                            aria-label={`Delete ${job.title}`}
+                            title="Hard delete (cannot be undone)"
+                            className="text-rose-600 hover:text-rose-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </>
                     )}
                   </TableCell>
@@ -494,7 +557,40 @@ export default function HrJobsPage() {
         onClose={() => setOpen(false)}
         onSave={save}
         saving={saving}
+        editingJob={editing}
       />
+
+      {confirmJob && (
+        <ConfirmReasonDialog
+          title={
+            confirmJob.action === "delete"
+              ? `Delete "${confirmJob.job.title}" permanently?`
+              : confirmJob.action === "archive"
+                ? `Archive "${confirmJob.job.title}"?`
+                : `Restore "${confirmJob.job.title}" from archive?`
+          }
+          description={
+            confirmJob.action === "delete"
+              ? "Hard delete cannot be undone. The job and its history are removed. Prefer Archive unless the row is truly invalid (test data, duplicate, etc.)."
+              : confirmJob.action === "archive"
+                ? "Archive hides the job from default listings but keeps all candidates, applications, and audit history. Use Restore to bring it back."
+                : "Restore makes the job visible in default listings again."
+          }
+          confirmLabel={
+            confirmJob.action === "delete"
+              ? "Delete permanently"
+              : confirmJob.action === "archive"
+                ? "Archive"
+                : "Restore"
+          }
+          tone={confirmJob.action === "delete" ? "danger" : "default"}
+          requireReason={confirmJob.action !== "unarchive"}
+          onConfirm={(reason) =>
+            performJobAction(confirmJob.job, confirmJob.action, reason)
+          }
+          onClose={() => setConfirmJob(null)}
+        />
+      )}
     </HrShell>
   );
 }
@@ -507,6 +603,7 @@ function JobDrawer({
   onClose,
   onSave,
   saving,
+  editingJob,
 }: {
   open: boolean;
   title: string;
@@ -515,12 +612,26 @@ function JobDrawer({
   onClose: () => void;
   onSave: () => void;
   saving: boolean;
+  /**
+   * The job being edited (null when creating new). Used to:
+   *  - render the JobApprovalTimeline at the bottom of the drawer
+   *  - show a "this edit will require re-approval" warning when the
+   *    job is already approved.
+   */
+  editingJob: JobOpening | null;
 }) {
   if (!open) return null;
 
   function set<K extends keyof JobFormState>(k: K, v: JobFormState[K]) {
     onChange({ ...form, [k]: v });
   }
+
+  // Re-approval warning fires when editing an approved job; the
+  // backend will route the changes through a JobRevision rather than
+  // mutating the live job, so HR knows the edit won't be public until
+  // the manager approves the revision.
+  const showReapprovalWarning =
+    editingJob !== null && editingJob.approval_status === "approved";
 
   return (
     <div role="dialog" aria-modal="true" className="fixed inset-0 z-40 flex">
@@ -746,6 +857,32 @@ function JobDrawer({
                 placeholder="Arabic, GCC experience"
               />
             </Field>
+
+            {showReapprovalWarning && (
+              <div
+                role="status"
+                className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300"
+              >
+                <p className="font-semibold">
+                  Editing an approved job — re-approval required.
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  This job is already <strong>approved &amp; live</strong>.
+                  Saving will create a pending revision; the public site
+                  keeps showing the current version until an HR Manager
+                  approves the revision.
+                </p>
+              </div>
+            )}
+
+            {editingJob && (
+              <section className="rounded-md border border-border/60 bg-background/40 p-3">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Approval timeline
+                </h3>
+                <JobApprovalTimeline jobId={editingJob.id} />
+              </section>
+            )}
           </div>
 
           <footer className="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3">

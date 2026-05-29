@@ -25,7 +25,22 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_request_context, require_hr_admin
+from app.auth.dependencies import (
+    get_request_context,
+    require_any_permission,
+    require_hr_admin,
+    require_permission,
+)
+from app.auth.permissions import (
+    PERM_HR_JOBS_APPROVE,
+    PERM_HR_JOBS_CREATE,
+    PERM_HR_JOBS_DELETE,
+    PERM_HR_JOBS_EDIT,
+    PERM_HR_JOBS_PUBLISH,
+    PERM_HR_JOBS_VIEW,
+    PERM_HR_JOBS_VIEW_DEPT,
+    PERM_HR_SETTINGS_MANAGE,
+)
 from app.core.database import get_db
 from app.models.auth import User
 from app.models.hr_ats import (
@@ -38,7 +53,42 @@ from app.models.hr_ats import (
     JobRevision,
     PUBLISH_STATUS_DRAFT,
 )
+
+
+def _assert_not_self_approval(job: JobOpening, user: User) -> None:
+    """Approval-workflow row-level rule: the submitter cannot approve,
+    reject, or request revision on their own submission.
+
+    Super-users bypass for emergency unblocks (rare; audited).
+    """
+    if user.is_superuser:
+        return
+    submitter = job.submitted_for_approval_by_id or job.created_by_id
+    if submitter == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You cannot approve, reject, or request revision on a job "
+                "opening you submitted. Ask another manager to review it."
+            ),
+        )
+
+
+def _apply_dept_scope(stmt, user: User):
+    """If the user has only the department-scoped permission, restrict the
+    SELECT to rows whose ``department`` matches ``user.department``.
+
+    Returns the (possibly filtered) statement. No-op for users with the
+    full ``hr:jobs:view`` permission or superusers.
+    """
+    if user.is_superuser or user.has_permission(PERM_HR_JOBS_VIEW):
+        return stmt
+    if user.has_permission(PERM_HR_JOBS_VIEW_DEPT) and user.department:
+        return stmt.where(JobOpening.department == user.department)
+    return stmt
 from app.schemas.hr_ats import (
+    ArchiveRequest,
+    DeleteRequest,
     JobApprovalActionRequest,
     JobApprovalHistoryRead,
     JobApprovalRejectRequest,
@@ -85,6 +135,9 @@ def _serialize(job: JobOpening) -> JobOpeningRead:
 @router.get("", response_model=List[JobOpeningRead])
 def list_jobs(
     db: Session = Depends(get_db),
+    user: User = Depends(
+        require_any_permission(PERM_HR_JOBS_VIEW, PERM_HR_JOBS_VIEW_DEPT)
+    ),
     job_status: Optional[str] = Query(
         default=None,
         alias="status",
@@ -100,8 +153,14 @@ def list_jobs(
     department: Optional[str] = None,
     company: Optional[str] = None,
     q: Optional[str] = Query(default=None, max_length=200),
+    include_archived: bool = Query(default=False),
 ) -> List[JobOpeningRead]:
     stmt = select(JobOpening).order_by(desc(JobOpening.posted_at), JobOpening.id)
+    stmt = _apply_dept_scope(stmt, user)
+    # Phase 8 — archived jobs hidden from the default list. HR can pass
+    # ?include_archived=true to see them (e.g. for the archive browser).
+    if not include_archived:
+        stmt = stmt.where(JobOpening.is_archived.is_(False))
     if job_status:
         stmt = stmt.where(JobOpening.status == job_status)
     if approval_status:
@@ -126,9 +185,24 @@ def list_jobs(
 
 
 @router.get("/{job_id}", response_model=JobOpeningRead)
-def get_job(job_id: int, db: Session = Depends(get_db)) -> JobOpeningRead:
+def get_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(
+        require_any_permission(PERM_HR_JOBS_VIEW, PERM_HR_JOBS_VIEW_DEPT)
+    ),
+) -> JobOpeningRead:
     job = db.get(JobOpening, job_id)
     if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    # Department-scope check: 404 (not 403) so we don't leak existence.
+    if (
+        not user.is_superuser
+        and not user.has_permission(PERM_HR_JOBS_VIEW)
+        and user.has_permission(PERM_HR_JOBS_VIEW_DEPT)
+        and user.department
+        and job.department != user.department
+    ):
         raise HTTPException(status_code=404, detail="Job not found")
     return _serialize(job)
 
@@ -143,7 +217,7 @@ def create_job(
     payload: JobOpeningCreate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_CREATE)),
 ) -> JobOpeningRead:
     data = payload.model_dump()
     # New jobs always land in draft regardless of what the client sent —
@@ -195,7 +269,7 @@ def update_job(
     payload: JobOpeningUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_EDIT)),
 ) -> JobOpeningRead:
     job = db.get(JobOpening, job_id)
     if job is None:
@@ -264,7 +338,7 @@ def close_job(
     job_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_EDIT)),
 ) -> JobOpeningRead:
     return _transition(db, user, request, job_id, JOB_STATUS_CLOSED, "hr.job.close")
 
@@ -274,7 +348,7 @@ def reopen_job(
     job_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_EDIT)),
 ) -> JobOpeningRead:
     return _transition(db, user, request, job_id, JOB_STATUS_OPEN, "hr.job.reopen")
 
@@ -284,7 +358,7 @@ def hold_job(
     job_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_EDIT)),
 ) -> JobOpeningRead:
     return _transition(db, user, request, job_id, JOB_STATUS_ON_HOLD, "hr.job.hold")
 
@@ -293,13 +367,18 @@ def hold_job(
 def delete_job(
     job_id: int,
     request: Request,
+    payload: Optional[DeleteRequest] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_DELETE)),
 ) -> Response:
+    """Hard-delete a job. Restricted to hr:jobs:delete (HR Manager +
+    Super Admin per the default role matrix). HR users should
+    normally archive instead — see POST /hr/jobs/{id}/archive."""
     job = db.get(JobOpening, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    reason = payload.reason if payload else None
     db.delete(job)
     _audit(
         db,
@@ -307,10 +386,68 @@ def delete_job(
         request,
         action="hr.job.delete",
         target_id=job_id,
-        details={"slug": job.slug, "title": job.title},
+        details={"slug": job.slug, "title": job.title, "reason": reason},
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{job_id}/archive", response_model=JobOpeningRead)
+def archive_job(
+    job_id: int,
+    payload: ArchiveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_DELETE)),
+) -> JobOpeningRead:
+    """Soft-archive: flips is_archived=True, records who/when/why,
+    and hides the job from default listing queries. Preserves all
+    history. Use unarchive to restore."""
+    job = _get_or_404(db, job_id)
+    if job.is_archived:
+        raise HTTPException(status_code=409, detail="Job is already archived.")
+    job.is_archived = True
+    job.archived_at = datetime.now(timezone.utc)
+    job.archived_by_id = user.id
+    job.archive_reason = payload.reason
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.archive",
+        target_id=job_id,
+        details={"reason": payload.reason},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
+
+
+@router.post("/{job_id}/unarchive", response_model=JobOpeningRead)
+def unarchive_job(
+    job_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_DELETE)),
+) -> JobOpeningRead:
+    """Restore a soft-archived job."""
+    job = _get_or_404(db, job_id)
+    if not job.is_archived:
+        raise HTTPException(status_code=409, detail="Job is not archived.")
+    job.is_archived = False
+    job.archived_at = None
+    job.archived_by_id = None
+    job.archive_reason = None
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.unarchive",
+        target_id=job_id,
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +461,7 @@ def submit_for_approval(
     payload: Optional[JobApprovalActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_CREATE)),
 ) -> JobOpeningRead:
     job = _get_or_404(db, job_id)
     remarks = (payload.remarks if payload else None)
@@ -349,9 +486,10 @@ def approve_job_endpoint(
     payload: Optional[JobApprovalActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
 ) -> JobOpeningRead:
     job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
     remarks = (payload.remarks if payload else None)
 
     # If a pending revision exists, approving the job approves the revision
@@ -387,9 +525,10 @@ def reject_job_endpoint(
     payload: JobApprovalRejectRequest,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
 ) -> JobOpeningRead:
     job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
 
     pending_revision = approval.get_pending_revision(db, job)
     if pending_revision is not None:
@@ -430,9 +569,10 @@ def request_revision_endpoint(
     payload: Optional[JobApprovalActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
 ) -> JobOpeningRead:
     job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
     remarks = (payload.remarks if payload else None)
     approval.request_revision(db, job=job, actor=user, remarks=remarks)
     _audit(
@@ -460,7 +600,7 @@ def publish_job_endpoint(
     payload: Optional[JobApprovalActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_PUBLISH)),
 ) -> JobOpeningRead:
     job = _get_or_404(db, job_id)
     remarks = (payload.remarks if payload else None)
@@ -485,7 +625,7 @@ def unpublish_job_endpoint(
     payload: Optional[JobApprovalActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_PUBLISH)),
 ) -> JobOpeningRead:
     job = _get_or_404(db, job_id)
     remarks = (payload.remarks if payload else None)
@@ -537,6 +677,87 @@ def list_revisions(
 ) -> List[JobRevisionRead]:
     job = _get_or_404(db, job_id)
     return [JobRevisionRead.model_validate(r) for r in job.revisions]
+
+
+@router.post(
+    "/{job_id}/revisions/{revision_id}/approve",
+    response_model=JobOpeningRead,
+)
+def approve_revision_endpoint(
+    job_id: int,
+    revision_id: int,
+    payload: Optional[JobApprovalActionRequest] = None,
+    request: Request = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
+) -> JobOpeningRead:
+    """Approve a specific pending revision — applies the payload to the
+    live job. Requires hr:jobs:approve. Self-approval guard applies:
+    the manager who submitted the original job (or revision) cannot
+    approve their own changes."""
+    job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
+
+    revision = next(
+        (r for r in job.revisions if r.id == revision_id), None
+    )
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    remarks = (payload.remarks if payload else None)
+    approval.approve_revision(db, revision=revision, actor=user, remarks=remarks)
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.revision.approve",
+        target_id=job.id,
+        details={"revision_id": revision_id, "remarks": remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
+
+
+@router.post(
+    "/{job_id}/revisions/{revision_id}/reject",
+    response_model=JobOpeningRead,
+)
+def reject_revision_endpoint(
+    job_id: int,
+    revision_id: int,
+    payload: JobApprovalRejectRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_JOBS_APPROVE)),
+) -> JobOpeningRead:
+    """Reject a specific pending revision — discards the payload, the
+    live job stays unchanged. Requires hr:jobs:approve and a remarks
+    string (min 4 chars, enforced by the JobApprovalRejectRequest
+    schema)."""
+    job = _get_or_404(db, job_id)
+    _assert_not_self_approval(job, user)
+
+    revision = next(
+        (r for r in job.revisions if r.id == revision_id), None
+    )
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    approval.reject_revision(
+        db, revision=revision, actor=user, remarks=payload.remarks
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="hr.job.revision.reject",
+        target_id=job.id,
+        details={"revision_id": revision_id, "remarks": payload.remarks},
+    )
+    db.commit()
+    db.refresh(job)
+    return _serialize(job)
 
 
 # ---------------------------------------------------------------------------
@@ -664,7 +885,7 @@ def upsert_auto_review_rule(
     payload: JobAutoReviewRuleUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_SETTINGS_MANAGE)),
 ) -> JobAutoReviewRuleRead:
     from app.services import candidate_auto_review
 
@@ -696,7 +917,7 @@ def run_job_auto_review(
     job_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_JOBS_EDIT)),
 ) -> dict:
     """Re-run auto-review on every application of this job."""
     from app.services import candidate_auto_review

@@ -1,0 +1,169 @@
+# ---------------------------------------------------------------------------
+# Local development stack (Phase A-9)
+# ---------------------------------------------------------------------------
+# Four services wired for a one-command dev environment:
+#
+#   postgres — Pinned to 16-alpine. Credentials match the backend's
+#              Settings defaults so a fresh ``docker compose up`` Just
+#              Works without touching ``.env`` first.
+#   redis    — 7-alpine with AOF persistence; used by Phase B-2
+#              (rate-limit + cache) and Phase B-3 (ARQ queue) once
+#              they land.
+#   backend  — FastAPI on port 8000, source bind-mounted so
+#              ``uvicorn --reload`` picks up edits. Migrations run on
+#              every compose-up (cheap when there's nothing pending).
+#   frontend — Next.js on port 3000 via ``npm run dev``. Anonymous
+#              volumes on /app/node_modules and /app/.next keep the
+#              container's Linux-built artifacts from being clobbered
+#              by the host's bind-mount (matters when the host is
+#              macOS / arm64).
+#
+# Bring up:    docker compose up -d
+# Tail logs:   docker compose logs -f backend
+# Tear down:   docker compose down            # keeps volumes
+#              docker compose down -v         # also drops postgres data
+# ---------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pug_user
+      POSTGRES_PASSWORD: pug_password
+      POSTGRES_DB: pug_holding
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pug_user -d pug_holding"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Exposed so a local psql / DBeaver can connect without
+      # going through the backend container. Comment out to
+      # confine Postgres to the compose network.
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    # The operator's per-machine secrets (SMTP, AI keys, etc.) live
+    # in backend/.env. We override host-specific values via the
+    # ``environment`` block below so they point at the compose
+    # network regardless of what .env says. ``required: false`` so a
+    # fresh checkout boots even before the operator copies
+    # .env.example.
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_ENV: development
+      # Same value the conftest pins; lets the API boot without
+      # forcing the operator to edit .env on day one.
+      SECRET_KEY: "compose-dev-secret-do-not-use-in-production"
+    volumes:
+      # Bind-mount the host source so uvicorn --reload picks up edits.
+      - ./backend:/app
+    command:
+      - sh
+      - -c
+      - "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app"
+    ports:
+      - "8000:8000"
+
+  worker:
+    # Phase B-3: ARQ background worker. Reuses the same image as
+    # the backend service (multi-stage Dockerfile, ``runner`` target)
+    # but boots ``worker_runner.py`` instead of uvicorn. Disabled
+    # by default — set ``ARQ_ENABLED=true`` in backend/.env to start
+    # this service alongside the API.
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: development
+      SECRET_KEY: "compose-dev-secret-do-not-use-in-production"
+      ARQ_ENABLED: "true"
+    volumes:
+      - ./backend:/app
+    command: ["python", "worker_runner.py"]
+    profiles:
+      # ``profiles`` keeps the worker out of the default
+      # ``docker compose up`` flow. Bring it up explicitly with
+      # ``docker compose --profile worker up worker``.
+      - worker
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file:
+      - path: ./frontend/.env.local
+        required: false
+    environment:
+      # Server-side fetches go through the compose-internal hostname;
+      # the browser hits localhost:8000 directly. Both env vars
+      # are consumed by ``frontend/lib/env.ts``.
+      API_BASE_URL: http://backend:8000/api/v1
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+    volumes:
+      - ./frontend:/app
+      # Anonymous volumes — these are populated from the image at
+      # first run and survive the bind mount above, so the
+      # container keeps its own Linux-built node_modules and .next
+      # rather than picking up the host's (possibly macOS-built)
+      # versions.
+      - /app/node_modules
+      - /app/.next
+    command: ["npm", "run", "dev"]
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------------------
+# Build context exclusions (Phase A-9)
+# ---------------------------------------------------------------------------
+# Used by both backend and frontend Dockerfiles via the root build
+# context (``docker compose build`` → ``context: .``). Keeps image
+# layers small + the build context fast to transfer.
+# ---------------------------------------------------------------------------
+
+# VCS + IDE
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.editorconfig
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Python caches / virtualenvs
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.venv
+**/venv
+**/htmlcov
+**/.coverage
+**/coverage.xml
+
+# Node / Next.js
+**/node_modules
+**/.next
+**/out
+**/dist
+**/.turbo
+
+# Frontend public-asset heavyweights — pulled at runtime, not baked
+# into the image. (The build-time image-optimization pipeline still
+# reads from /public during ``npm run build`` so individual files
+# can be added back to the build context selectively.)
+frontend/public/videos
+frontend/public/uploads
+
+# Env files (each environment supplies its own). Keep the
+# ``.env.example`` so the runtime image carries a reference.
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+backend/.env.*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Logs + runtime state
+**/*.log
+backend/app/uploads
+
+# Docs that don't ship in the image
+docs
+deploy
+*.md
+!CLAUDE.md
+!README.md
+
+# Test artefacts
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx

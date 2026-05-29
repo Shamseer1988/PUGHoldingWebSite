@@ -7,6 +7,7 @@ import {
   Ban,
   Briefcase,
   CheckCircle2,
+  Handshake,
   History,
   Loader2,
   MoveRight,
@@ -14,12 +15,15 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
+import { CreateOfferDialog } from "@/components/hr/create-offer-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { PERM_HR_OFFERS_CREATE } from "@/lib/hr/permissions";
 import type {
   Candidate,
   CandidateApplicationSummary,
@@ -112,12 +116,16 @@ function ApplicationWorkflowRow({
   const [remarks, setRemarks] = React.useState("");
   const [rejectionReason, setRejectionReason] = React.useState("");
   const [blacklistApproval, setBlacklistApproval] = React.useState("");
+  // Default ON — the most common HR action is "shortlist/select/reject
+  // AND tell the candidate". Backend only fires emails for those three.
+  const [sendEmail, setSendEmail] = React.useState(true);
 
   React.useEffect(() => {
     setNewStatus(application.allowed_next_statuses[0] ?? "");
     setRemarks("");
     setRejectionReason("");
     setBlacklistApproval("");
+    setSendEmail(true);
     setError(null);
   }, [application.id, application.status, application.allowed_next_statuses]);
 
@@ -146,7 +154,10 @@ function ApplicationWorkflowRow({
     setChanging(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = { new_status: newStatus };
+      const body: Record<string, unknown> = {
+        new_status: newStatus,
+        send_email: sendEmail,
+      };
       if (remarks.trim()) body.remarks = remarks.trim();
       if (newStatus === "rejected") body.rejection_reason = rejectionReason.trim();
       if (newStatus === "blacklisted")
@@ -211,6 +222,11 @@ function ApplicationWorkflowRow({
           No further transitions available from <code>{application.status}</code>.
         </p>
       )}
+
+      <OfferShortcut
+        application={application}
+        onChanged={onChanged}
+      />
 
       {!noMoves && (
         <form
@@ -295,6 +311,27 @@ function ApplicationWorkflowRow({
             </div>
           )}
 
+          <label className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              checked={sendEmail}
+              onChange={(e) => setSendEmail(e.target.checked)}
+              disabled={changing}
+            />
+            <span>
+              <span className="font-medium">
+                Send notification email to candidate
+              </span>
+              <span className="block text-muted-foreground">
+                Branded email fires for{" "}
+                <strong>Shortlisted</strong>, <strong>Selected</strong>,
+                and <strong>Rejected</strong> only. Other transitions
+                are internal and don&apos;t notify the candidate.
+              </span>
+            </span>
+          </label>
+
           {error && (
             <p
               role="alert"
@@ -345,6 +382,59 @@ function ApplicationWorkflowRow({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Offer shortcut. Visible only when the application is in an
+// offer-eligible status AND the user has hr:offers:create.
+// ---------------------------------------------------------------------------
+
+
+function OfferShortcut({
+  application,
+  onChanged,
+}: {
+  application: CandidateApplicationSummary;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  // The "one offer per application" rule is enforced server-side
+  // (409 if an offer exists); the button just shows eligibility based
+  // on the recruitment status.
+  const eligible =
+    application.status === "recommended_for_offer" ||
+    application.status === "selected";
+  const perms = usePermission();
+  if (!eligible || !perms.has(PERM_HR_OFFERS_CREATE)) return null;
+  return (
+    <div className="border-t border-border/60 bg-primary/5 px-4 py-3 text-xs">
+      <p className="font-medium">Ready for an offer?</p>
+      <p className="mt-0.5 text-muted-foreground">
+        This candidate is at <code>{application.status}</code>. Draft an
+        offer to start the approval &amp; issue workflow.
+      </p>
+      <div className="mt-2">
+        <Button size="sm" onClick={() => setOpen(true)}>
+          <Handshake className="h-3.5 w-3.5" />
+          Draft offer
+        </Button>
+      </div>
+      {open && (
+        <CreateOfferDialog
+          applicationId={application.id}
+          defaults={{
+            position: application.job_title ?? undefined,
+          }}
+          onClose={() => setOpen(false)}
+          onCreated={() => {
+            setOpen(false);
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

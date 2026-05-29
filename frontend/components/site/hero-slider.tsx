@@ -14,7 +14,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import type { HeroSlide } from "@/lib/admin/types";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { useT } from "@/lib/i18n/locale-provider";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 interface HeroSliderProps {
@@ -44,6 +45,7 @@ interface HeroSliderProps {
  * ship with the rest of the site (GSAP is loaded async).
  */
 export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
+  const tr = useT();
   const [index, setIndex] = React.useState(0);
   const [paused, setPaused] = React.useState(false);
   const sectionRef = React.useRef<HTMLElement | null>(null);
@@ -126,8 +128,8 @@ export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
 
   if (slides.length === 0) return null;
   const slide = slides[Math.min(index, slides.length - 1)];
-  const videoUrl = resolveAssetUrl(slide.background_video_url);
-  const imageUrl = resolveAssetUrl(slide.background_image_url);
+  const videoUrl = normaliseMediaUrl(slide.background_video_url);
+  const imageUrl = normaliseMediaUrl(slide.background_image_url);
 
   return (
     <section
@@ -285,7 +287,7 @@ export function HeroSlider({ slides, intervalMs = 6500 }: HeroSliderProps) {
                 key={s.id}
                 type="button"
                 onClick={() => setIndex(i)}
-                aria-label={`Go to slide ${i + 1}`}
+                aria-label={tr("hero.slide_indicator", { n: i + 1 })}
                 aria-current={i === index}
                 className={cn(
                   "h-1.5 rounded-full transition-all duration-500",
@@ -366,6 +368,7 @@ function CuteTitle({ text }: { text: string }) {
 
 
 function ScrollHint() {
+  const tr = useT();
   return (
     <div
       aria-hidden
@@ -375,7 +378,7 @@ function ScrollHint() {
         <span className="hero-scroll-dot block h-1.5 w-1.5 rounded-full bg-white/95" />
       </span>
       <span className="text-[10px] font-medium uppercase tracking-[0.3em] text-white/75">
-        Scroll
+        {tr("hero.scroll_hint")}
       </span>
     </div>
   );

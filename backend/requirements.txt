@@ -57,3 +57,65 @@ openai==1.54.0
 # openpyxl, PDF via reportlab.
 openpyxl==3.1.5
 reportlab==4.2.5
+
+# Background scheduler — drives scheduled report digests and
+# (future) nightly automatic database backups. Runs in-process
+# inside the FastAPI lifespan; no external broker required.
+APScheduler==3.10.4
+
+# Digital Offers / Catalogue module — PDF -> WebP page rendering.
+# PyMuPDF is the fastest pure-Python PDF rasteriser (faster than
+# pdf2image which shells out to Poppler) and doesn't require a system
+# binary, so it works on any container we deploy to.
+PyMuPDF==1.24.10
+
+# QR codes — branded PNGs for catalogue sharing. ``[pil]`` extra
+# pulls in Pillow which is already required for image rebake +
+# catalogue rendering.
+qrcode[pil]==7.4.2
+
+# Phase A-4 — structured logging. JSON output in production so log
+# aggregators (Datadog, Loki, Cloudwatch) parse fields directly;
+# colourised console output in development so a human can read a
+# tail. Same ``get_logger()`` helper across the codebase.
+structlog==24.4.0
+
+# Phase A-6 — Cloudflare R2 object storage. R2 is S3-compatible so
+# the standard ``boto3`` client works as-is once pointed at the R2
+# endpoint URL. Used by ``app.services.storage`` to upload public
+# media (CMS images + catalogue assets) to a CDN-fronted bucket
+# instead of local disk. Local-disk fallback is preserved for
+# unconfigured installs.
+boto3==1.35.0
+
+# Phase A-8 — Sentry error tracking. The ``[fastapi]`` extra pulls
+# in starlette/asgi integration shims so ``sentry_sdk.init()`` is
+# all the wiring we need — no explicit middleware registration.
+# Inert when ``SENTRY_DSN`` is unset; behaviour-free in dev / tests.
+sentry-sdk[fastapi]==2.18.0
+
+# Phase B-1.0 — async DB drivers. Used by the new ``async_engine``
+# and ``AsyncSessionLocal`` in ``app.core.database``, alongside the
+# existing sync stack (psycopg2 + Session). New code can opt into
+# async via ``Depends(get_async_db)``; nothing in the existing
+# surface is migrated yet.
+asyncpg==0.30.0
+aiosqlite==0.20.0  # async SQLite driver for the test suite
+
+# Phase B-2 — Redis client (async). Powers the rate limiter (the
+# in-memory sliding window doesn't survive process boundaries; a
+# multi-worker deployment behind Nginx would otherwise multiply
+# every limit by N) and the public-CMS read-through cache.
+redis==5.2.0
+# In-process Redis fake for the test suite — same API as the real
+# client, no socket. Avoids a hard dependency on a running Redis
+# during ``pytest``.
+fakeredis==2.26.1
+
+# Phase B-3 — async background job queue. ARQ persists jobs in
+# Redis (the same instance Phase B-2 already uses), runs workers
+# in a separate process, and exposes ``await pool.enqueue_job(...)``
+# for the API to schedule work without blocking the request.
+# Inline call sites stay the default; opt into the queue by
+# setting ARQ_ENABLED=true and running ``python worker_runner.py``.
+arq==0.26.1

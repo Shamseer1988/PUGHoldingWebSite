@@ -43,8 +43,14 @@ PUBLIC_JOBS = "/api/v1/public/jobs"
 
 
 def _auth(client: TestClient, password: str) -> dict:
+    # These tests exercise the full submit -> approve lifecycle from a
+    # single user's perspective. After the Phase 1 RBAC overhaul the
+    # "cannot approve own submission" rule blocks that path for normal
+    # roles, so we log in as the superuser (who bypasses the guard for
+    # emergency-unblock scenarios). Separation-of-concerns is covered in
+    # tests/test_hr_rbac_phase1.py.
     response = client.post(
-        HR_LOGIN, json={"email": "hr@pug.example.com", "password": password}
+        HR_LOGIN, json={"email": "superadmin@pug.example.com", "password": password}
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}

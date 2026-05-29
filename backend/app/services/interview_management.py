@@ -220,6 +220,11 @@ def update_interview(
         interview.location_or_link = (value or "").strip() or None if isinstance(value, str) else value
     if "interviewer_id" in updates:
         interview.interviewer_id = updates["interviewer_id"]
+    if "reschedule_reason" in updates:
+        value = updates["reschedule_reason"]
+        interview.reschedule_reason = (
+            value.strip() if isinstance(value, str) and value.strip() else None
+        )
 
     # Re-validate the resulting state.
     _validate_basic(
@@ -283,6 +288,9 @@ def submit_feedback(
     technical_score: Optional[int],
     communication_score: Optional[int],
     cultural_fit_score: Optional[int],
+    strengths: Optional[str] = None,
+    weaknesses: Optional[str] = None,
+    next_action: Optional[str] = None,
 ) -> InterviewFeedback:
     if not can_submit_feedback(interview=interview, actor=actor):
         raise FeedbackPermissionError(
@@ -315,6 +323,9 @@ def submit_feedback(
         technical_score=int(technical_score) if technical_score is not None else None,
         communication_score=int(communication_score) if communication_score is not None else None,
         cultural_fit_score=int(cultural_fit_score) if cultural_fit_score is not None else None,
+        strengths=(strengths or "").strip() or None,
+        weaknesses=(weaknesses or "").strip() or None,
+        next_action=(next_action or "").strip() or None,
     )
     db.add(fb)
 

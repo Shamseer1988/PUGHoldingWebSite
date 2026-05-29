@@ -1,7 +1,7 @@
 """Pydantic schemas for the HR ATS Job Opening surface (Phase 9)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -98,6 +98,12 @@ class JobOpeningRead(JobOpeningBase):
     rejected_by_id: Optional[int] = None
     rejected_at: Optional[datetime] = None
     approval_remarks: Optional[str] = None
+    # Phase-2 denormalised audit columns
+    changes_requested_by_id: Optional[int] = None
+    changes_requested_at: Optional[datetime] = None
+    changes_requested_notes: Optional[str] = None
+    published_by_id: Optional[int] = None
+    published_at: Optional[datetime] = None
     active_revision_id: Optional[int] = None
     has_pending_revision: bool = False
 
@@ -375,11 +381,44 @@ class CandidateStatusHistoryRead(BaseModel):
     created_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 — unified candidate timeline event (recruitment + interview + offer)
+# ---------------------------------------------------------------------------
+
+
+class CandidateTimelineEvent(BaseModel):
+    """One row in the candidate's unified timeline.
+
+    ``stream`` partitions the feed by domain so the UI can colour-code:
+    ``recruitment`` / ``interview`` / ``offer`` / ``system``. ``action``
+    is a short verb (``applied``, ``status_changed``, ``interview_scheduled``,
+    ``offer_issued``, etc.). ``ref_id`` points at the underlying row id so
+    the UI can deep-link to it.
+    """
+
+    occurred_at: datetime
+    stream: str  # recruitment | interview | offer | system
+    action: str
+    title: str
+    description: Optional[str] = None
+    actor_email: Optional[str] = None
+    ref_type: Optional[str] = None
+    ref_id: Optional[int] = None
+    # Optional from→to status pair for status_changed events
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+
+
 class CandidateStatusChange(BaseModel):
     new_status: str = Field(min_length=1, max_length=40)
     remarks: Optional[str] = Field(default=None, max_length=2000)
     rejection_reason: Optional[str] = Field(default=None, max_length=2000)
     blacklist_approval: Optional[str] = Field(default=None, max_length=2000)
+    # When True, the backend dispatches the branded candidate email
+    # corresponding to the new status (shortlisted / selected / rejected).
+    # Defaults to False so API callers don't suddenly start emailing
+    # candidates after the upgrade — the HR portal sets it explicitly.
+    send_email: bool = False
 
 
 class StatusOption(BaseModel):
@@ -534,6 +573,10 @@ class InterviewFeedbackBase(BaseModel):
     technical_score: Optional[int] = Field(default=None, ge=0, le=10)
     communication_score: Optional[int] = Field(default=None, ge=0, le=10)
     cultural_fit_score: Optional[int] = Field(default=None, ge=0, le=10)
+    # Phase 4 — structured free-text fields used by the quick-update modal
+    strengths: Optional[str] = Field(default=None, max_length=4000)
+    weaknesses: Optional[str] = Field(default=None, max_length=4000)
+    next_action: Optional[str] = Field(default=None, max_length=1000)
 
 
 class InterviewFeedbackCreate(InterviewFeedbackBase):
@@ -584,6 +627,11 @@ class InterviewUpdate(BaseModel):
     mode: Optional[str] = Field(default=None, pattern=INTERVIEW_MODE_PATTERN)
     location_or_link: Optional[str] = Field(default=None, max_length=500)
     interviewer_id: Optional[int] = None
+    # Phase 5 — captured by the reschedule dialog. When scheduled_at is
+    # included AND send_email_now=True the endpoint dispatches the
+    # branded "interview rescheduled" email automatically.
+    reschedule_reason: Optional[str] = Field(default=None, max_length=2000)
+    send_email_now: bool = False
 
 
 class InterviewStatusChange(BaseModel):
@@ -617,6 +665,8 @@ class InterviewRead(InterviewBase):
     candidate_email_override: Optional[str] = None
     email_subject: Optional[str] = None
     email_note: Optional[str] = None
+    # Phase 5
+    reschedule_reason: Optional[str] = None
 
 
 class InterviewListItem(BaseModel):
@@ -865,3 +915,147 @@ class InterviewEmailFields(BaseModel):
     email_note: Optional[str] = Field(default=None, max_length=4000)
     send_email_now: bool = False
     create_google_meet: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Archive / soft-delete request shapes
+# ---------------------------------------------------------------------------
+
+
+class ArchiveRequest(BaseModel):
+    """Soft-archive payload used by /hr/jobs/{id}/archive and
+    /hr/candidates/{id}/archive. The reason is mandatory and lands on
+    the archive_reason column + the audit log."""
+
+    reason: str = Field(min_length=4, max_length=2000)
+
+
+class DeleteRequest(BaseModel):
+    """Optional reason payload accepted by DELETE endpoints.
+
+    The body is optional (the FastAPI dependency tolerates an empty
+    request), but when supplied the reason is stored in the audit
+    log row's details JSON so compliance reports can see why a
+    record was hard-deleted."""
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Offer schemas
+# ---------------------------------------------------------------------------
+
+
+class OfferBase(BaseModel):
+    """Editable offer content. Used by create + update."""
+
+    position: Optional[str] = Field(default=None, max_length=200)
+    salary_offered: Optional[int] = Field(default=None, ge=0)
+    allowances: Optional[str] = Field(default=None, max_length=4000)
+    joining_date: Optional[date] = None
+    probation_period: Optional[str] = Field(default=None, max_length=80)
+    reporting_manager: Optional[str] = Field(default=None, max_length=255)
+    work_location: Optional[str] = Field(default=None, max_length=255)
+    benefits_summary: Optional[str] = Field(default=None, max_length=4000)
+    offer_letter_number: Optional[str] = Field(default=None, max_length=80)
+    attachment_url: Optional[str] = Field(default=None, max_length=500)
+    remarks: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferCreate(OfferBase):
+    """POST /hr/offers body. Must reference an existing application."""
+
+    application_id: int
+
+
+class OfferUpdate(OfferBase):
+    """PATCH /hr/offers/{id} body — every field optional."""
+
+
+class OfferActionRequest(BaseModel):
+    """Plain action payload — used by submit-approval / approve /
+    withdraw / issue / mark_joined etc. Carries an optional remark."""
+
+    remarks: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferRejectRequest(BaseModel):
+    remarks: str = Field(min_length=4, max_length=4000)
+
+
+class OfferResponseRequest(BaseModel):
+    """HR records candidate's response."""
+
+    accepted: bool
+    decline_reason: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferMarkNotJoinedRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=4000)
+
+
+class OfferStatusHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    offer_id: int
+    action: str
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+    actor_id: Optional[int] = None
+    actor_email: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: datetime
+
+
+class OfferRead(OfferBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    candidate_id: Optional[int] = None
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    job_title: Optional[str] = None
+    job_slug: Optional[str] = None
+    department: Optional[str] = None
+
+    status: str
+    approval_status: str
+
+    created_by_id: Optional[int] = None
+    approved_by_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    rejected_by_id: Optional[int] = None
+    rejected_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    issued_by_id: Optional[int] = None
+    issued_at: Optional[datetime] = None
+    withdrawn_by_id: Optional[int] = None
+    withdrawn_at: Optional[datetime] = None
+    withdrawn_reason: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    declined_at: Optional[datetime] = None
+    decline_reason: Optional[str] = None
+
+    joining_status: Optional[str] = None
+    joined_at: Optional[datetime] = None
+    not_joined_reason: Optional[str] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class OfferSummaryStats(BaseModel):
+    """Dashboard cards for /hr/offers — one row per pipeline bucket."""
+
+    pending_approval: int = 0
+    approved: int = 0
+    sent: int = 0
+    accepted: int = 0
+    declined: int = 0
+    withdrawn: int = 0
+    joined: int = 0
+    not_joined: int = 0

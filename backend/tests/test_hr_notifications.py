@@ -5,6 +5,7 @@ with an in-memory capture. This means tests run without any network.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytest
@@ -14,6 +15,7 @@ from app.models.email_settings import EmailSetting
 from app.models.hr_ats import (
     APPROVAL_STATUS_APPROVED,
     EMAIL_LOG_FAILED,
+    EMAIL_LOG_PENDING,
     EMAIL_LOG_SENT,
     EmailLog,
     JobOpening,
@@ -182,4 +184,201 @@ def test_send_notification_marks_failed_when_smtp_disabled(
     )
     db_session.commit()
     assert log.status == EMAIL_LOG_FAILED
+    assert stub_smtp == []
+
+
+# ---------------------------------------------------------------------------
+# Idempotency — short-window dedup
+# ---------------------------------------------------------------------------
+#
+# Originally reported as: "career emails frequently sending to candidates
+# and admin teams at the time of every server restart when running
+# `py run.py`". Root cause: uvicorn --reload kills the worker mid-request
+# while ``notify_*()`` is still inside SMTP send → browser auto-retries
+# the POST → second worker re-fires the same notification → two
+# emails per real event. Same shape applies to double-clicked admin
+# buttons and any HTTP client with implicit retry-on-connection-close.
+
+
+def test_send_notification_dedupes_repeated_calls_within_window(
+    db_session: Session, stub_smtp, enabled_email_settings
+):
+    """A second call with the same (template, related_type, related_id)
+    inside the dedup window must NOT trigger SMTP and must NOT
+    create a second EmailLog row."""
+    first = hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["candidate@example.com"],
+        context={"job_title": "Backend Engineer"},
+        related_type="job_opening",
+        related_id="42",
+    )
+    db_session.commit()
+    assert first.status == EMAIL_LOG_SENT
+    assert len(stub_smtp) == 1
+
+    second = hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["candidate@example.com"],
+        context={"job_title": "Backend Engineer"},
+        related_type="job_opening",
+        related_id="42",
+    )
+    db_session.commit()
+
+    # No new SMTP traffic. Same EmailLog row returned. Only one row
+    # exists for this (template, related) tuple.
+    assert len(stub_smtp) == 1
+    assert second.id == first.id
+    total = (
+        db_session.query(EmailLog)
+        .filter(
+            EmailLog.template_key == email_templates.TPL_JOB_APPROVED,
+            EmailLog.related_type == "job_opening",
+            EmailLog.related_id == "42",
+        )
+        .count()
+    )
+    assert total == 1
+
+
+def test_send_notification_allows_resend_after_window_expires(
+    db_session: Session, stub_smtp, enabled_email_settings
+):
+    """Outside the dedup window a legitimate re-send (e.g. status
+    flipped back-and-forth days later) must still fire."""
+    first = hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["candidate@example.com"],
+        context={"job_title": "Backend Engineer"},
+        related_type="job_opening",
+        related_id="7",
+    )
+    db_session.commit()
+    # Backdate so the dedup-window query excludes the first row.
+    first.created_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+    db_session.commit()
+
+    second = hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["candidate@example.com"],
+        context={"job_title": "Backend Engineer"},
+        related_type="job_opening",
+        related_id="7",
+    )
+    db_session.commit()
+    assert len(stub_smtp) == 2
+    assert second.id != first.id
+
+
+def test_send_notification_dedupe_scope_is_per_template_and_related(
+    db_session: Session, stub_smtp, enabled_email_settings
+):
+    """Different template OR different related_id must still send —
+    the dedup is a *tuple* match, not blanket suppression."""
+    hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["a@example.com"],
+        context={"job_title": "A"},
+        related_type="job_opening",
+        related_id="1",
+    )
+    # Same template, different related_id → fires.
+    hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["b@example.com"],
+        context={"job_title": "B"},
+        related_type="job_opening",
+        related_id="2",
+    )
+    # Different template, same related_id → fires.
+    hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_PUBLISHED,
+        to_emails=["c@example.com"],
+        context={"job_title": "C"},
+        related_type="job_opening",
+        related_id="1",
+    )
+    db_session.commit()
+    assert len(stub_smtp) == 3
+
+
+def test_send_notification_without_related_id_never_dedupes(
+    db_session: Session, stub_smtp, enabled_email_settings
+):
+    """Ad-hoc sends (test email, manual send) don't carry a
+    related_id — they must always go through."""
+    for _ in range(3):
+        hr_notifications.send_notification(
+            db_session,
+            template_key=email_templates.TPL_JOB_APPROVED,
+            to_emails=["adhoc@example.com"],
+            context={"job_title": "Adhoc"},
+        )
+    db_session.commit()
+    assert len(stub_smtp) == 3
+
+
+def test_send_notification_dedupe_can_be_disabled(
+    db_session: Session, stub_smtp, enabled_email_settings
+):
+    """Operator opt-out: ``dedupe_within_seconds=0`` restores the
+    pre-fix behaviour for one-off integrations that genuinely need
+    to fire the same notification twice in a row."""
+    for _ in range(2):
+        hr_notifications.send_notification(
+            db_session,
+            template_key=email_templates.TPL_JOB_APPROVED,
+            to_emails=["candidate@example.com"],
+            context={"job_title": "Backend"},
+            related_type="job_opening",
+            related_id="42",
+            dedupe_within_seconds=0,
+        )
+    db_session.commit()
+    assert len(stub_smtp) == 2
+
+
+def test_send_notification_dedupes_against_pending_in_flight(
+    db_session: Session, stub_smtp, enabled_email_settings
+):
+    """First call is interrupted (think uvicorn --reload mid-send) so
+    it stays in status=pending forever. A retry within the window
+    must NOT fire a fresh SMTP call — pending counts as "send in
+    progress" for dedup purposes."""
+    # Build the "interrupted" row directly: same shape send_notification
+    # would have written, but stuck at pending without a successful
+    # SMTP follow-up. This is what a worker-killed-mid-send leaves
+    # behind in the table.
+    stranded = EmailLog(
+        scope="hr",
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["c@example.com"],
+        status=EMAIL_LOG_PENDING,
+        related_type="job_opening",
+        related_id="99",
+    )
+    db_session.add(stranded)
+    db_session.commit()
+
+    # Now the retry hits — SMTP is healthy and would happily send a
+    # second copy if dedup didn't catch the stranded pending row.
+    second = hr_notifications.send_notification(
+        db_session,
+        template_key=email_templates.TPL_JOB_APPROVED,
+        to_emails=["c@example.com"],
+        context={"job_title": "Title"},
+        related_type="job_opening",
+        related_id="99",
+    )
+    db_session.commit()
+    assert second.id == stranded.id
+    # No SMTP traffic — the retry was suppressed.
     assert stub_smtp == []

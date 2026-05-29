@@ -321,9 +321,73 @@ class ContactMessage(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     phone: Mapped[Optional[str]] = mapped_column(String(40))
+    company_name: Mapped[Optional[str]] = mapped_column(String(255))
     department: Mapped[Optional[str]] = mapped_column(String(64))
     subject: Mapped[Optional[str]] = mapped_column(String(255))
     message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Ticket-flow identity. ``ticket_number`` is shown to the customer in
+    # the email subject; ``thread_token`` is a secret used by the IMAP
+    # processor to match an inbound email back to its conversation when
+    # the subject has been mangled.
+    ticket_number: Mapped[str] = mapped_column(
+        String(40), nullable=False, unique=True, index=True
+    )
+    thread_token: Mapped[str] = mapped_column(
+        String(80), nullable=False, unique=True, index=True
+    )
+
+    # State machine. See app.services.contact_threading for transitions.
+    status: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="new",
+        server_default="new",
+        index=True,
+    )
+    priority: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="normal",
+        server_default="normal",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="website_contact",
+        server_default="website_contact",
+    )
+
+    # Ownership + activity bookkeeping (denormalised for cheap inbox sort).
+    assigned_to_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    last_message_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+    last_customer_reply_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_admin_reply_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reopened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Latest email Message-IDs for IMAP threading. The outbound id is
+    # written when the admin reply hits SMTP; the inbound id is written
+    # by the IMAP processor when a customer replies. Either is used as
+    # the In-Reply-To target for the next outbound reply.
+    inbound_email_message_id: Mapped[Optional[str]] = mapped_column(String(998))
+    outbound_email_message_id: Mapped[Optional[str]] = mapped_column(String(998))
+
+    # Legacy boolean flags — kept for backwards compatibility with the
+    # existing admin inbox UI until it's migrated to the status enum.
+    # New code should read ``status`` instead; these are syncronised
+    # from the service layer.
     is_read: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false", index=True
     )
@@ -333,6 +397,8 @@ class ContactMessage(Base):
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Legacy single-reply column from before Phase B (kept for older
+    # rows; the canonical thread lives in ``replies`` now).
     reply_body: Mapped[Optional[str]] = mapped_column(Text)
     replied_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
@@ -353,11 +419,45 @@ class ContactMessage(Base):
     )
 
 
+# Status state machine — see app.services.contact_threading.
+CONTACT_STATUS_NEW = "new"
+CONTACT_STATUS_OPEN = "open"
+CONTACT_STATUS_PENDING_ADMIN = "pending_admin"
+CONTACT_STATUS_PENDING_CUSTOMER = "pending_customer"
+CONTACT_STATUS_COMPLETED = "completed"
+CONTACT_STATUS_ARCHIVED = "archived"
+CONTACT_STATUSES = (
+    CONTACT_STATUS_NEW,
+    CONTACT_STATUS_OPEN,
+    CONTACT_STATUS_PENDING_ADMIN,
+    CONTACT_STATUS_PENDING_CUSTOMER,
+    CONTACT_STATUS_COMPLETED,
+    CONTACT_STATUS_ARCHIVED,
+)
+
+CONTACT_PRIORITIES = ("low", "normal", "high", "urgent")
+CONTACT_SOURCES = ("website_contact", "email_reply", "admin_created")
+
+# ``sender_type`` on ContactReply.
+SENDER_CUSTOMER = "customer"
+SENDER_ADMIN = "admin"
+SENDER_SYSTEM = "system"
+SENDER_TYPES = (SENDER_CUSTOMER, SENDER_ADMIN, SENDER_SYSTEM)
+
+
 # Email delivery state for an outbound admin reply.
 REPLY_STATUS_PENDING = "pending"
 REPLY_STATUS_SENT = "sent"
 REPLY_STATUS_FAILED = "failed"
-REPLY_STATUSES = (REPLY_STATUS_PENDING, REPLY_STATUS_SENT, REPLY_STATUS_FAILED)
+# Inbound rows (customer replies received via IMAP) use this state to
+# mark themselves as "we already have this message stored".
+REPLY_STATUS_RECEIVED = "received"
+REPLY_STATUSES = (
+    REPLY_STATUS_PENDING,
+    REPLY_STATUS_SENT,
+    REPLY_STATUS_FAILED,
+    REPLY_STATUS_RECEIVED,
+)
 
 
 class ContactReply(Base):
@@ -379,6 +479,16 @@ class ContactReply(Base):
     )
     # "inbound" = customer wrote it; "outbound" = admin reply via email.
     direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Richer label for chat-bubble rendering and audit. ``customer`` for
+    # inbound rows, ``admin`` for outbound, ``system`` for automated
+    # transition notes ("Marked as completed by Alice").
+    sender_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SENDER_CUSTOMER,
+        server_default=SENDER_CUSTOMER,
+        index=True,
+    )
     admin_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
@@ -387,6 +497,24 @@ class ContactReply(Base):
     recipient_email: Mapped[Optional[str]] = mapped_column(String(255))
     subject: Mapped[Optional[str]] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Inbound emails preserve the original HTML so we can render the
+    # candidate's signature/embedded images if needed; outbound replies
+    # mirror the body sent over SMTP.
+    body_html: Mapped[Optional[str]] = mapped_column(Text)
+    # Cleaned text body — quoted previous messages stripped — used for
+    # the chat-bubble preview.
+    clean_body_text: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Email threading headers.
+    email_message_id: Mapped[Optional[str]] = mapped_column(
+        String(998), index=True
+    )
+    in_reply_to: Mapped[Optional[str]] = mapped_column(String(998))
+    references_header: Mapped[Optional[str]] = mapped_column(Text)
+    has_attachments: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
     email_status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
@@ -407,6 +535,42 @@ class ContactReply(Base):
 
     message: Mapped["ContactMessage"] = relationship(
         "ContactMessage", back_populates="replies"
+    )
+    attachments: Mapped[List["ContactReplyAttachment"]] = relationship(
+        "ContactReplyAttachment",
+        back_populates="reply",
+        cascade="all, delete-orphan",
+        order_by="ContactReplyAttachment.uploaded_at.asc()",
+    )
+
+
+class ContactReplyAttachment(Base):
+    """File attached to a contact reply.
+
+    Used for inbound emails today (the IMAP processor saves attached
+    files to disk and creates a row); a future admin-side upload flow
+    can use the same table.
+    """
+
+    __tablename__ = "contact_reply_attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    contact_reply_id: Mapped[int] = mapped_column(
+        ForeignKey("contact_replies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    stored_filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(160))
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    reply: Mapped["ContactReply"] = relationship(
+        "ContactReply", back_populates="attachments"
     )
 
 

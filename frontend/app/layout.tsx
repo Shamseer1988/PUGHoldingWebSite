@@ -1,12 +1,14 @@
 import "@/styles/globals.css";
 
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Noto_Sans_Arabic } from "next/font/google";
 
 import { SeoBodyStart } from "@/components/site/seo-body-start";
 import { SeoHead } from "@/components/site/seo-head";
 import { ThemeProvider } from "@/components/theme-provider";
 import { env } from "@/lib/env";
+import { LOCALE_DIRECTION } from "@/lib/i18n/config";
+import { getLocale } from "@/lib/i18n/get-locale";
 import { getSiteSettings } from "@/lib/public-api";
 import { getPublicSeoHead, type PublicSeoHeadFeed } from "@/lib/seo-api";
 import { buildThemeStyle } from "@/lib/theme";
@@ -18,9 +20,22 @@ const inter = Inter({
   display: "swap",
 });
 
-// Root layout fetches CMS-driven SEO + site settings. Keep it dynamic
-// so the no-store responses don't collide with a cached layout.
-export const dynamic = "force-dynamic";
+// Phase C-1: Arabic glyph coverage. Loaded under the same
+// ``--font-sans`` variable family stack so swapping ``<html lang>``
+// is enough — no per-component font swap. ``display: swap`` keeps
+// the FOIT minimal while the file downloads.
+const notoArabic = Noto_Sans_Arabic({
+  subsets: ["arabic"],
+  variable: "--font-sans-arabic",
+  display: "swap",
+});
+
+// Removed `export const dynamic = "force-dynamic"` (Phase A-1). Forcing
+// every route to render dynamically defeated the CDN cache for public
+// pages that change infrequently. Public pages now opt into per-route
+// ISR via `export const revalidate = …` in their own files; admin and
+// HR portals declare `force-dynamic` in their own layouts so
+// personalised content keeps rendering on every request.
 
 
 /**
@@ -113,6 +128,13 @@ export default async function RootLayout({
     getPublicSeoHead().catch(() => null),
   ]);
   const themeStyle = settings ? buildThemeStyle(settings) : undefined;
+
+  // Phase C-1: locale + direction baked into the initial HTML. The
+  // middleware sets ``x-locale`` on every public-page request; admin
+  // / HR consoles are excluded by the matcher so ``getLocale`` falls
+  // back to ``DEFAULT_LOCALE`` for them and the page renders LTR.
+  const locale = getLocale();
+  const direction = LOCALE_DIRECTION[locale];
   const feed: PublicSeoHeadFeed = seoFeed ?? {
     site_name: null,
     default_meta_title: null,
@@ -136,8 +158,19 @@ export default async function RootLayout({
   };
 
   return (
-    <html lang={feed.default_language ?? "en"} suppressHydrationWarning style={themeStyle}>
-      <body className={cn("font-sans antialiased", inter.variable)}>
+    <html
+      lang={locale}
+      dir={direction}
+      suppressHydrationWarning
+      style={themeStyle}
+    >
+      <body
+        className={cn(
+          "font-sans antialiased",
+          inter.variable,
+          notoArabic.variable
+        )}
+      >
         {/* GTM noscript + Meta Pixel noscript — must be the FIRST body child. */}
         <SeoBodyStart feed={feed} />
         {/* GTM head loader + GA4 / Pixel / Clarity / LinkedIn / TikTok / X.

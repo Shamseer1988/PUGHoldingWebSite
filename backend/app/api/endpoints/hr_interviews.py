@@ -16,7 +16,17 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import (
     get_current_user,
     get_request_context,
+    require_any_permission,
     require_hr_admin,
+    require_permission,
+)
+from app.auth.permissions import (
+    PERM_HR_INTERVIEWS_DELETE,
+    PERM_HR_INTERVIEWS_FEEDBACK,
+    PERM_HR_INTERVIEWS_RESCHEDULE,
+    PERM_HR_INTERVIEWS_SCHEDULE,
+    PERM_HR_INTERVIEWS_VIEW_ALL,
+    PERM_HR_INTERVIEWS_VIEW_MINE,
 )
 from app.core.database import get_db
 from app.models.auth import User
@@ -59,11 +69,13 @@ router = APIRouter(prefix="/hr/interviews", tags=["HR ATS - Interviews"])
 
 
 def _email_lookup(db: Session, user_ids: list[int]) -> dict[int, User]:
-    ids = [uid for uid in user_ids if uid]
-    if not ids:
-        return {}
-    rows = db.execute(select(User).where(User.id.in_(set(ids)))).scalars().all()
-    return {u.id: u for u in rows}
+    """Thin compatibility shim around the shared
+    :func:`app.services.user_lookup.users_by_id`. New code should
+    import the helper directly; this wrapper exists so the many
+    existing call sites in this module keep working."""
+    from app.services.user_lookup import users_by_id
+
+    return users_by_id(db, user_ids)
 
 
 def _latest_recommendation(interview: Interview) -> Optional[str]:
@@ -87,6 +99,9 @@ def _serialize_feedback(
         technical_score=fb.technical_score,
         communication_score=fb.communication_score,
         cultural_fit_score=fb.cultural_fit_score,
+        strengths=fb.strengths,
+        weaknesses=fb.weaknesses,
+        next_action=fb.next_action,
         created_at=fb.created_at,
         updated_at=fb.updated_at,
     )
@@ -128,6 +143,7 @@ def _serialize_interview(
         candidate_email_override=interview.candidate_email_override,
         email_subject=interview.email_subject,
         email_note=interview.email_note,
+        reschedule_reason=interview.reschedule_reason,
     )
 
 
@@ -178,11 +194,21 @@ def list_interviews(
 ) -> List[InterviewListItem]:
     """List interviews with optional filters.
 
-    - HR/superuser: any filter combination.
-    - Anyone else: forced ``mine_only`` — only their own assignments.
+    - Users with ``hr:interviews:view_all`` see the whole table.
+    - Anyone else (Interviewers, Department Managers without view_all)
+      gets forced to ``mine_only`` — only their own assignments.
+    - Users with neither permission get 403.
     """
-    force_mine = not (actor.is_superuser or actor.has_scope("hr"))
-    if force_mine:
+    can_view_all = actor.is_superuser or actor.has_permission(
+        PERM_HR_INTERVIEWS_VIEW_ALL
+    )
+    can_view_mine = actor.has_permission(PERM_HR_INTERVIEWS_VIEW_MINE)
+    if not (can_view_all or can_view_mine):
+        raise HTTPException(
+            status_code=403,
+            detail="Requires hr:interviews:view_all or hr:interviews:view_mine",
+        )
+    if not can_view_all:
         mine_only = True
 
     stmt = (
@@ -286,7 +312,7 @@ def create_interview_endpoint(
     payload: InterviewCreate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     app = _get_application_or_404(db, payload.application_id)
 
@@ -445,13 +471,34 @@ def update_interview_endpoint(
     payload: InterviewUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_RESCHEDULE)),
 ) -> InterviewRead:
     interview = _get_interview_or_404(db, interview_id)
     updates = payload.model_dump(exclude_unset=True)
+    # Pull the two endpoint-only flags out of the updates dict before
+    # passing the rest to the service — they aren't column-backed.
+    send_email_now = bool(updates.pop("send_email_now", False))
+    if "reschedule_reason" in updates:
+        # reschedule_reason IS a column, keep it; just normalise empty -> None.
+        reason = updates.get("reschedule_reason")
+        updates["reschedule_reason"] = (
+            reason.strip() if isinstance(reason, str) and reason.strip() else None
+        )
+
     if not updates:
         users = _email_lookup(db, [interview.interviewer_id])
         return _serialize_interview(interview, users=users)
+
+    # Snapshot the fields that matter for the rescheduled email so the
+    # candidate can see old vs new in the notification.
+    old_scheduled_at = interview.scheduled_at
+    old_mode = interview.mode
+    old_location = interview.location_or_link
+    schedule_changed = (
+        "scheduled_at" in updates
+        and updates["scheduled_at"] is not None
+        and updates["scheduled_at"] != old_scheduled_at
+    )
 
     try:
         update_interview(db, interview=interview, updates=updates)
@@ -463,7 +510,11 @@ def update_interview_endpoint(
     ctx = get_request_context(request)
     record_audit(
         db,
-        action="hr.interview.update",
+        action=(
+            "hr.interview.reschedule"
+            if schedule_changed
+            else "hr.interview.update"
+        ),
         actor_id=user.id,
         actor_email=user.email,
         scope="hr",
@@ -471,11 +522,49 @@ def update_interview_endpoint(
         target_id=str(interview.id),
         ip_address=ctx["ip_address"],
         user_agent=ctx["user_agent"],
-        details={"fields": sorted(updates.keys())},
+        details={
+            "fields": sorted(updates.keys()),
+            "send_email_now": send_email_now,
+            **(
+                {
+                    "old_scheduled_at": old_scheduled_at.isoformat()
+                    if old_scheduled_at
+                    else None,
+                    "new_scheduled_at": interview.scheduled_at.isoformat()
+                    if interview.scheduled_at
+                    else None,
+                    "old_mode": old_mode,
+                    "new_mode": interview.mode,
+                    "old_location": old_location,
+                    "new_location": interview.location_or_link,
+                }
+                if schedule_changed
+                else {}
+            ),
+        },
         commit=False,
     )
     db.commit()
     db.refresh(interview)
+
+    # Fire-and-forget rescheduled email only when the schedule moved
+    # AND HR ticked the "Send updated email" checkbox. Other field-only
+    # edits stay silent.
+    if schedule_changed and send_email_now:
+        try:
+            from app.services import hr_notifications
+
+            hr_notifications.notify_interview_rescheduled(
+                interview_id=interview.id,
+                actor_id=user.id,
+            )
+        except Exception:  # pragma: no cover - notifications must never raise
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "interview-rescheduled notification failed"
+            )
+
     users = _email_lookup(db, [interview.interviewer_id])
     return _serialize_interview(interview, users=users)
 
@@ -486,7 +575,11 @@ def change_status_endpoint(
     payload: InterviewStatusChange,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(
+        require_any_permission(
+            PERM_HR_INTERVIEWS_RESCHEDULE, PERM_HR_INTERVIEWS_FEEDBACK
+        )
+    ),
 ) -> InterviewRead:
     interview = _get_interview_or_404(db, interview_id)
     previous = interview.status
@@ -523,7 +616,7 @@ def delete_interview_endpoint(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_DELETE)),
 ):
     interview = _get_interview_or_404(db, interview_id)
     interview_id_val = interview.id
@@ -596,6 +689,9 @@ def submit_feedback_endpoint(
             technical_score=payload.technical_score,
             communication_score=payload.communication_score,
             cultural_fit_score=payload.cultural_fit_score,
+            strengths=payload.strengths,
+            weaknesses=payload.weaknesses,
+            next_action=payload.next_action,
         )
     except FeedbackPermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -624,6 +720,24 @@ def submit_feedback_endpoint(
     )
     db.commit()
     db.refresh(fb)
+
+    # Phase 11 — internal email to HR Manager / Executive so they
+    # know feedback is in and can act on it (move to next round /
+    # close the loop). Fire-and-forget; failures never break the
+    # response.
+    try:
+        from app.services import hr_notifications
+
+        hr_notifications.notify_interview_feedback_submitted(
+            feedback_id=fb.id, actor_id=actor.id
+        )
+    except Exception:  # pragma: no cover - notifications must never raise
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "interview-feedback-submitted notification failed"
+        )
+
     users = _email_lookup(db, [fb.submitted_by_id])
     return _serialize_feedback(fb, users=users)
 
@@ -638,7 +752,7 @@ def send_interview_email(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     """Send (or re-send) the branded interview-scheduled email."""
     interview = _get_interview_or_404(db, interview_id)
@@ -680,7 +794,7 @@ def create_interview_meet(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     """Create (or recreate) a Google Meet link for an existing interview."""
     from app.services.google_calendar_service import create_interview_event
@@ -747,7 +861,7 @@ def resend_invitation(
     interview_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
     """Alias of send-email — kept separate for audit clarity."""
     return send_interview_email(interview_id, request, db, user)

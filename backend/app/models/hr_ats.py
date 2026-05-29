@@ -33,6 +33,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -59,6 +60,7 @@ JOB_STATUS_OPEN = "open"
 JOB_STATUS_ON_HOLD = "on_hold"
 JOB_STATUS_CLOSED = "closed"
 JOB_STATUSES = (JOB_STATUS_OPEN, JOB_STATUS_ON_HOLD, JOB_STATUS_CLOSED)
+JOB_STATUSES = (JOB_STATUS_OPEN, JOB_STATUS_ON_HOLD, JOB_STATUS_CLOSED)
 
 # Employment type
 EMPLOYMENT_FULL_TIME = "full_time"
@@ -66,7 +68,8 @@ EMPLOYMENT_PART_TIME = "part_time"
 EMPLOYMENT_CONTRACT = "contract"
 EMPLOYMENT_TYPES = (EMPLOYMENT_FULL_TIME, EMPLOYMENT_PART_TIME, EMPLOYMENT_CONTRACT)
 
-# Candidate / application status (per master prompt)
+# Candidate / application status (per master prompt). Phase 3 added
+# waiting_list, recommended_for_offer, and not_joined.
 STATUS_CV_RECEIVED = "cv_received"
 STATUS_AI_REVIEWED = "ai_reviewed"
 STATUS_HR_REVIEW_PENDING = "hr_review_pending"
@@ -74,11 +77,35 @@ STATUS_SHORTLISTED = "shortlisted"
 STATUS_FIRST_INTERVIEW = "first_interview"
 STATUS_TECHNICAL_INTERVIEW = "technical_interview"
 STATUS_FINAL_INTERVIEW = "final_interview"
+STATUS_WAITING_LIST = "waiting_list"
+STATUS_RECOMMENDED_FOR_OFFER = "recommended_for_offer"
 STATUS_SELECTED = "selected"
 STATUS_OFFER_SENT = "offer_sent"
 STATUS_JOINED = "joined"
+STATUS_NOT_JOINED = "not_joined"
 STATUS_REJECTED = "rejected"
 STATUS_BLACKLISTED = "blacklisted"
+
+# Every legal value of CandidateJobApplication.status. Used both for the
+# state-machine guard in the service layer and the CHECK constraint
+# enforced at the database level.
+RECRUITMENT_STATUSES = (
+    STATUS_CV_RECEIVED,
+    STATUS_AI_REVIEWED,
+    STATUS_HR_REVIEW_PENDING,
+    STATUS_SHORTLISTED,
+    STATUS_FIRST_INTERVIEW,
+    STATUS_TECHNICAL_INTERVIEW,
+    STATUS_FINAL_INTERVIEW,
+    STATUS_WAITING_LIST,
+    STATUS_RECOMMENDED_FOR_OFFER,
+    STATUS_SELECTED,
+    STATUS_OFFER_SENT,
+    STATUS_JOINED,
+    STATUS_NOT_JOINED,
+    STATUS_REJECTED,
+    STATUS_BLACKLISTED,
+)
 
 APPLICATION_STATUSES = (
     STATUS_CV_RECEIVED,
@@ -88,9 +115,12 @@ APPLICATION_STATUSES = (
     STATUS_FIRST_INTERVIEW,
     STATUS_TECHNICAL_INTERVIEW,
     STATUS_FINAL_INTERVIEW,
+    STATUS_WAITING_LIST,
+    STATUS_RECOMMENDED_FOR_OFFER,
     STATUS_SELECTED,
     STATUS_OFFER_SENT,
     STATUS_JOINED,
+    STATUS_NOT_JOINED,
     STATUS_REJECTED,
     STATUS_BLACKLISTED,
 )
@@ -119,19 +149,49 @@ INTERVIEW_STATUSES = (
 )
 
 # Offer status
+# Offer status enum.
+#
+# Phase 6 added pending_approval / approved / not_joined and kept the
+# legacy OFFER_SENT meaning "issued to candidate" so older rows keep
+# working. The state machine in app/services/offers.py enforces the
+# allowed transitions.
 OFFER_DRAFT = "draft"
-OFFER_SENT = "sent"
+OFFER_PENDING_APPROVAL = "pending_approval"
+OFFER_APPROVED = "approved"
+OFFER_SENT = "sent"  # alias of "issued" for backwards compatibility
 OFFER_ACCEPTED = "accepted"
 OFFER_DECLINED = "declined"
 OFFER_WITHDRAWN = "withdrawn"
 OFFER_JOINED = "joined"
+OFFER_NOT_JOINED = "not_joined"
+
+# Approval-status sub-state (mirrors job approval workflow).
+OFFER_APPROVAL_DRAFT = "draft"
+OFFER_APPROVAL_PENDING = "pending_approval"
+OFFER_APPROVAL_APPROVED = "approved"
+OFFER_APPROVAL_REJECTED = "rejected"
+OFFER_APPROVAL_STATUSES = (
+    OFFER_APPROVAL_DRAFT,
+    OFFER_APPROVAL_PENDING,
+    OFFER_APPROVAL_APPROVED,
+    OFFER_APPROVAL_REJECTED,
+)
+
+# Joining-status tracker (set after candidate accepts).
+OFFER_JOINING_PENDING = "pending"
+OFFER_JOINING_JOINED = "joined"
+OFFER_JOINING_NOT_JOINED = "not_joined"
+
 OFFER_STATUSES = (
     OFFER_DRAFT,
+    OFFER_PENDING_APPROVAL,
+    OFFER_APPROVED,
     OFFER_SENT,
     OFFER_ACCEPTED,
     OFFER_DECLINED,
     OFFER_WITHDRAWN,
     OFFER_JOINED,
+    OFFER_NOT_JOINED,
 )
 
 # AI recommendation
@@ -249,6 +309,15 @@ CALENDAR_PROVIDER_GOOGLE = "google"
 CALENDAR_PROVIDERS = (CALENDAR_PROVIDER_NONE, CALENDAR_PROVIDER_GOOGLE)
 
 
+def _enum_in_clause(column: str, values: tuple[str, ...]) -> str:
+    """Build a SQL ``column IN ('a', 'b', ...)`` predicate from a tuple of
+    string enum values. Used by every status CHECK constraint below so
+    the list of valid states lives in exactly one place (the enum tuple)
+    and the database refuses to persist anything else."""
+    quoted = ", ".join(f"'{v}'" for v in values)
+    return f"{column} IN ({quoted})"
+
+
 # ---------------------------------------------------------------------------
 # Job opening
 # ---------------------------------------------------------------------------
@@ -331,10 +400,39 @@ class JobOpening(Base, TimestampMixin):
     )
     rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     approval_remarks: Mapped[Optional[str]] = mapped_column(Text)
+    # Phase-2 denormalised audit columns. Populated by the corresponding
+    # endpoint handler (request_revision / publish / unpublish) so listing
+    # screens can sort + filter without joining hr_job_approval_history.
+    changes_requested_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    changes_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    changes_requested_notes: Mapped[Optional[str]] = mapped_column(Text)
+    published_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     active_revision_id: Mapped[Optional[int]] = mapped_column(Integer)
+    # Phase 8 — soft-archive cluster. Hard delete is restricted to
+    # Super Admin via the existing hr:jobs:delete permission; HR
+    # Manager uses archive instead so audit history is preserved.
+    is_archived: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    archived_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    archive_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     applications: Mapped[List["CandidateJobApplication"]] = relationship(
-        back_populates="job_opening", lazy="selectin"
+        # Default lazy="select": a job with thousands of applications
+        # shouldn't auto-load all rows on every job query. The handful
+        # of places that need them (candidate analytics, application
+        # listing) already use explicit selectinload/joinedload.
+        back_populates="job_opening",
     )
     approval_history: Mapped[List["JobApprovalHistory"]] = relationship(
         back_populates="job_opening",
@@ -353,6 +451,21 @@ class JobOpening(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
         lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", JOB_STATUSES),
+            name="ck_hr_jobs_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("approval_status", APPROVAL_STATUSES),
+            name="ck_hr_jobs_approval_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("publish_status", PUBLISH_STATUSES),
+            name="ck_hr_jobs_publish_status",
+        ),
     )
 
 
@@ -394,6 +507,12 @@ class Candidate(Base, TimestampMixin):
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false", index=True
     )
+    # Phase 8 — archive audit cluster (is_archived already existed)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    archived_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    archive_reason: Mapped[Optional[str]] = mapped_column(Text)
     source: Mapped[Optional[str]] = mapped_column(String(32))
 
     created_by_id: Mapped[Optional[int]] = mapped_column(
@@ -468,6 +587,20 @@ class CandidateExtractedData(Base, TimestampMixin):
     previous_companies: Mapped[Optional[dict]] = mapped_column(JSON)
     full_text: Mapped[Optional[str]] = mapped_column(Text)
     parser_version: Mapped[Optional[str]] = mapped_column(String(40))
+
+    # Feature F5 — semantic search.
+    # ``embedding`` stores the candidate's profile vector as a JSON list
+    # of floats. We use JSON (not Postgres pgvector) for portability: it
+    # works on SQLite for tests and on Postgres for prod without an
+    # extension dependency, at the cost of doing similarity in Python.
+    # If/when pgvector is installed, a follow-up migration can add a
+    # parallel ``embedding_vec vector(1536)`` column for index-backed
+    # nearest-neighbour search.
+    embedding: Mapped[Optional[list]] = mapped_column(JSON)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(64))
+    embedding_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     candidate: Mapped[Candidate] = relationship(back_populates="extracted_data")
 
@@ -578,6 +711,10 @@ class CandidateJobApplication(Base, TimestampMixin):
         # submissions are merged at the application layer in Phase 10.
         UniqueConstraint(
             "candidate_id", "job_opening_id", name="uq_hr_applications_candidate_job"
+        ),
+        CheckConstraint(
+            _enum_in_clause("status", RECRUITMENT_STATUSES),
+            name="ck_hr_applications_status",
         ),
     )
 
@@ -767,6 +904,9 @@ class Interview(Base, TimestampMixin):
     candidate_email_override: Mapped[Optional[str]] = mapped_column(String(255))
     email_subject: Mapped[Optional[str]] = mapped_column(String(500))
     email_note: Mapped[Optional[str]] = mapped_column(Text)
+    # Phase 5 — captured by the reschedule dialog; surfaced in the
+    # rescheduled email and on the row.
+    reschedule_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     application: Mapped[CandidateJobApplication] = relationship(back_populates="interviews")
     feedback: Mapped[List["InterviewFeedback"]] = relationship(
@@ -774,6 +914,17 @@ class Interview(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="InterviewFeedback.created_at.desc()",
         lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", INTERVIEW_STATUSES),
+            name="ck_hr_interviews_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("mode", INTERVIEW_MODES),
+            name="ck_hr_interviews_mode",
+        ),
     )
 
 
@@ -796,6 +947,24 @@ class InterviewFeedback(Base, TimestampMixin):
     communication_score: Mapped[Optional[int]] = mapped_column(Integer)
     cultural_fit_score: Mapped[Optional[int]] = mapped_column(Integer)
 
+    # Phase 4 — structured free-text fields used by the quick-update modal.
+    strengths: Mapped[Optional[str]] = mapped_column(Text)
+    weaknesses: Mapped[Optional[str]] = mapped_column(Text)
+    next_action: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Feature F2 — link to the ScorecardTemplate used (if any) and the
+    # filled-in per-dimension scores. Shape:
+    #   {"<dimension_key>": {"score": int, "notes": str}}
+    # Kept as JSON so adding/removing dimensions in the template doesn't
+    # require a schema migration on every submitted scorecard.
+    scorecard_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("hr_scorecard_templates.id", ondelete="SET NULL"), index=True
+    )
+    scorecard_scores: Mapped[Optional[dict]] = mapped_column(JSON)
+    # Weighted total derived from scorecard_scores at submit time. Cached
+    # so report rollups don't have to recompute.
+    scorecard_total: Mapped[Optional[int]] = mapped_column(Integer)
+
     interview: Mapped[Interview] = relationship(back_populates="feedback")
 
 
@@ -814,10 +983,20 @@ class OfferTracking(Base, TimestampMixin):
         unique=True,
     )
 
+    # Offer content -------------------------------------------------------
+    position: Mapped[Optional[str]] = mapped_column(String(200))
     salary_offered: Mapped[Optional[int]] = mapped_column(Integer)
+    allowances: Mapped[Optional[str]] = mapped_column(Text)
     joining_date: Mapped[Optional[date]] = mapped_column(Date)
+    probation_period: Mapped[Optional[str]] = mapped_column(String(80))
+    reporting_manager: Mapped[Optional[str]] = mapped_column(String(255))
+    work_location: Mapped[Optional[str]] = mapped_column(String(255))
     benefits_summary: Mapped[Optional[str]] = mapped_column(Text)
+    offer_letter_number: Mapped[Optional[str]] = mapped_column(String(80))
+    attachment_url: Mapped[Optional[str]] = mapped_column(String(500))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Top-level lifecycle status (Phase 6 — see OFFER_STATUSES enum).
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -825,15 +1004,93 @@ class OfferTracking(Base, TimestampMixin):
         server_default=OFFER_DRAFT,
         index=True,
     )
+    # Phase-6 sub-state cluster mirroring job-approval semantics.
+    approval_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=OFFER_APPROVAL_DRAFT,
+        server_default=OFFER_APPROVAL_DRAFT,
+    )
+    approved_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text)
+    issued_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    withdrawn_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    withdrawn_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    withdrawn_reason: Mapped[Optional[str]] = mapped_column(Text)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    declined_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     decline_reason: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Joining-status tracker — set after candidate accepts.
+    joining_status: Mapped[Optional[str]] = mapped_column(String(32))
+    joined_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    not_joined_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     created_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
 
     application: Mapped[CandidateJobApplication] = relationship(back_populates="offer")
+    status_history: Mapped[List["OfferStatusHistory"]] = relationship(
+        back_populates="offer",
+        cascade="all, delete-orphan",
+        order_by="OfferStatusHistory.created_at.desc()",
+        lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", OFFER_STATUSES),
+            name="ck_hr_offers_status",
+        ),
+        CheckConstraint(
+            _enum_in_clause("approval_status", OFFER_APPROVAL_STATUSES),
+            name="ck_hr_offers_approval_status",
+        ),
+    )
+
+
+class OfferStatusHistory(Base):
+    """Audit row for every OfferTracking transition (Phase 6)."""
+
+    __tablename__ = "hr_offer_status_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    offer_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_offer_tracking.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    old_status: Mapped[Optional[str]] = mapped_column(String(32))
+    new_status: Mapped[Optional[str]] = mapped_column(String(32))
+    actor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    actor_email: Mapped[Optional[str]] = mapped_column(String(255))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+
+    offer: Mapped[OfferTracking] = relationship(back_populates="status_history")
 
 
 # ---------------------------------------------------------------------------
@@ -1119,4 +1376,228 @@ class CandidateAutoReview(Base, TimestampMixin):
     )
     reviewed_by_system: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Saved candidate searches / talent pool (Feature F1)
+# ---------------------------------------------------------------------------
+
+
+SAVED_SEARCH_SCOPE_PRIVATE = "private"
+SAVED_SEARCH_SCOPE_TEAM = "team"
+SAVED_SEARCH_SCOPES = (SAVED_SEARCH_SCOPE_PRIVATE, SAVED_SEARCH_SCOPE_TEAM)
+
+
+class SavedCandidateSearch(Base, TimestampMixin):
+    """A reusable candidate-list filter configuration.
+
+    Each saved search captures the exact JSON shape of
+    :class:`app.services.candidate_search.CandidateFilters` so that
+    re-running it produces the same candidate set the user saw when
+    they created it (modulo new applicants that came in since).
+
+    Scope:
+      * ``private`` — only the owner can see / run / edit.
+      * ``team``    — visible to anyone with the candidate-list
+                       permission; only the owner can edit / delete.
+
+    Owner is a SET NULL FK so deactivating a user doesn't cascade
+    delete their saved-search library — a successor admin can claim
+    the row by editing it.
+    """
+
+    __tablename__ = "hr_saved_candidate_searches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Stored verbatim as a JSON object matching CandidateFilters. We
+    # don't normalize into columns because the filter surface evolves
+    # over time and the alternative is a migration every time a new
+    # filter is added.
+    filters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    scope: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SAVED_SEARCH_SCOPE_PRIVATE,
+        server_default=SAVED_SEARCH_SCOPE_PRIVATE,
+        index=True,
+    )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    # Bookkeeping — surfaced in the UI so users see which searches are
+    # actively useful and which are stale.
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_result_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id", "name", name="uq_hr_saved_searches_owner_name"
+        ),
+        CheckConstraint(
+            _enum_in_clause("scope", SAVED_SEARCH_SCOPES),
+            name="ck_hr_saved_searches_scope",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Interview scorecard templates (Feature F2)
+# ---------------------------------------------------------------------------
+
+
+SCORECARD_SCOPE_GLOBAL = "global"
+SCORECARD_SCOPE_JOB = "job"
+SCORECARD_SCOPES = (SCORECARD_SCOPE_GLOBAL, SCORECARD_SCOPE_JOB)
+
+
+class ScorecardTemplate(Base, TimestampMixin):
+    """A reusable rubric attached to one or many interviews.
+
+    Dimensions are stored as JSON to keep the schema flat while
+    letting HR add / remove / re-order rubric rows from the admin UI
+    without a migration. Each dimension is:
+
+      {"key": "system_design",
+       "label": "System design",
+       "description": "Ability to reason about scale, failure modes",
+       "max_score": 5,
+       "weight": 30}
+
+    ``scope`` is ``global`` for a template that applies to any role,
+    or ``job`` for a template pinned to a single ``job_opening_id``.
+    A global template is fine to start with — job-specific templates
+    are the upgrade path for roles with bespoke rubrics.
+    """
+
+    __tablename__ = "hr_scorecard_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    scope: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SCORECARD_SCOPE_GLOBAL,
+        server_default=SCORECARD_SCOPE_GLOBAL,
+        index=True,
+    )
+    # Only set when scope == "job".
+    job_opening_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("hr_job_openings.id", ondelete="SET NULL"), index=True
+    )
+
+    # JSON list of dimension dicts — see class docstring for shape.
+    dimensions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    is_default: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+    )
+
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("scope", SCORECARD_SCOPES),
+            name="ck_hr_scorecard_templates_scope",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scheduled report digests (Feature F4)
+# ---------------------------------------------------------------------------
+
+
+SCHEDULED_REPORT_FREQ_DAILY = "daily"
+SCHEDULED_REPORT_FREQ_WEEKLY = "weekly"
+SCHEDULED_REPORT_FREQ_MONTHLY = "monthly"
+SCHEDULED_REPORT_FREQUENCIES = (
+    SCHEDULED_REPORT_FREQ_DAILY,
+    SCHEDULED_REPORT_FREQ_WEEKLY,
+    SCHEDULED_REPORT_FREQ_MONTHLY,
+)
+
+SCHEDULED_REPORT_STATUS_PENDING = "pending"
+SCHEDULED_REPORT_STATUS_SUCCESS = "success"
+SCHEDULED_REPORT_STATUS_FAILED = "failed"
+SCHEDULED_REPORT_STATUSES = (
+    SCHEDULED_REPORT_STATUS_PENDING,
+    SCHEDULED_REPORT_STATUS_SUCCESS,
+    SCHEDULED_REPORT_STATUS_FAILED,
+)
+
+
+class ScheduledReport(Base, TimestampMixin):
+    """A recurring report email.
+
+    Daily / weekly / monthly cadence is checked by the in-process
+    APScheduler job ``app.jobs.report_digests`` which fires once a day
+    at 09:00 UTC and dispatches the reports that fall due.
+
+    Filter overrides live in ``params`` as a JSON object matching the
+    same CandidateFilters shape as F1's saved searches — keeping a
+    single filter vocabulary across the product.
+    """
+
+    __tablename__ = "hr_scheduled_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Must be a key from REPORT_TYPES (validated at endpoint write
+    # time). Stored as plain text so adding new report keys later
+    # doesn't require a schema migration.
+    report_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    frequency: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SCHEDULED_REPORT_FREQ_DAILY,
+        server_default=SCHEDULED_REPORT_FREQ_DAILY,
+        index=True,
+    )
+
+    # List of email addresses. Mailing-list patterns ("hr@…") are fine.
+    recipients: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    # Optional filter override applied on top of "everything".
+    params: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_run_status: Mapped[Optional[str]] = mapped_column(String(16))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    last_row_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("frequency", SCHEDULED_REPORT_FREQUENCIES),
+            name="ck_hr_scheduled_reports_frequency",
+        ),
     )

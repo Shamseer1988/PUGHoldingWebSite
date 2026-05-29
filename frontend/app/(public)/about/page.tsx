@@ -12,7 +12,8 @@ import {
 import { getLeadership, getSitePage } from "@/lib/public-api";
 
 export const metadata = { title: "About Us" };
-export const revalidate = 60;
+// Phase A-1: static page — refresh hourly.
+export const revalidate = 3600;
 
 export default async function AboutPage() {
   const [leadership, page] = await Promise.all([

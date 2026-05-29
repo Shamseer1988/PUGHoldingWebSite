@@ -83,6 +83,53 @@ async function postMultipart<T>(path: string, fd: FormData): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Trigger a binary download from an HR endpoint and save it as a file
+ * via an anchor click. Used for offer-letter PDFs and (future) Excel /
+ * CSV exports. Honours the server's Content-Disposition filename
+ * when present, otherwise falls back to ``fallbackName``.
+ */
+async function downloadFile(
+  path: string,
+  fallbackName: string,
+  method: "GET" | "POST" = "GET"
+): Promise<void> {
+  const session = loadSession("hr");
+  if (!session) throw new HrApiError("Not authenticated", 401);
+  const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const response = await fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `Download failed (${response.status})`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* swallow */
+    }
+    throw new HrApiError(detail, response.status);
+  }
+  let filename = fallbackName;
+  const disposition = response.headers.get("content-disposition");
+  if (disposition) {
+    const m = /filename="?([^"]+)"?/i.exec(disposition);
+    if (m?.[1]) filename = m[1];
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+
 export const hrApi = {
   get<T>(path: string) {
     return request<T>(path);
@@ -105,8 +152,12 @@ export const hrApi = {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   },
-  delete<T = void>(path: string) {
-    return request<T>(path, { method: "DELETE" });
+  delete<T = void>(path: string, body?: unknown) {
+    return request<T>(path, {
+      method: "DELETE",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
   },
   postMultipart,
+  downloadFile,
 };

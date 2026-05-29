@@ -26,7 +26,8 @@ import {
   getSiteSettings,
 } from "@/lib/public-api";
 
-export const dynamic = "force-dynamic";
+// Phase A-1: homepage shows hero/news/companies — refresh every 5 min.
+export const revalidate = 300;
 
 export default async function HomePage() {
   const [hero, featured, leadershipSection, trustedBrands, news, settings, openJobs] =

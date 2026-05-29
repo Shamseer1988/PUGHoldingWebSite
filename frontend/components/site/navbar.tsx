@@ -13,11 +13,13 @@ import {
 } from "lucide-react";
 
 import { CompaniesMegaMenu } from "@/components/site/companies-mega-menu";
+import { LanguageSwitcher } from "@/components/site/language-switcher";
 import { Logo } from "@/components/site/logo";
 import { MobileMenu } from "@/components/site/mobile-menu";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 import { Button } from "@/components/ui/button";
 import type { Company } from "@/lib/admin/types";
+import { useT } from "@/lib/i18n/locale-provider";
 import { NAV_ITEMS, PRIMARY_CTA, type NavItem } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +49,7 @@ interface NavbarProps {
  */
 export function Navbar({ companies, items }: NavbarProps) {
   const pathname = usePathname();
+  const t = useT();
   const [scrolled, setScrolled] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
@@ -104,7 +107,11 @@ export function Navbar({ companies, items }: NavbarProps) {
 
               <div className="flex items-center justify-end gap-1.5">
                 <NavIconButton
-                  aria-label={searchOpen ? "Close search" : "Open search"}
+                  aria-label={
+                    searchOpen
+                      ? t("navbar.close_search")
+                      : t("navbar.open_search")
+                  }
                   aria-expanded={searchOpen}
                   onClick={() => setSearchOpen((s) => !s)}
                   className="hidden sm:inline-flex"
@@ -121,6 +128,11 @@ export function Navbar({ companies, items }: NavbarProps) {
                 <ThemeToggle
                   className={cn(NAV_ICON_BUTTON_CLASSES, "hidden sm:inline-flex")}
                 />
+
+                {/* Phase C-1: language switcher. Hidden on mobile to
+                    keep the right rail uncluttered; mobile users can
+                    switch via the drawer menu (follow-up). */}
+                <LanguageSwitcher className="hidden md:inline-flex" />
 
                 <Button
                   asChild
@@ -141,7 +153,7 @@ export function Navbar({ companies, items }: NavbarProps) {
                 </Button>
 
                 <NavIconButton
-                  aria-label="Open menu"
+                  aria-label={t("navbar.open_menu")}
                   aria-expanded={mobileOpen}
                   onClick={() => setMobileOpen(true)}
                   className="lg:hidden"
@@ -174,9 +186,9 @@ export function Navbar({ companies, items }: NavbarProps) {
                     />
                     <input
                       type="search"
-                      placeholder="Search the site (coming soon)"
+                      placeholder={t("navbar.search_placeholder")}
                       className="h-full w-full bg-transparent text-sm leading-none outline-none placeholder:text-muted-foreground"
-                      aria-label="Search the site"
+                      aria-label={t("navbar.search_the_site")}
                     />
                     <Button
                       type="button"
@@ -185,7 +197,7 @@ export function Navbar({ companies, items }: NavbarProps) {
                       onClick={() => setSearchOpen(false)}
                       className="h-7 rounded-full px-3 text-xs"
                     >
-                      Close
+                      {t("navbar.close")}
                     </Button>
                   </form>
                 </motion.div>

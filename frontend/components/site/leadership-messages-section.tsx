@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { ArrowUpRight, Quote, Sparkles } from "lucide-react";
 
 import { HeadingAccent } from "@/components/site/heading-accent";
 import { Section } from "@/components/site/section";
 import {
-  resolveAssetUrl,
+  normaliseMediaUrl,
   type HomepageLeadershipCard,
   type HomepageLeadershipSection,
 } from "@/lib/public-api";
@@ -16,6 +17,118 @@ import { cn } from "@/lib/utils";
 
 interface LeadershipMessagesSectionProps {
   data: HomepageLeadershipSection;
+}
+
+// Phase B-5 — framer-motion variants replacing the previous GSAP
+// timeline. The card variant is dynamic (``i % 2`` decides whether
+// the card slides in from the left or the right), and the inner
+// elements (photo, quote, text, footer) cascade via nested staggers.
+// The scrub-based background-glow parallax the GSAP version added is
+// dropped — it was a marginal effect and would have required the
+// framer-motion ``useScroll`` / ``useTransform`` machinery on top of
+// the variants tree, which isn't worth the complexity.
+const REVEAL_EASE = [0.16, 1, 0.3, 1] as const;
+const BACK_EASE = [0.34, 1.56, 0.64, 1] as const; // approx GSAP back.out(2)
+
+const ROOT_VARIANTS: Variants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.18 } },
+};
+
+const HEADER_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 36 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: REVEAL_EASE } },
+};
+
+interface CardCustom {
+  fromLeft: boolean;
+  isDesktop: boolean;
+}
+
+const CARD_VARIANTS: Variants = {
+  hidden: ({ fromLeft, isDesktop }: CardCustom) => ({
+    x: isDesktop ? (fromLeft ? -90 : 90) : 0,
+    y: isDesktop ? (fromLeft ? 40 : 70) : 40,
+    rotate: isDesktop ? (fromLeft ? -1.5 : 1.5) : 0,
+    scale: isDesktop ? 0.96 : 1,
+    opacity: 0,
+  }),
+  visible: {
+    x: 0,
+    y: 0,
+    rotate: 0,
+    scale: 1,
+    opacity: 1,
+    transition: {
+      duration: 1.05,
+      ease: REVEAL_EASE,
+      // Slight delay between the card slide-in and the inner
+      // photo/quote/text reveals lining up with GSAP's at + 0.05/0.25/0.3
+      // offsets. ``staggerChildren`` doesn't apply here because the
+      // inner items have their own explicit ``delay``s.
+    },
+  },
+};
+
+const PHOTO_VARIANTS: Variants = {
+  hidden: { clipPath: "inset(12% 12% 12% 12% round 28px)", scale: 1.08 },
+  visible: {
+    clipPath: "inset(0% 0% 0% 0% round 28px)",
+    scale: 1,
+    transition: { duration: 1.05, ease: REVEAL_EASE, delay: 0.05 },
+  },
+};
+
+const QUOTE_VARIANTS: Variants = {
+  hidden: { opacity: 0, rotate: -10, scale: 0.75 },
+  visible: {
+    opacity: 1,
+    rotate: 0,
+    scale: 1,
+    transition: { duration: 0.55, ease: BACK_EASE, delay: 0.25 },
+  },
+};
+
+const TEXT_CONTAINER_VARIANTS: Variants = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.08, delayChildren: 0.3 },
+  },
+};
+
+const TEXT_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.55, ease: REVEAL_EASE },
+  },
+};
+
+const FOOTER_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 18 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: REVEAL_EASE, delay: 0.55 },
+  },
+};
+
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(min-width: 768px)");
+    const sync = () => setIsDesktop(mql.matches);
+    sync();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", sync);
+      return () => mql.removeEventListener("change", sync);
+    }
+    mql.addListener(sync);
+    return () => mql.removeListener(sync);
+  }, []);
+  return isDesktop;
 }
 
 /**
@@ -61,208 +174,16 @@ interface LeadershipMessagesSectionProps {
 export function LeadershipMessagesSection({
   data,
 }: LeadershipMessagesSectionProps) {
-  const sectionRef = React.useRef<HTMLDivElement | null>(null);
-  const headerRef = React.useRef<HTMLDivElement | null>(null);
-  const glowRef = React.useRef<HTMLDivElement | null>(null);
-  const cardRefs = React.useRef<(HTMLElement | null)[]>([]);
+  const prefersReducedMotion = useReducedMotion();
+  const isDesktop = useIsDesktop();
 
   const messages = React.useMemo(
     () => data.messages.filter((m) => m.is_active),
     [data.messages]
   );
 
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!data.animation_enabled) return;
-    if (messages.length === 0) return;
-
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (reducedMotion) return;
-
-    const isDesktop = window.matchMedia("(min-width: 768px)").matches;
-
-    let cleanup: (() => void) | undefined;
-    let cancelled = false;
-
-    (async () => {
-      const { gsap } = await import("gsap");
-      const { ScrollTrigger } = await import("gsap/ScrollTrigger");
-      if (cancelled) return;
-      gsap.registerPlugin(ScrollTrigger);
-
-      const section = sectionRef.current;
-      const header = headerRef.current;
-      const glow = glowRef.current;
-      const cards = cardRefs.current.filter(Boolean) as HTMLElement[];
-      if (!section || cards.length === 0) return;
-
-      // Safety net for the timeline below — see footer.tsx for
-      // rationale. Large leader photos can shift the section's
-      // position after ScrollTrigger has already measured it,
-      // leaving the cards permanently at gsap.set's opacity:0.
-      let safetyTimer: number | undefined;
-
-      const ctx = gsap.context(() => {
-        // If the section is already visible at JS-execution time
-        // (e.g. hard refresh where the browser preserved scroll
-        // position), skip the hide-then-reveal. The SSR HTML is
-        // already rendered correctly; hiding it would cause the
-        // 3-4s blank flash the user reported on Leadership / Footer.
-        const rect = section.getBoundingClientRect();
-        const alreadyInView =
-          rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
-        if (alreadyInView) return;
-
-        // Always start hidden so first paint matches the animation.
-        if (header) {
-          gsap.set(header, { y: 36, opacity: 0 });
-        }
-        cards.forEach((card, i) => {
-          const photo = card.querySelector<HTMLElement>("[data-lms-photo]");
-          const quote = card.querySelector<HTMLElement>("[data-lms-quote]");
-          const texts = card.querySelectorAll<HTMLElement>("[data-lms-text]");
-          const footer = card.querySelector<HTMLElement>("[data-lms-footer]");
-          const fromLeft = i % 2 === 0;
-          gsap.set(card, {
-            x: isDesktop ? (fromLeft ? -90 : 90) : 0,
-            y: isDesktop ? (fromLeft ? 40 : 70) : 40,
-            rotate: isDesktop ? (fromLeft ? -1.5 : 1.5) : 0,
-            scale: isDesktop ? 0.96 : 1,
-            opacity: 0,
-          });
-          if (photo) {
-            // Mask reveal: start with a 12% inset + slight zoom; fully
-            // expand to 0% inset + natural scale.
-            gsap.set(photo, {
-              clipPath: "inset(12% 12% 12% 12% round 28px)",
-              scale: 1.08,
-            });
-          }
-          if (quote) {
-            gsap.set(quote, { opacity: 0, rotate: -10, scale: 0.75 });
-          }
-          if (texts.length) {
-            gsap.set(texts, { y: 24, opacity: 0 });
-          }
-          if (footer) {
-            gsap.set(footer, { y: 18, opacity: 0 });
-          }
-        });
-
-        // Reveal timeline — non-scrub, one-shot for a clean premium feel.
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: section,
-            start: "top 75%",
-            end: "bottom 35%",
-            once: true,
-          },
-          defaults: { ease: "power3.out" },
-        });
-
-        if (header) {
-          tl.to(header, { y: 0, opacity: 1, duration: 0.8 }, 0);
-        }
-
-        cards.forEach((card, i) => {
-          const at = 0.18 + i * 0.18;
-          const photo = card.querySelector<HTMLElement>("[data-lms-photo]");
-          const quote = card.querySelector<HTMLElement>("[data-lms-quote]");
-          const texts = card.querySelectorAll<HTMLElement>("[data-lms-text]");
-          const footer = card.querySelector<HTMLElement>("[data-lms-footer]");
-
-          tl.to(
-            card,
-            {
-              x: 0,
-              y: 0,
-              rotate: 0,
-              scale: 1,
-              opacity: 1,
-              duration: 1.05,
-            },
-            at
-          );
-          if (photo) {
-            tl.to(
-              photo,
-              {
-                clipPath: "inset(0% 0% 0% 0% round 28px)",
-                scale: 1,
-                duration: 1.05,
-              },
-              at + 0.05
-            );
-          }
-          if (quote) {
-            tl.to(
-              quote,
-              {
-                opacity: 1,
-                rotate: 0,
-                scale: 1,
-                duration: 0.55,
-                ease: "back.out(2)",
-              },
-              at + 0.25
-            );
-          }
-          if (texts.length) {
-            tl.to(
-              texts,
-              {
-                y: 0,
-                opacity: 1,
-                duration: 0.55,
-                stagger: 0.08,
-              },
-              at + 0.3
-            );
-          }
-          if (footer) {
-            tl.to(
-              footer,
-              { y: 0, opacity: 1, duration: 0.6 },
-              at + 0.55
-            );
-          }
-        });
-
-        // Background glow drift — separate, scrubbed for a slow parallax feel.
-        if (glow) {
-          gsap.to(glow, {
-            xPercent: 6,
-            yPercent: -4,
-            ease: "none",
-            scrollTrigger: {
-              trigger: section,
-              start: "top bottom",
-              end: "bottom top",
-              scrub: 0.7,
-            },
-          });
-        }
-
-        safetyTimer = window.setTimeout(() => {
-          if (!tl.isActive() && tl.progress() === 0) {
-            tl.progress(1);
-          }
-        }, 800);
-      }, section);
-
-      cleanup = () => {
-        if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
-        ctx.revert();
-      };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, [data.animation_enabled, messages.length]);
+  const animationsOff = !data.animation_enabled || prefersReducedMotion;
+  const initial = animationsOff ? "visible" : "hidden";
 
   if (!data.enabled || messages.length === 0) return null;
 
@@ -302,14 +223,19 @@ export function LeadershipMessagesSection({
           "linear-gradient(180deg, transparent, var(--lms-bg) 18%, var(--lms-bg) 82%, transparent)",
       }}
     >
-      <div
-        ref={sectionRef}
+      <motion.div
+        variants={ROOT_VARIANTS}
+        initial={initial}
+        whileInView="visible"
+        viewport={{ once: true, amount: 0.15 }}
         className="relative isolate"
         style={{ color: "var(--lms-text)" }}
       >
-        {/* Ambient background glow */}
+        {/* Ambient background glow (Phase B-5: dropped the scrub-based
+            slow drift this had under GSAP — the static positioning
+            still reads as ambient depth and avoids the extra scroll
+            listener.) */}
         <div
-          ref={glowRef}
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10"
         >
@@ -328,8 +254,8 @@ export function LeadershipMessagesSection({
         </div>
 
         {/* Header */}
-        <div
-          ref={headerRef}
+        <motion.div
+          variants={HEADER_VARIANTS}
           className="mx-auto mb-12 max-w-2xl text-center sm:mb-16"
         >
           {data.eyebrow && (
@@ -361,7 +287,7 @@ export function LeadershipMessagesSection({
               {data.subtitle}
             </p>
           )}
-        </div>
+        </motion.div>
 
         {/* Cards */}
         <div
@@ -372,11 +298,10 @@ export function LeadershipMessagesSection({
           )}
         >
           {messages.map((message, idx) => (
-            <article
+            <motion.article
               key={message.slug}
-              ref={(el) => {
-                cardRefs.current[idx] = el;
-              }}
+              custom={{ fromLeft: idx % 2 === 0, isDesktop } satisfies CardCustom}
+              variants={CARD_VARIANTS}
               className={cn(
                 "group/lms-card relative overflow-hidden rounded-[2rem] border p-5 backdrop-blur-2xl sm:p-7 lg:p-8",
                 "shadow-[0_18px_60px_-22px_rgba(15,40,32,0.30)] dark:shadow-[0_18px_60px_-22px_rgba(0,0,0,0.55)]",
@@ -401,10 +326,10 @@ export function LeadershipMessagesSection({
               />
 
               <CardBody message={message} />
-            </article>
+            </motion.article>
           ))}
         </div>
-      </div>
+      </motion.div>
     </Section>
   );
 }
@@ -415,15 +340,23 @@ export function LeadershipMessagesSection({
 // ---------------------------------------------------------------------------
 
 function CardBody({ message }: { message: HomepageLeadershipCard }) {
-  const photo = resolveAssetUrl(message.photo_url ?? null);
-  const signature = resolveAssetUrl(message.signature_image_url ?? null);
+  const photo = normaliseMediaUrl(message.photo_url ?? null);
+  const signature = normaliseMediaUrl(message.signature_image_url ?? null);
   const hasMessage =
     Boolean(message.highlight_quote) ||
     Boolean(message.message_paragraph_1) ||
     Boolean(message.message_paragraph_2);
 
+  // Each ``motion.*`` element below inherits the "visible" state from
+  // its parent card the moment the card animates in, and applies the
+  // delay encoded in its own variant. That re-creates the GSAP
+  // ``at + 0.05 / 0.25 / 0.3 / 0.55`` offsets without a manual
+  // timeline.
   return (
-    <div className="relative flex h-full flex-col gap-6 sm:gap-7 md:flex-row md:items-stretch md:gap-7 lg:gap-8">
+    <motion.div
+      variants={TEXT_CONTAINER_VARIANTS}
+      className="relative flex h-full flex-col gap-6 sm:gap-7 md:flex-row md:items-stretch md:gap-7 lg:gap-8"
+    >
       {/* Portrait column */}
       <div className="relative mx-auto w-full max-w-[280px] shrink-0 md:mx-0 md:max-w-none md:w-[210px] lg:w-[230px]">
         <PortraitFrame
@@ -439,34 +372,34 @@ function CardBody({ message }: { message: HomepageLeadershipCard }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="space-y-1.5">
           {message.role_label && (
-            <p
-              data-lms-text
+            <motion.p
+              variants={TEXT_VARIANTS}
               className="text-[11px] font-semibold uppercase tracking-[0.22em]"
               style={{ color: "var(--lms-accent)" }}
             >
               {message.role_label}
-            </p>
+            </motion.p>
           )}
-          <h3
-            data-lms-text
+          <motion.h3
+            variants={TEXT_VARIANTS}
             className="text-balance text-xl font-semibold leading-tight sm:text-2xl"
             style={{ color: "var(--lms-text)" }}
           >
             {message.name}
-          </h3>
-          <p
-            data-lms-text
+          </motion.h3>
+          <motion.p
+            variants={TEXT_VARIANTS}
             className="text-sm"
             style={{ color: "var(--lms-muted)" }}
           >
             {message.designation ?? message.role}
-          </p>
+          </motion.p>
         </header>
 
         {hasMessage && (
           <>
-            <hr
-              data-lms-text
+            <motion.hr
+              variants={TEXT_VARIANTS}
               className="my-4 sm:my-5"
               style={{
                 border: 0,
@@ -476,8 +409,8 @@ function CardBody({ message }: { message: HomepageLeadershipCard }) {
               }}
             />
             <div className="relative">
-              <span
-                data-lms-quote
+              <motion.span
+                variants={QUOTE_VARIANTS}
                 aria-hidden
                 className="absolute -left-1 -top-2 inline-flex h-9 w-9 items-center justify-center rounded-full"
                 style={{
@@ -486,34 +419,34 @@ function CardBody({ message }: { message: HomepageLeadershipCard }) {
                 }}
               >
                 <Quote className="h-4 w-4" />
-              </span>
+              </motion.span>
               <div className="space-y-3 pl-12 pr-1">
                 {message.highlight_quote && (
-                  <p
-                    data-lms-text
+                  <motion.p
+                    variants={TEXT_VARIANTS}
                     className="text-pretty text-base font-medium italic leading-relaxed sm:text-[1.05rem]"
                     style={{ color: "var(--lms-text)" }}
                   >
                     “{message.highlight_quote}”
-                  </p>
+                  </motion.p>
                 )}
                 {message.message_paragraph_1 && (
-                  <p
-                    data-lms-text
+                  <motion.p
+                    variants={TEXT_VARIANTS}
                     className="text-pretty text-sm leading-relaxed sm:text-[15px]"
                     style={{ color: "var(--lms-muted)" }}
                   >
                     {message.message_paragraph_1}
-                  </p>
+                  </motion.p>
                 )}
                 {message.message_paragraph_2 && (
-                  <p
-                    data-lms-text
+                  <motion.p
+                    variants={TEXT_VARIANTS}
                     className="text-pretty text-sm leading-relaxed sm:text-[15px]"
                     style={{ color: "var(--lms-muted)" }}
                   >
                     {message.message_paragraph_2}
-                  </p>
+                  </motion.p>
                 )}
               </div>
             </div>
@@ -521,8 +454,8 @@ function CardBody({ message }: { message: HomepageLeadershipCard }) {
         )}
 
         {/* Footer: signature + CTA, revealed last */}
-        <div
-          data-lms-footer
+        <motion.div
+          variants={FOOTER_VARIANTS}
           className="mt-auto flex flex-wrap items-end justify-between gap-4 pt-6"
         >
           <div className="min-w-0">
@@ -557,10 +490,10 @@ function CardBody({ message }: { message: HomepageLeadershipCard }) {
               </span>
             ) : null}
           </div>
-        </div>
+        </motion.div>
 
         {message.cta_label && message.cta_url && (
-          <div data-lms-text className="mt-4">
+          <motion.div variants={TEXT_VARIANTS} className="mt-4">
             <Link
               href={message.cta_url}
               className="inline-flex items-center gap-1 text-sm font-semibold transition-colors hover:opacity-80"
@@ -569,10 +502,10 @@ function CardBody({ message }: { message: HomepageLeadershipCard }) {
               {message.cta_label}
               <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>
-          </div>
+          </motion.div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -622,8 +555,8 @@ function PortraitFrame({
           background: "var(--lms-card-bg)",
         }}
       >
-        <div
-          data-lms-photo
+        <motion.div
+          variants={PHOTO_VARIANTS}
           className="absolute inset-0"
           style={{ willChange: "clip-path, transform" }}
         >
@@ -646,7 +579,7 @@ function PortraitFrame({
               {initials}
             </div>
           )}
-        </div>
+        </motion.div>
 
         {/* Subtle bottom gradient over the photo for legibility of role pill */}
         <span

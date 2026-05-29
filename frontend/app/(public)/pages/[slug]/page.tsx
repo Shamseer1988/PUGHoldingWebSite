@@ -6,7 +6,8 @@ import { PageHero } from "@/components/site/page-hero";
 import { GlassCard } from "@/components/site/glass-card";
 import { getPageBySlug, getPages } from "@/lib/public-api";
 
-export const revalidate = 60;
+// Phase A-1: CMS page (already has generateStaticParams) — refresh every 5 min.
+export const revalidate = 300;
 
 interface PageProps {
   params: { slug: string };

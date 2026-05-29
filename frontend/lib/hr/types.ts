@@ -24,6 +24,43 @@ export interface NamedCount {
   count: number;
 }
 
+// ---------------------------------------------------------------------------
+// Phase C-3 — Recruitment analytics
+// ---------------------------------------------------------------------------
+
+export interface DailyCount {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export interface SourceMetric {
+  source: string;
+  total: number;
+  shortlisted: number;
+  offers_issued: number;
+  joined: number;
+}
+
+export interface TimeToHireBySource {
+  source: string;
+  avg_days: number | null;
+  sample_size: number;
+}
+
+export interface TimeToHireSummary {
+  overall_avg_days: number | null;
+  sample_size: number;
+  by_source: TimeToHireBySource[];
+}
+
+export interface RecruitmentAnalytics {
+  window_days: number;
+  daily_applications: DailyCount[];
+  funnel_conversion: FunnelStage[];
+  source_breakdown: SourceMetric[];
+  time_to_hire: TimeToHireSummary;
+}
+
 export type InterviewMode = "online" | "phone" | "in_person";
 
 export interface InterviewSummary {
@@ -38,11 +75,130 @@ export interface InterviewSummary {
 
 export type OfferStatus =
   | "draft"
+  | "pending_approval"
+  | "approved"
   | "sent"
   | "accepted"
   | "declined"
   | "withdrawn"
-  | "joined";
+  | "joined"
+  | "not_joined";
+
+export type OfferApprovalStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected";
+
+export type OfferJoiningStatus = "pending" | "joined" | "not_joined";
+
+
+// Phase 6 — offer detail row returned by /hr/offers
+export interface Offer {
+  id: number;
+  application_id: number;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  job_title: string | null;
+  job_slug: string | null;
+  department: string | null;
+
+  // Editable content
+  position: string | null;
+  salary_offered: number | null;
+  allowances: string | null;
+  joining_date: string | null;
+  probation_period: string | null;
+  reporting_manager: string | null;
+  work_location: string | null;
+  benefits_summary: string | null;
+  offer_letter_number: string | null;
+  attachment_url: string | null;
+  remarks: string | null;
+
+  // Lifecycle
+  status: OfferStatus | string;
+  approval_status: OfferApprovalStatus | string;
+
+  created_by_id: number | null;
+  approved_by_id: number | null;
+  approved_at: string | null;
+  rejected_by_id: number | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  issued_by_id: number | null;
+  issued_at: string | null;
+  withdrawn_by_id: number | null;
+  withdrawn_at: string | null;
+  withdrawn_reason: string | null;
+  sent_at: string | null;
+  responded_at: string | null;
+  accepted_at: string | null;
+  declined_at: string | null;
+  decline_reason: string | null;
+
+  joining_status: OfferJoiningStatus | string | null;
+  joined_at: string | null;
+  not_joined_reason: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+
+export interface OfferStatusHistoryItem {
+  id: number;
+  offer_id: number;
+  action: string;
+  old_status: string | null;
+  new_status: string | null;
+  actor_id: number | null;
+  actor_email: string | null;
+  remarks: string | null;
+  created_at: string;
+}
+
+
+export interface OfferStats {
+  pending_approval: number;
+  approved: number;
+  sent: number;
+  accepted: number;
+  declined: number;
+  withdrawn: number;
+  joined: number;
+  not_joined: number;
+}
+
+
+export interface OfferCreatePayload {
+  application_id: number;
+  position?: string;
+  salary_offered?: number | null;
+  allowances?: string | null;
+  joining_date?: string | null;
+  probation_period?: string | null;
+  reporting_manager?: string | null;
+  work_location?: string | null;
+  benefits_summary?: string | null;
+  remarks?: string | null;
+}
+
+
+export interface OfferUpdatePayload {
+  position?: string | null;
+  salary_offered?: number | null;
+  allowances?: string | null;
+  joining_date?: string | null;
+  probation_period?: string | null;
+  reporting_manager?: string | null;
+  work_location?: string | null;
+  benefits_summary?: string | null;
+  offer_letter_number?: string | null;
+  attachment_url?: string | null;
+  remarks?: string | null;
+}
 
 export interface OfferSummary {
   id: number;
@@ -116,8 +272,19 @@ export interface JobOpening {
   rejected_by_id?: number | null;
   rejected_at?: string | null;
   approval_remarks?: string | null;
+  // Phase-2 denormalised audit columns
+  changes_requested_by_id?: number | null;
+  changes_requested_at?: string | null;
+  changes_requested_notes?: string | null;
+  published_by_id?: number | null;
+  published_at?: string | null;
   active_revision_id?: number | null;
   has_pending_revision?: boolean;
+  // Phase-8 archive cluster
+  is_archived?: boolean;
+  archived_at?: string | null;
+  archived_by_id?: number | null;
+  archive_reason?: string | null;
 }
 
 export interface JobApprovalHistoryItem {
@@ -238,6 +405,27 @@ export interface PublicCvParsePreview {
   education: Array<Record<string, unknown>> | null;
   languages: string[] | null;
   certifications: string[] | null;
+}
+
+// Phase 3 — unified candidate timeline ------------------------------------
+
+export type CandidateTimelineStream =
+  | "recruitment"
+  | "interview"
+  | "offer"
+  | "system";
+
+export interface CandidateTimelineEvent {
+  occurred_at: string;
+  stream: CandidateTimelineStream | string;
+  action: string;
+  title: string;
+  description: string | null;
+  actor_email: string | null;
+  ref_type: string | null;
+  ref_id: number | null;
+  old_status: string | null;
+  new_status: string | null;
 }
 
 // Candidates (Phase 10) ---------------------------------------------------
@@ -480,6 +668,10 @@ export interface InterviewFeedback {
   technical_score: number | null;
   communication_score: number | null;
   cultural_fit_score: number | null;
+  // Phase 4 — structured free-text fields
+  strengths: string | null;
+  weaknesses: string | null;
+  next_action: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -521,6 +713,21 @@ export interface Interview {
   created_at: string;
   updated_at: string;
   feedback: InterviewFeedback[];
+  reschedule_reason?: string | null;
+}
+
+export interface InterviewUpdatePayload {
+  round_name?: string;
+  round_number?: number;
+  scheduled_at?: string;
+  duration_minutes?: number;
+  mode?: InterviewMode | string;
+  location_or_link?: string | null;
+  interviewer_id?: number | null;
+  reschedule_reason?: string | null;
+  /** When true and scheduled_at changes, backend sends the
+   *  branded interview-rescheduled email automatically. */
+  send_email_now?: boolean;
 }
 
 export interface InterviewListRow {
@@ -554,6 +761,13 @@ export interface InterviewCreatePayload {
   mode: InterviewMode | string;
   location_or_link?: string | null;
   interviewer_id?: number | null;
+  /**
+   * When true the backend renders the branded
+   * `interview_scheduled` email and sends it to the candidate plus any
+   * additional attendees. When false the interview is saved silently
+   * and HR can re-send later via POST /hr/interviews/{id}/send-email.
+   */
+  send_email_now?: boolean;
 }
 
 export interface InterviewFeedbackPayload {
@@ -563,6 +777,9 @@ export interface InterviewFeedbackPayload {
   technical_score?: number | null;
   communication_score?: number | null;
   cultural_fit_score?: number | null;
+  strengths?: string | null;
+  weaknesses?: string | null;
+  next_action?: string | null;
 }
 
 export interface CandidateDocument {

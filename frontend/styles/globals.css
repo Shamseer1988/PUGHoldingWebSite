@@ -129,6 +129,18 @@
     height: auto;
   }
 
+  /* Phase C-1: Arabic glyph swap. When the document direction is
+   * RTL (set by middleware via the layout's ``dir`` attribute),
+   * point ``--font-sans`` at Noto Sans Arabic so the Tailwind
+   * ``font-sans`` utility resolves to a font with full Arabic
+   * coverage. Latin glyphs in the same string fall back to Noto
+   * Sans Arabic's Latin subset, which keeps the column metrics
+   * sane on mixed strings (e.g. brand names embedded in
+   * translated copy). */
+  html[dir="rtl"] {
+    --font-sans: var(--font-sans-arabic);
+  }
+
   html.transition * {
     transition: background-color 200ms ease, color 200ms ease,
       border-color 200ms ease;

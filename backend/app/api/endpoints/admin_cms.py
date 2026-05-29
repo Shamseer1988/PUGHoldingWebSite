@@ -7,12 +7,14 @@ who-did-what-when.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -27,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context, require_website_admin
+from app.core.cache import clear_cache_prefix
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.auth import SCOPE_WEBSITE, AuditLog, User
@@ -60,6 +63,7 @@ from app.schemas.cms import (
     CompanyCreate,
     CompanyRead,
     CompanyUpdate,
+    ContactInboxSyncSummary,
     ContactMessageDetail,
     ContactMessageRead,
     ContactReply,
@@ -316,6 +320,7 @@ def get_company(company_id: int, db: Session = Depends(get_db)) -> Company:
 def create_company(
     payload: CompanyCreate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Company:
@@ -343,6 +348,9 @@ def create_company(
     _audit(db, user, request, action="cms.company.create", target_type="company", target_id=company.id)
     db.commit()
     db.refresh(company)
+    # Invalidate the public companies cache so the next visitor
+    # fetches the fresh list instead of the up-to-5-min-stale one.
+    background.add_task(clear_cache_prefix, "public:companies")
     return company
 
 
@@ -351,6 +359,7 @@ def update_company(
     company_id: int,
     payload: CompanyUpdate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Company:
@@ -400,6 +409,7 @@ def update_company(
     )
     db.commit()
     db.refresh(company)
+    background.add_task(clear_cache_prefix, "public:companies")
     return company
 
 
@@ -407,6 +417,7 @@ def update_company(
 def delete_company(
     company_id: int,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Response:
@@ -416,6 +427,7 @@ def delete_company(
     db.delete(company)
     _audit(db, user, request, action="cms.company.delete", target_type="company", target_id=company_id)
     db.commit()
+    background.add_task(clear_cache_prefix, "public:companies")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -519,6 +531,7 @@ def list_news(db: Session = Depends(get_db)) -> List[NewsItem]:
 def create_news(
     payload: NewsCreate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> NewsItem:
@@ -535,6 +548,7 @@ def create_news(
     _audit(db, user, request, action="cms.news.create", target_type="news", target_id=item.id)
     db.commit()
     db.refresh(item)
+    background.add_task(clear_cache_prefix, "public:news")
     return item
 
 
@@ -543,6 +557,7 @@ def update_news(
     item_id: int,
     payload: NewsUpdate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> NewsItem:
@@ -563,6 +578,7 @@ def update_news(
     )
     db.commit()
     db.refresh(item)
+    background.add_task(clear_cache_prefix, "public:news")
     return item
 
 
@@ -570,6 +586,7 @@ def update_news(
 def delete_news(
     item_id: int,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> Response:
@@ -579,6 +596,7 @@ def delete_news(
     db.delete(item)
     _audit(db, user, request, action="cms.news.delete", target_type="news", target_id=item_id)
     db.commit()
+    background.add_task(clear_cache_prefix, "public:news")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -592,12 +610,38 @@ def list_contact_messages(
     db: Session = Depends(get_db),
     unread_only: bool = Query(default=False),
     include_archived: bool = Query(default=False),
+    status_filter: Optional[str] = Query(
+        default=None,
+        alias="status",
+        description=(
+            "Filter by ticket status: new, open, pending_admin, "
+            "pending_customer, completed, archived. Multiple values "
+            "may be comma-separated."
+        ),
+    ),
 ) -> List[ContactMessage]:
-    stmt = select(ContactMessage).order_by(desc(ContactMessage.created_at))
+    """Inbox list, sorted by most recent activity.
+
+    Sort uses ``last_message_at`` (denormalised on every reply) rather
+    than ``created_at`` so a ticket that just got a customer reply
+    floats back to the top of the list.
+    """
+    from app.models.cms import CONTACT_STATUSES
+
+    stmt = select(ContactMessage).order_by(
+        desc(func.coalesce(ContactMessage.last_message_at, ContactMessage.created_at))
+    )
     if unread_only:
         stmt = stmt.where(ContactMessage.is_read.is_(False))
     if not include_archived:
         stmt = stmt.where(ContactMessage.is_archived.is_(False))
+    if status_filter:
+        wanted = [
+            s.strip() for s in status_filter.split(",")
+            if s.strip() in CONTACT_STATUSES
+        ]
+        if wanted:
+            stmt = stmt.where(ContactMessage.status.in_(wanted))
     return db.execute(stmt).scalars().all()
 
 
@@ -662,11 +706,28 @@ def reply(
     failure never loses the admin's typed text. ``email_status`` flips
     from ``pending`` → ``sent`` / ``failed`` based on the send result.
     """
+    from app.models.cms import (
+        CONTACT_STATUS_PENDING_CUSTOMER,
+        SENDER_ADMIN,
+    )
+
     msg = _get_contact_or_404(db, message_id)
+
+    # What's the In-Reply-To for the new outbound? Prefer the most
+    # recent customer-side Message-ID we've seen (so the customer's
+    # email client groups our reply under their last email); fall
+    # back to our own previous outbound, then nothing (first reply).
+    prior_in_reply_to = (
+        msg.inbound_email_message_id or msg.outbound_email_message_id
+    )
+    prior_references: list[str] = []
+    if msg.outbound_email_message_id and msg.outbound_email_message_id != prior_in_reply_to:
+        prior_references.append(msg.outbound_email_message_id)
 
     reply_row = ContactReplyModel(
         contact_message_id=msg.id,
         direction="outbound",
+        sender_type=SENDER_ADMIN,
         admin_user_id=user.id,
         sender_name=user.full_name,
         sender_email=user.email,
@@ -679,8 +740,23 @@ def reply(
     db.flush()
 
     result = EmailService.send_contact_reply(
-        db, contact_message=msg, reply_body=payload.reply_body
+        db,
+        contact_message=msg,
+        reply_body=payload.reply_body,
+        admin_name=user.full_name,
+        in_reply_to=prior_in_reply_to,
+        references=prior_references,
     )
+
+    now = datetime.now(timezone.utc)
+    # Persist the threading headers regardless of success — the retry
+    # path uses message_id_override to reuse the same Message-ID on a
+    # second attempt so duplicate replies are detectable.
+    reply_row.email_message_id = result.message_id
+    reply_row.in_reply_to = result.in_reply_to
+    reply_row.references_header = result.references_header
+    if result.subject:
+        reply_row.subject = result.subject
 
     if result.success:
         reply_row.email_status = REPLY_STATUS_SENT
@@ -689,7 +765,13 @@ def reply(
         msg.is_replied = True
         msg.is_read = True
         msg.replied_by_id = user.id
-        msg.replied_at = result.sent_at or datetime.now(timezone.utc)
+        msg.replied_at = result.sent_at or now
+        # Move the conversation along the state machine: we've replied,
+        # so the ball is in the customer's court until they reply back.
+        msg.status = CONTACT_STATUS_PENDING_CUSTOMER
+        msg.last_message_at = result.sent_at or now
+        msg.last_admin_reply_at = result.sent_at or now
+        msg.outbound_email_message_id = result.message_id
     else:
         reply_row.email_status = REPLY_STATUS_FAILED
         reply_row.error_message = result.message
@@ -709,6 +791,7 @@ def reply(
             "reply_id": reply_row.id,
             "email_status": reply_row.email_status,
             "success": result.success,
+            "ticket_number": msg.ticket_number,
         },
     )
     db.commit()
@@ -735,17 +818,36 @@ def retry_reply(
     if msg is None:
         raise HTTPException(status_code=404, detail="Contact message not found")
 
+    from app.models.cms import CONTACT_STATUS_PENDING_CUSTOMER
+
     result = EmailService.send_contact_reply(
-        db, contact_message=msg, reply_body=reply_row.body
+        db,
+        contact_message=msg,
+        reply_body=reply_row.body,
+        admin_name=user.full_name,
+        in_reply_to=reply_row.in_reply_to,
+        references=(
+            [reply_row.references_header] if reply_row.references_header else []
+        ),
+        # Reuse the originally-generated Message-ID so a retried send
+        # is the same message as far as the recipient's mail client
+        # is concerned — they won't see two copies in their thread.
+        message_id_override=reply_row.email_message_id,
     )
+    now = datetime.now(timezone.utc)
     if result.success:
         reply_row.email_status = REPLY_STATUS_SENT
         reply_row.error_message = None
         reply_row.sent_at = result.sent_at
         msg.is_replied = True
         msg.replied_by_id = user.id
-        msg.replied_at = result.sent_at or datetime.now(timezone.utc)
+        msg.replied_at = result.sent_at or now
         msg.reply_body = reply_row.body
+        msg.status = CONTACT_STATUS_PENDING_CUSTOMER
+        msg.last_message_at = result.sent_at or now
+        msg.last_admin_reply_at = result.sent_at or now
+        if result.message_id and not msg.outbound_email_message_id:
+            msg.outbound_email_message_id = result.message_id
     else:
         reply_row.email_status = REPLY_STATUS_FAILED
         reply_row.error_message = result.message
@@ -764,55 +866,260 @@ def retry_reply(
     return _to_detail(msg)
 
 
+# ---------------------------------------------------------------------------
+# Ticket state machine — complete / reopen / unarchive
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/contact-messages/{message_id}/complete",
+    response_model=ContactMessageDetail,
+)
+def complete_contact_message(
+    message_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Close a ticket — flips status → ``completed`` and stamps
+    ``completed_at``. Adds a system bubble so the chat thread
+    visibly records who closed it and when."""
+    from app.models.cms import (
+        CONTACT_STATUS_COMPLETED,
+        SENDER_SYSTEM,
+    )
+
+    msg = _get_contact_or_404(db, message_id)
+    now = datetime.now(timezone.utc)
+    previous_status = msg.status
+    msg.status = CONTACT_STATUS_COMPLETED
+    msg.completed_at = now
+    msg.is_replied = True  # surface in legacy "replied" filter
+    db.add(
+        ContactReplyModel(
+            contact_message_id=msg.id,
+            direction="outbound",
+            sender_type=SENDER_SYSTEM,
+            admin_user_id=user.id,
+            sender_name=user.full_name,
+            body=f"Ticket marked completed by {user.full_name}.",
+            email_status="received",  # not actually emailed — system note
+        )
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.complete",
+        target_type="contact_message",
+        target_id=msg.id,
+        details={
+            "ticket_number": msg.ticket_number,
+            "from_status": previous_status,
+        },
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+@router.post(
+    "/contact-messages/{message_id}/reopen",
+    response_model=ContactMessageDetail,
+)
+def reopen_contact_message(
+    message_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Reverse a completion — flips status back to ``pending_admin``
+    so the inbox surfaces the ticket again, and clears the
+    archived flag if it was set."""
+    from app.models.cms import (
+        CONTACT_STATUS_PENDING_ADMIN,
+        SENDER_SYSTEM,
+    )
+
+    msg = _get_contact_or_404(db, message_id)
+    now = datetime.now(timezone.utc)
+    previous_status = msg.status
+    msg.status = CONTACT_STATUS_PENDING_ADMIN
+    msg.reopened_at = now
+    msg.completed_at = None
+    msg.is_archived = False
+    msg.is_read = False  # nudge it back into the unread badge
+    db.add(
+        ContactReplyModel(
+            contact_message_id=msg.id,
+            direction="outbound",
+            sender_type=SENDER_SYSTEM,
+            admin_user_id=user.id,
+            sender_name=user.full_name,
+            body=f"Ticket reopened by {user.full_name}.",
+            email_status="received",
+        )
+    )
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.reopen",
+        target_type="contact_message",
+        target_id=msg.id,
+        details={
+            "ticket_number": msg.ticket_number,
+            "from_status": previous_status,
+        },
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+@router.post(
+    "/contact-messages/{message_id}/unarchive",
+    response_model=ContactMessageDetail,
+)
+def unarchive_contact_message(
+    message_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactMessageDetail:
+    """Pull a ticket out of the Closed/Archived filter without
+    touching its status (so a completed-then-archived ticket stays
+    completed). The ``Reopen`` endpoint is the right move when the
+    operator wants the ticket to actively re-enter the inbox."""
+    msg = _get_contact_or_404(db, message_id)
+    msg.is_archived = False
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.unarchive",
+        target_type="contact_message",
+        target_id=msg.id,
+        details={"ticket_number": msg.ticket_number},
+    )
+    db.commit()
+    db.refresh(msg)
+    return _to_detail(msg)
+
+
+# ---------------------------------------------------------------------------
+# Manual IMAP sync — "Check inbox now" button
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/contact-inbox/poll",
+    response_model=ContactInboxSyncSummary,
+)
+def poll_contact_inbox(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_website_admin),
+) -> ContactInboxSyncSummary:
+    """Force one IMAP poll cycle and return the per-message summary.
+
+    Disabled deployments (``CONTACT_INBOUND_ENABLED=false``) still
+    return 200 with ``enabled=false`` so the admin UI can show a
+    helpful inline message instead of an error toast.
+    """
+    from app.services.contact_inbound import poll_inbox
+
+    summary = poll_inbox(db)
+    _audit(
+        db,
+        user,
+        request,
+        action="cms.contact.inbox.poll",
+        target_type="contact_inbox",
+        target_id=0,
+        details={
+            "fetched": summary.fetched,
+            "matched": summary.matched,
+            "new_tickets": summary.new_tickets,
+            "skipped": summary.skipped,
+            "errors": summary.errors,
+            "error": summary.error,
+        },
+    )
+    db.commit()
+    return ContactInboxSyncSummary(**summary.as_dict())
+
+
 def _reply_subject(original: Optional[str]) -> str:
     base = (original or "your enquiry").strip()
     return base if base.lower().startswith("re:") else f"Re: {base}"
 
 
 def _to_detail(msg: ContactMessage) -> ContactMessageDetail:
-    """Compose the chat thread payload (inbound + every outbound reply)."""
-    bubbles: List[ContactReplyRead] = [
-        ContactReplyRead(
-            id=0,
-            contact_message_id=msg.id,
-            direction="inbound",
-            admin_user_id=None,
-            sender_name=msg.name,
-            sender_email=msg.email,
-            recipient_email=None,
-            subject=msg.subject,
-            body=msg.message,
-            email_status="received",
-            error_message=None,
-            sent_at=None,
-            created_at=msg.created_at,
-            updated_at=msg.created_at,
+    """Compose the chat thread payload (inbound + every outbound reply).
+
+    Legacy ``contact_messages`` rows submitted before Phase B don't
+    have an *inbound* row in ``contact_replies`` for the initial
+    submission, so we synthesise an ``id=0`` bubble for them.
+    Post-Phase-B rows already have a real inbound row from the
+    public endpoint, so we skip the synthetic to avoid the chat
+    header showing twice. The condition is "no inbound row" rather
+    than "no replies at all" — a legacy ticket that already has
+    admin outbound replies still needs the synthetic original.
+    """
+    has_inbound = any(r.direction == "inbound" for r in msg.replies)
+    bubbles: List[ContactReplyRead] = []
+    if not has_inbound:
+        bubbles.append(
+            ContactReplyRead(
+                id=0,
+                contact_message_id=msg.id,
+                direction="inbound",
+                sender_type="customer",
+                admin_user_id=None,
+                sender_name=msg.name,
+                sender_email=msg.email,
+                recipient_email=None,
+                subject=msg.subject,
+                body=msg.message,
+                email_status="received",
+                error_message=None,
+                sent_at=None,
+                has_attachments=False,
+                attachments=[],
+                created_at=msg.created_at,
+                updated_at=msg.created_at,
+            )
         )
-    ]
     for reply in msg.replies:
         bubbles.append(ContactReplyRead.model_validate(reply))
 
-    return ContactMessageDetail(
-        id=msg.id,
-        name=msg.name,
-        email=msg.email,
-        phone=msg.phone,
-        department=msg.department,
-        subject=msg.subject,
-        message=msg.message,
-        is_read=msg.is_read,
-        is_replied=msg.is_replied,
-        is_archived=msg.is_archived,
-        reply_body=msg.reply_body,
-        replied_by_id=msg.replied_by_id,
-        replied_at=msg.replied_at,
-        created_at=msg.created_at,
-        replies=bubbles,
-    )
+    detail = ContactMessageDetail.model_validate(msg)
+    detail.replies = bubbles
+    return detail
 
 
 def _get_contact_or_404(db: Session, message_id: int) -> ContactMessage:
-    msg = db.get(ContactMessage, message_id)
+    """Load the ticket plus its replies + attachments in one round trip.
+
+    The detail endpoint serialises ``replies[*].attachments`` so a
+    lazy load would fire one extra query per reply (N+1) — cheap on
+    a small thread but inefficient once a long-running ticket has 20+
+    bubbles. ``selectinload`` issues a single ``IN`` query per level.
+    """
+    from sqlalchemy.orm import selectinload
+
+    from app.models.cms import ContactReply as ContactReplyORM
+
+    msg = db.execute(
+        select(ContactMessage)
+        .options(
+            selectinload(ContactMessage.replies).selectinload(
+                ContactReplyORM.attachments
+            )
+        )
+        .where(ContactMessage.id == message_id)
+    ).scalar_one_or_none()
     if msg is None:
         raise HTTPException(status_code=404, detail="Contact message not found")
     return msg
@@ -879,6 +1186,7 @@ def get_site_settings(db: Session = Depends(get_db)) -> SiteSetting:
 def update_site_settings(
     payload: SiteSettingUpdate,
     request: Request,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
 ) -> SiteSetting:
@@ -897,6 +1205,7 @@ def update_site_settings(
     )
     db.commit()
     db.refresh(settings)
+    background.add_task(clear_cache_prefix, "public:settings")
     return settings
 
 
@@ -940,18 +1249,58 @@ def list_audit_logs(
 # ---------------------------------------------------------------------------
 
 
+# ``folder`` query param is a thin organisational hint — files land
+# under ``cms/<folder>/<hash>.<ext>`` instead of the flat
+# ``cms/<hash>.<ext>``. Enforced shape: 1-4 segments of
+# ``[a-z0-9-]+`` joined by ``/``. That regex blocks every path-
+# traversal pattern (``..``, leading ``/``, backslashes, encoded
+# slashes) while staying permissive enough that new sub-areas can
+# be added without changing the validator.
+_CMS_FOLDER_RE = re.compile(r"^[a-z0-9-]+(?:/[a-z0-9-]+){0,3}$")
+
+
+def _resolve_cms_subfolder(folder: Optional[str]) -> str:
+    """Validate the caller-supplied ``folder`` and return a clean
+    ``cms/<sub>`` (or ``cms`` when empty). Raises 400 on anything
+    that doesn't match the safe shape."""
+    if folder is None:
+        return "cms"
+    candidate = folder.strip().strip("/")
+    if candidate == "":
+        return "cms"
+    if not _CMS_FOLDER_RE.match(candidate):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid folder. Use 1-4 segments of lowercase letters / "
+                "digits / hyphens joined by '/' (e.g. 'hero', 'companies/logos')."
+            ),
+        )
+    return f"cms/{candidate}"
+
+
 @router.post("/uploads/image", response_model=UploadResponse, status_code=201)
 async def upload_image(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
     file: UploadFile = File(...),
+    folder: Optional[str] = Query(
+        default=None,
+        description=(
+            "Optional subfolder under ``cms/`` to route this upload into "
+            "(e.g. ``hero``, ``companies/logos``, ``marketing/catalogues``). "
+            "Lowercase letters / digits / hyphens / slashes only."
+        ),
+    ),
 ) -> UploadResponse:
     """Accept a single image upload from the admin CMS.
 
-    Files are stored under ``<upload_dir>/cms/`` with a content-hash
-    filename so identical uploads dedupe naturally. Returns a public
-    URL the frontend can render.
+    Files are stored under ``<upload_dir>/<prefix>/`` with a
+    content-hash filename so identical uploads dedupe naturally.
+    ``prefix`` is ``cms`` by default, or ``cms/<folder>`` when the
+    caller passes a ``folder`` query param. Returns a public URL the
+    frontend can render.
     """
     ext = ALLOWED_IMAGE_MIME.get(file.content_type or "")
     if ext is None:
@@ -972,29 +1321,88 @@ async def upload_image(
         raise HTTPException(status_code=400, detail="Empty upload")
 
     settings = get_settings()
-    base = Path(settings.upload_dir) / "cms"
+    prefix = _resolve_cms_subfolder(folder)
+    base = Path(settings.upload_dir) / prefix
     base.mkdir(parents=True, exist_ok=True)
 
     content_hash = hashlib.sha256(data).hexdigest()
     filename = f"{content_hash[:16]}.{ext}"
     target = base / filename
 
+    # Write locally first so the image optimiser can read from disk —
+    # ``optimize_image`` works against a Path, not a bytes blob. We
+    # then push the resulting files to the configured storage backend
+    # (R2 in production, local disk in dev) and clean up the local
+    # copy when the backend is remote so the upload dir doesn't grow
+    # forever.
     if not target.exists():
         target.write_bytes(data)
 
-    # Public URL — served by the StaticFiles mount in app/main.py.
-    url = f"/api/v1/uploads/cms/{filename}"
-
     # Resize + WebP variants so the public site doesn't ship the
     # full-res original. See app/services/image_optimization.py.
+    # The optimiser writes variant files alongside ``target``; we'll
+    # re-read each one below to push it through the storage backend.
     from app.services.image_optimization import optimize_image
+    from app.services.storage import LocalStorageBackend, get_storage
 
     variant_set = optimize_image(
         target,
-        public_base_url="/api/v1/uploads/cms",
+        public_base_url=f"/api/v1/uploads/{prefix}",
         mime_type=file.content_type,
     )
-    variants_payload = variant_set.as_dict() if variant_set is not None else None
+
+    # Phase A-6: push the original + every variant through the
+    # storage abstraction. With R2 configured, ``upload`` returns an
+    # ``https://media.…/<prefix>/<file>`` URL; with the local backend
+    # it returns the existing ``/api/v1/uploads/<prefix>/<file>`` path
+    # so the StaticFiles mount keeps serving it.
+    storage = get_storage()
+    storage_is_local = isinstance(storage, LocalStorageBackend)
+
+    url = await storage.upload(
+        f"{prefix}/{filename}", data, file.content_type
+    )
+
+    variants_payload = None
+    if variant_set is not None:
+        rebuilt = {"webp": {}, "jpg": {}}
+        for fmt, urls in variant_set.as_dict().items():
+            for variant, local_url in urls.items():
+                # ``optimize_image`` produced ``/api/v1/uploads/<prefix>/<name>``
+                # — translate back to a filesystem path so we can read
+                # the bytes and hand them to the backend.
+                variant_name = Path(local_url).name
+                variant_path = base / variant_name
+                if not variant_path.exists():
+                    # Optimiser skipped this format / variant — leave
+                    # the original URL alone so the row doesn't carry
+                    # a dangling reference.
+                    rebuilt[fmt][variant] = local_url
+                    continue
+                content_type = "image/webp" if fmt == "webp" else "image/jpeg"
+                with variant_path.open("rb") as fh:
+                    variant_bytes = fh.read()
+                rebuilt[fmt][variant] = await storage.upload(
+                    f"{prefix}/{variant_name}", variant_bytes, content_type
+                )
+                # With remote storage active, the local variant file
+                # is now redundant — the storage backend owns the
+                # canonical copy.
+                if not storage_is_local:
+                    try:
+                        variant_path.unlink()
+                    except OSError:
+                        pass
+        variants_payload = rebuilt
+
+    # When the original lives in R2, the local copy we wrote so the
+    # optimiser could see it is now redundant. ``unlink(missing_ok)``
+    # because a previous identical upload may have already cleaned up.
+    if not storage_is_local:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     # Phase 5 follow-up — persist a MediaAsset row so the gallery can
     # list this file. Dedupe by file_hash; if a row already exists,

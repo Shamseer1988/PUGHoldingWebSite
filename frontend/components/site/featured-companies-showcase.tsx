@@ -8,7 +8,7 @@ import { CompanyLogo } from "@/components/site/company-logo";
 import { HeadingAccent } from "@/components/site/heading-accent";
 import type { Company } from "@/lib/admin/types";
 import type { FeaturedSectionPayload } from "@/lib/public-api";
-import { resolveAssetUrl } from "@/lib/public-api";
+import { normaliseMediaUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
 interface FeaturedCompaniesShowcaseProps {
@@ -521,7 +521,7 @@ function resolveMarqueeItems(company: Company): MarqueeItem[] {
     return logos.slice(0, 8).map((logo, i) => ({
       kind: "image" as const,
       key: `img-${logo.id ?? i}`,
-      image_url: resolveAssetUrl(logo.image_url) ?? logo.image_url,
+      image_url: normaliseMediaUrl(logo.image_url) ?? logo.image_url,
       name: logo.name ?? null,
       link_url: logo.link_url ?? null,
     }));
@@ -955,10 +955,10 @@ function PreviewMediaItem({
   const subtitleRef = React.useRef<HTMLParagraphElement | null>(null);
   const wasActiveRef = React.useRef<boolean>(isActive);
 
-  const featured = resolveAssetUrl(company.featured_image_url);
-  const videoUrl = resolveAssetUrl(company.homepage_group_video_url);
+  const featured = normaliseMediaUrl(company.featured_image_url);
+  const videoUrl = normaliseMediaUrl(company.homepage_group_video_url);
   const posterUrl =
-    resolveAssetUrl(company.homepage_group_video_poster_url) ?? featured;
+    normaliseMediaUrl(company.homepage_group_video_poster_url) ?? featured;
   const hasVideo = Boolean(videoUrl) && allowVideo;
 
   // Initial paint: opacity + pointerEvents come from the React
@@ -1285,7 +1285,7 @@ function MobileCompanyCard({
   index: number;
   total: number;
 }) {
-  const featured = resolveAssetUrl(company.featured_image_url);
+  const featured = normaliseMediaUrl(company.featured_image_url);
   const ctaHref =
     company.cta_url ?? company.website ?? `/companies/${company.slug}`;
   const ctaLabel = company.cta_label ?? "Explore";

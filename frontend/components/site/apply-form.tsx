@@ -12,6 +12,7 @@ import {
   PublicApiError,
   submitCandidateApplication,
 } from "@/lib/public-api-client";
+import { cn } from "@/lib/utils";
 
 interface ApplyFormProps {
   jobTitle: string;
@@ -199,6 +200,90 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4" id={`apply-${jobSlug}`}>
+      {/* CV upload sits at the top — the auto-fill flow only works if
+          the candidate attaches BEFORE typing into the fields. The
+          gold tint + Sparkles copy makes the feature discoverable so
+          users don't fill the whole form manually and then attach. */}
+      <div
+        className={cn(
+          "space-y-2 rounded-xl border border-dashed bg-pug-gold-500/[0.06] p-4 transition-colors",
+          cvFile
+            ? "border-emerald-500/40"
+            : "border-pug-gold-500/40 hover:border-pug-gold-500/70"
+        )}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor={`${jobSlug}-cv`} className="text-sm">
+            Upload your CV first
+            <span className="ml-1 text-rose-500">*</span>
+          </Label>
+          <span className="inline-flex items-center gap-1 rounded-full border border-pug-gold-500/40 bg-pug-gold-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-pug-gold-700 dark:text-pug-gold-300">
+            <Sparkles className="h-3 w-3" />
+            Auto-fill
+          </span>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          <strong className="text-foreground">
+            Attach your CV before filling the form
+          </strong>{" "}
+          — we'll read your PDF / DOC / DOCX and pre-populate name, email,
+          phone, nationality, location, experience, expected salary and
+          notice period for you. You can edit anything we get wrong before
+          submitting.
+        </p>
+
+        <label
+          htmlFor={`${jobSlug}-cv`}
+          className={cn(
+            "mt-1 flex cursor-pointer items-center gap-3 rounded-md border border-dashed px-3 py-3 text-sm transition-colors",
+            cvFile
+              ? "border-emerald-500/40 bg-emerald-500/5 text-foreground"
+              : "border-input bg-background/40 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+          )}
+        >
+          <FileUp className="h-4 w-4 text-primary" />
+          <span className="truncate">
+            {cvFile ? cvFile.name : "Click to choose your CV file"}
+          </span>
+        </label>
+
+        <input
+          id={`${jobSlug}-cv`}
+          type="file"
+          accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onCvAttach(file);
+            else setCvFile(null);
+          }}
+          disabled={state === "submitting"}
+        />
+
+        <p className="text-[11px] text-muted-foreground">
+          Max 10 MB. Identical CVs are deduplicated automatically.
+        </p>
+
+        {parsing ? (
+          <p className="inline-flex items-center gap-1.5 text-xs text-primary">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading your CV…
+          </p>
+        ) : null}
+        {!parsing && autoFilled.size > 0 ? (
+          <p className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
+            <Sparkles className="h-3.5 w-3.5" /> Auto-filled {autoFilled.size}{" "}
+            field{autoFilled.size === 1 ? "" : "s"} from your CV — please
+            review below before submitting.
+          </p>
+        ) : null}
+        {parseWarning ? (
+          <p className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+            <Info className="h-3.5 w-3.5" /> {parseWarning}
+          </p>
+        ) : null}
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Full name" required>
           <Input
@@ -267,51 +352,6 @@ export function ApplyForm({ jobTitle, jobSlug }: ApplyFormProps) {
             placeholder="e.g. Immediate / 1 month"
           />
         </FormField>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor={`${jobSlug}-cv`}>Upload CV (PDF / DOC / DOCX)</Label>
-        <label
-          htmlFor={`${jobSlug}-cv`}
-          className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-input bg-background/40 px-3 py-3 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground"
-        >
-          <FileUp className="h-4 w-4 text-primary" />
-          <span className="truncate">
-            {cvFile ? cvFile.name : "Click to choose a file"}
-          </span>
-        </label>
-        <input
-          id={`${jobSlug}-cv`}
-          type="file"
-          accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void onCvAttach(file);
-            else setCvFile(null);
-          }}
-          disabled={state === "submitting"}
-        />
-        <p className="text-xs text-muted-foreground">
-          Max 10 MB. Identical CVs are deduplicated automatically.
-        </p>
-        {parsing ? (
-          <p className="inline-flex items-center gap-1.5 text-xs text-primary">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading CV…
-          </p>
-        ) : null}
-        {!parsing && autoFilled.size > 0 ? (
-          <p className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
-            <Sparkles className="h-3.5 w-3.5" /> Auto-filled {autoFilled.size}{" "}
-            field{autoFilled.size === 1 ? "" : "s"} from your CV — please review
-            below.
-          </p>
-        ) : null}
-        {parseWarning ? (
-          <p className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
-            <Info className="h-3.5 w-3.5" /> {parseWarning}
-          </p>
-        ) : null}
       </div>
 
       <div className="space-y-1.5">

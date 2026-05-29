@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -73,6 +73,11 @@ class EmailSetting(Base):
     job_approval_email_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    # Phase 11 — master mute for the full offer email stream
+    # (approval-requested, approved, issued, accepted, declined, joined).
+    offer_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     brand_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
     email_footer_text: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -82,6 +87,60 @@ class EmailSetting(Base):
     )
     last_test_message: Mapped[Optional[str]] = mapped_column(Text)
     last_test_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # --- IMAP inbound (contact-ticket poller) -----------------------
+    # Mirrors the SMTP block above. ``imap_password_encrypted`` is a
+    # Fernet token, never returned to the admin UI. Folder fields use
+    # IMAP-friendly names (typically ``INBOX``, ``Processed``,
+    # ``Errors``). ``imap_create_new_tickets`` is opt-in because a
+    # stray newsletter bounce shouldn't mint a ticket by default.
+    imap_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    imap_host: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_port: Mapped[Optional[int]] = mapped_column(Integer)
+    imap_username: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    # OAuth2 (Microsoft 365) — Basic Auth IMAP is retired on most M365
+    # tenants. ``imap_auth_method`` is the discriminator; when set to
+    # ``oauth2`` the poller fetches a Bearer token from Entra ID and
+    # uses XOAUTH2 instead of password-based LOGIN. The encrypted
+    # client secret follows the same Fernet pattern as SMTP passwords.
+    imap_auth_method: Mapped[str] = mapped_column(
+        String(16), nullable=False,
+        default="password", server_default="password",
+    )
+    imap_oauth_tenant_id: Mapped[Optional[str]] = mapped_column(String(64))
+    imap_oauth_client_id: Mapped[Optional[str]] = mapped_column(String(64))
+    imap_oauth_client_secret_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    imap_use_ssl: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    imap_folder: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="INBOX", server_default="INBOX"
+    )
+    imap_processed_folder: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_error_folder: Mapped[Optional[str]] = mapped_column(String(255))
+    imap_poll_interval_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=5, server_default="5"
+    )
+    imap_create_new_tickets: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # M365-friendly progress tracking. The poller's keyword-based
+    # design ($PUG-Inspected) doesn't work on Exchange Online, so on
+    # M365 we resume from the highest IMAP UID we've inspected per
+    # folder. ``imap_last_seen_uid_validity`` mirrors RFC 3501's
+    # UIDVALIDITY semantics — a folder reset discards the watermark
+    # rather than silently skipping new mail forever.
+    imap_last_seen_uid: Mapped[Optional[int]] = mapped_column(BigInteger)
+    imap_last_seen_uid_validity: Mapped[Optional[int]] = mapped_column(BigInteger)
+    last_imap_test_status: Mapped[str] = mapped_column(
+        String(16), nullable=False,
+        default=TEST_STATUS_NEVER, server_default=TEST_STATUS_NEVER,
+    )
+    last_imap_test_message: Mapped[Optional[str]] = mapped_column(Text)
+    last_imap_test_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     updated_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")

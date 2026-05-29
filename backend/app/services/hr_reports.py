@@ -24,7 +24,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -86,9 +86,26 @@ class ReportType:
     title: str
     description: str
     icon: str  # lucide icon name — frontend resolves
+    # Phase 9 — minimum scope a caller needs to run / see this report.
+    # "all"  : hr:reports:view_all (HR Admin / Manager / Executive / Viewer)
+    # "dept" : hr:reports:view_dept (Department Manager)
+    # "mine" : hr:reports:view_mine (Interviewer + dept managers)
+    # Default is "all" so legacy reports keep their HR-only audience.
+    min_scope: str = "all"
 
 
 REPORT_TYPES: List[ReportType] = [
+    ReportType(
+        key="candidate_full_export",
+        title="HR Candidate Report",
+        description=(
+            "All candidates with the full master profile + recruitment"
+            " status + latest interview + latest offer. The headline"
+            " HR export — use the standard filters to slice by job,"
+            " status, salary band, etc."
+        ),
+        icon="FileSpreadsheet",
+    ),
     ReportType(
         key="shortlist",
         title="Shortlist report",
@@ -142,6 +159,29 @@ REPORT_TYPES: List[ReportType] = [
         title="Skill availability report",
         description="How often each skill shows up across the pipeline.",
         icon="Sparkles",
+    ),
+    # Phase 9 — interviewer-scoped reports. Only callable by users with
+    # hr:reports:view_mine (Interviewer + every higher role). The
+    # runner filters the dataset to ``interviewer_id == user.id``.
+    ReportType(
+        key="my_assigned_interviews",
+        title="My assigned interviews",
+        description=(
+            "Every interview assigned to you — scheduled, completed,"
+            " cancelled, no-show — with the candidate + round + mode."
+        ),
+        icon="CalendarClock",
+        min_scope="mine",
+    ),
+    ReportType(
+        key="my_feedback_submitted",
+        title="My feedback submissions",
+        description=(
+            "Feedback you've submitted across all interview rounds,"
+            " plus the rounds where feedback is still pending."
+        ),
+        icon="ClipboardCheck",
+        min_scope="mine",
     ),
 ]
 
@@ -1135,7 +1175,302 @@ def skills_gap_report(db: Session, filters: CandidateFilters) -> Report:
     )
 
 
+def candidate_full_export_report(
+    db: Session, filters: CandidateFilters
+) -> Report:
+    """The headline 'HR Candidate Report' (Phase 7) — every column HR
+    needs in one sheet, respecting the standard filter bundle.
+
+    Columns match the master phase-plan spec (23 columns). Each row is
+    one application; a candidate with multiple applications appears
+    once per application so HR can sort by job/status without losing
+    detail.
+    """
+    rows: List[List[object]] = []
+    summary_total = 0
+
+    for row in search_candidates(db, filters):
+        candidate = row.candidate
+        # If this candidate has no applications (rare — bulk-uploaded
+        # but never linked), emit a single row so they still appear.
+        applications = list(candidate.applications) or [None]
+        for app in applications:
+            summary_total += 1
+            job = app.job_opening if app is not None else None
+            latest_interview = None
+            interview_status = ""
+            interview_date = ""
+            interviewer = ""
+            recommendation = ""
+            if app is not None and app.interviews:
+                # Pick the most-recently-scheduled interview.
+                latest_interview = sorted(
+                    app.interviews,
+                    key=lambda iv: iv.scheduled_at or datetime.min,
+                    reverse=True,
+                )[0]
+                interview_status = latest_interview.status or ""
+                interview_date = (
+                    latest_interview.scheduled_at.strftime("%Y-%m-%d %H:%M")
+                    if latest_interview.scheduled_at
+                    else ""
+                )
+                if latest_interview.feedback:
+                    recommendation = (
+                        latest_interview.feedback[0].recommendation or ""
+                    )
+
+            offer_status = ""
+            if app is not None and app.offer is not None:
+                offer_status = app.offer.status
+
+            cv_link = ""
+            primary_doc = None
+            if candidate.documents:
+                # documents is a list; pick the primary
+                primary_doc = next(
+                    (d for d in candidate.documents if d.is_primary),
+                    candidate.documents[0],
+                )
+            if primary_doc is not None:
+                cv_link = primary_doc.file_path
+
+            education = ""
+            if candidate.extracted_data and candidate.extracted_data.education:
+                # Education is JSON — take the first entry's degree+institution.
+                first = candidate.extracted_data.education
+                if isinstance(first, list) and first:
+                    first = first[0]
+                    education = " · ".join(
+                        str(v) for v in (
+                            first.get("degree") if isinstance(first, dict) else None,
+                            first.get("institution") if isinstance(first, dict) else None,
+                        ) if v
+                    )
+
+            skills_text = ""
+            if candidate.extracted_data and candidate.extracted_data.skills:
+                if isinstance(candidate.extracted_data.skills, list):
+                    skills_text = ", ".join(candidate.extracted_data.skills)
+                else:
+                    skills_text = str(candidate.extracted_data.skills)
+
+            rows.append(
+                [
+                    candidate.id,
+                    job.title if job else "",
+                    job.department if job else "",
+                    candidate.full_name,
+                    candidate.email or "",
+                    candidate.mobile or "",
+                    candidate.nationality or "",
+                    candidate.current_location or "",
+                    candidate.visa_status or "",
+                    candidate.total_experience_years
+                    if candidate.total_experience_years is not None
+                    else "",
+                    education,
+                    skills_text,
+                    candidate.current_company or "",
+                    candidate.expected_salary
+                    if candidate.expected_salary is not None
+                    else "",
+                    candidate.notice_period or "",
+                    (
+                        app.applied_at.strftime("%Y-%m-%d")
+                        if app and app.applied_at
+                        else (
+                            candidate.created_at.strftime("%Y-%m-%d")
+                            if candidate.created_at
+                            else ""
+                        )
+                    ),
+                    _status_label(app.status) if app else "",
+                    interview_status,
+                    offer_status,
+                    interview_date,
+                    interviewer,  # Empty for now; interviewer email lookup
+                                  # would require a per-row user join — keep
+                                  # the export fast.
+                    recommendation,
+                    cv_link,
+                    "",  # Remarks — application-level remarks live in the
+                         # history table, not on a denormalised column. The
+                         # master plan calls this out; HR can add it later
+                         # via a separate column extension.
+                ]
+            )
+
+    return Report(
+        type="candidate_full_export",
+        title="HR Candidate Report",
+        description=(
+            "Master candidate export with recruitment / interview / "
+            "offer status — one row per application."
+        ),
+        generated_at=_now(),
+        columns=[
+            "Candidate ID",
+            "Job Title",
+            "Department",
+            "Candidate Name",
+            "Email",
+            "Phone",
+            "Nationality",
+            "Current Location",
+            "Visa Status",
+            "Experience",
+            "Qualification",
+            "Skills",
+            "Current Employer",
+            "Expected Salary",
+            "Notice Period",
+            "Application Date",
+            "Recruitment Status",
+            "Interview Status",
+            "Offer Status",
+            "Interview Date",
+            "Interviewer",
+            "Final Recommendation",
+            "CV File Link",
+            "Remarks",
+        ],
+        rows=rows,
+        summary={"total_rows": summary_total},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 — interviewer-scoped reports.
+# These run with the actor's user.id and filter to interviews where
+# interviewer_id == actor_id. Separate signature from the rest because
+# CandidateFilters doesn't carry interviewer info.
+# ---------------------------------------------------------------------------
+
+
+def my_assigned_interviews_report(
+    db: Session, actor_id: int, filters: CandidateFilters
+) -> Report:
+    """Every interview assigned to ``actor_id`` — full lifecycle view
+    for a single interviewer."""
+    from app.models.hr_ats import Interview
+
+    stmt = (
+        select(Interview)
+        .where(Interview.interviewer_id == actor_id)
+        .order_by(Interview.scheduled_at.desc())
+    )
+    if filters.uploaded_from is not None:
+        stmt = stmt.where(Interview.scheduled_at >= filters.uploaded_from)
+    if filters.uploaded_to is not None:
+        stmt = stmt.where(Interview.scheduled_at <= filters.uploaded_to)
+    interviews = list(db.execute(stmt).scalars())
+
+    rows: List[List[object]] = []
+    for iv in interviews:
+        candidate = iv.application.candidate if iv.application else None
+        job = iv.application.job_opening if iv.application else None
+        rows.append(
+            [
+                iv.scheduled_at.strftime("%Y-%m-%d %H:%M")
+                if iv.scheduled_at
+                else "",
+                candidate.full_name if candidate else "",
+                job.title if job else "",
+                iv.round_name,
+                iv.mode,
+                iv.status,
+                "Yes" if iv.feedback else "No",
+            ]
+        )
+    return Report(
+        type="my_assigned_interviews",
+        title="My assigned interviews",
+        description="Interviews where you are the assigned interviewer.",
+        generated_at=_now(),
+        columns=[
+            "When",
+            "Candidate",
+            "Job",
+            "Round",
+            "Mode",
+            "Status",
+            "Feedback submitted",
+        ],
+        rows=rows,
+        summary={"total_rows": len(rows)},
+    )
+
+
+def my_feedback_submitted_report(
+    db: Session, actor_id: int, filters: CandidateFilters
+) -> Report:
+    """Interviews assigned to ``actor_id`` split by feedback status —
+    one row per interview with rating + recommendation when present."""
+    from app.models.hr_ats import Interview
+
+    stmt = (
+        select(Interview)
+        .where(Interview.interviewer_id == actor_id)
+        .order_by(Interview.scheduled_at.desc())
+    )
+    interviews = list(db.execute(stmt).scalars())
+
+    rows: List[List[object]] = []
+    pending = 0
+    submitted = 0
+    for iv in interviews:
+        candidate = iv.application.candidate if iv.application else None
+        job = iv.application.job_opening if iv.application else None
+        latest_fb = iv.feedback[0] if iv.feedback else None
+        if latest_fb is not None:
+            submitted += 1
+        else:
+            pending += 1
+        rows.append(
+            [
+                iv.scheduled_at.strftime("%Y-%m-%d %H:%M")
+                if iv.scheduled_at
+                else "",
+                candidate.full_name if candidate else "",
+                job.title if job else "",
+                iv.round_name,
+                "Submitted" if latest_fb else "Pending",
+                latest_fb.rating if latest_fb and latest_fb.rating else "",
+                latest_fb.recommendation if latest_fb else "",
+            ]
+        )
+    return Report(
+        type="my_feedback_submitted",
+        title="My feedback submissions",
+        description="Feedback you've submitted vs still-pending rounds.",
+        generated_at=_now(),
+        columns=[
+            "When",
+            "Candidate",
+            "Job",
+            "Round",
+            "Feedback",
+            "Rating",
+            "Recommendation",
+        ],
+        rows=rows,
+        summary={"submitted": submitted, "pending": pending},
+    )
+
+
+# Actor-scoped runners: separate dict, separate signature. ``run_report``
+# checks this dict first.
+ActorReportRunner = Callable[[Session, int, CandidateFilters], Report]
+
+_ACTOR_RUNNERS: Dict[str, ActorReportRunner] = {
+    "my_assigned_interviews": my_assigned_interviews_report,
+    "my_feedback_submitted": my_feedback_submitted_report,
+}
+
+
 _RUNNERS: Dict[str, ReportRunner] = {
+    "candidate_full_export": candidate_full_export_report,
     "shortlist": shortlist_report,
     "job_wise_summary": job_wise_summary_report,
     "interview_status": interview_status_report,
@@ -1272,12 +1607,48 @@ REPORT_TYPES.extend([
 
 
 def run_report(
-    db: Session, report_type: str, filters: CandidateFilters
+    db: Session,
+    report_type: str,
+    filters: CandidateFilters,
+    *,
+    actor_id: Optional[int] = None,
 ) -> Report:
+    """Dispatch to the right report runner.
+
+    Phase 9 — actor-scoped runners (registered in ``_ACTOR_RUNNERS``)
+    receive ``actor_id`` so they can filter the dataset to the caller's
+    own interviews. Caller must supply ``actor_id`` when running one of
+    those report keys; the endpoint enforces this from the request
+    user.
+    """
+    if report_type in _ACTOR_RUNNERS:
+        if actor_id is None:
+            raise ValueError(
+                f"Report '{report_type}' requires an actor_id"
+            )
+        return _ACTOR_RUNNERS[report_type](db, actor_id, filters)
     runner = _RUNNERS.get(report_type)
     if runner is None:
         raise ValueError(f"Unknown report type: {report_type}")
     return runner(db, filters)
+
+
+def available_reports_for_scope(scope_level: str) -> List[ReportType]:
+    """Return only the report types a user with ``scope_level`` can run.
+
+    ``scope_level`` is the highest scope the user holds:
+      'all'  -> sees every report
+      'dept' -> sees reports with min_scope in ('dept', 'mine')
+      'mine' -> sees reports with min_scope == 'mine'
+    Anything else returns an empty list.
+    """
+    if scope_level == "all":
+        return list(REPORT_TYPES)
+    if scope_level == "dept":
+        return [r for r in REPORT_TYPES if r.min_scope in ("dept", "mine")]
+    if scope_level == "mine":
+        return [r for r in REPORT_TYPES if r.min_scope == "mine"]
+    return []
 
 
 def _empty_report(

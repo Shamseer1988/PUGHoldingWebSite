@@ -28,8 +28,14 @@ from app.schemas.email_settings import (
     EmailSettingsUpdate,
     EmailTestRequest,
     EmailTestResult,
+    ImapTestRequest,
+    ImapTestResult,
 )
 from app.services.audit_log import record_audit
+from app.services.contact_inbound import (
+    resolve_imap_config,
+    test_imap_connection,
+)
 from app.services.email import EmailService, store_password
 
 
@@ -42,6 +48,13 @@ router = APIRouter(
 
 def _to_read(db: Session, setting: EmailSetting) -> EmailSettingsRead:
     config = EmailService.get_config(db)
+    imap_cfg = resolve_imap_config(db)
+    imap_env_fallback = (
+        not setting.imap_host
+        and not setting.imap_username
+        and not setting.imap_password_encrypted
+        and bool(imap_cfg.host or imap_cfg.username or imap_cfg.password)
+    )
     return EmailSettingsRead(
         id=setting.id,
         email_enabled=setting.email_enabled,
@@ -68,6 +81,27 @@ def _to_read(db: Session, setting: EmailSetting) -> EmailSettingsRead:
         updated_by_id=setting.updated_by_id,
         updated_at=setting.updated_at,
         env_fallback_active=config.env_fallback_active,
+        imap_enabled=setting.imap_enabled,
+        imap_host=setting.imap_host,
+        imap_port=setting.imap_port,
+        imap_username=setting.imap_username,
+        has_imap_password=bool(imap_cfg.password),
+        imap_use_ssl=setting.imap_use_ssl,
+        imap_folder=setting.imap_folder,
+        imap_processed_folder=setting.imap_processed_folder,
+        imap_error_folder=setting.imap_error_folder,
+        imap_poll_interval_minutes=setting.imap_poll_interval_minutes,
+        imap_create_new_tickets=setting.imap_create_new_tickets,
+        last_imap_test_status=setting.last_imap_test_status,
+        last_imap_test_message=setting.last_imap_test_message,
+        last_imap_test_at=setting.last_imap_test_at,
+        imap_env_fallback_active=imap_env_fallback,
+        imap_auth_method=setting.imap_auth_method or "password",
+        imap_oauth_tenant_id=setting.imap_oauth_tenant_id,
+        imap_oauth_client_id=setting.imap_oauth_client_id,
+        has_imap_oauth_client_secret=bool(
+            setting.imap_oauth_client_secret_encrypted
+        ),
     )
 
 
@@ -87,6 +121,8 @@ def update_email_settings(
     setting = EmailService.get_or_create_settings(db)
     updates = payload.model_dump(exclude_unset=True)
     new_password = updates.pop("smtp_password", None)
+    new_imap_password = updates.pop("imap_password", None)
+    new_oauth_secret = updates.pop("imap_oauth_client_secret", None)
 
     changed: list[str] = []
     for field, value in updates.items():
@@ -96,6 +132,28 @@ def update_email_settings(
 
     if store_password(setting, new_password):
         changed.append("smtp_password")
+
+    # IMAP password — same Fernet pattern as SMTP. Blank/None keeps
+    # the existing token so the admin can save other fields without
+    # re-typing the password.
+    if new_imap_password is not None and new_imap_password.strip():
+        from app.core.crypto import encrypt_secret
+
+        setting.imap_password_encrypted = encrypt_secret(new_imap_password)
+        changed.append("imap_password")
+
+    # IMAP OAuth2 client secret — same Fernet pattern again. Rotating
+    # the secret invalidates the cached token; the next poll fetches
+    # a fresh one from Microsoft.
+    if new_oauth_secret is not None and new_oauth_secret.strip():
+        from app.core.crypto import encrypt_secret
+        from app.services.m365_oauth import clear_cache
+
+        setting.imap_oauth_client_secret_encrypted = encrypt_secret(
+            new_oauth_secret
+        )
+        clear_cache()
+        changed.append("imap_oauth_client_secret")
 
     if changed:
         setting.updated_by_id = user.id
@@ -151,4 +209,63 @@ def send_test_email(
         success=result.success,
         message=result.message,
         sent_at=result.sent_at or (datetime.now(timezone.utc) if result.success else None),
+    )
+
+
+@router.post("/imap-test", response_model=ImapTestResult)
+def test_imap_settings(
+    payload: ImapTestRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_scope(SCOPE_SYSTEM)),
+) -> ImapTestResult:
+    """Open a real IMAP connection using the saved (or just-typed)
+    credentials and return a structured diagnostic.
+
+    Updates ``last_imap_test_status`` / ``message`` / ``at`` on the
+    row so the admin page can show a "tested OK / failed Xm ago"
+    badge without re-running the test on every load.
+    """
+    outcome = test_imap_connection(
+        db,
+        override_password=payload.imap_password,
+        override_oauth_tenant_id=payload.imap_oauth_tenant_id,
+        override_oauth_client_id=payload.imap_oauth_client_id,
+        override_oauth_client_secret=payload.imap_oauth_client_secret,
+        override_auth_method=payload.imap_auth_method,
+    )
+
+    setting = EmailService.get_or_create_settings(db)
+    setting.last_imap_test_status = (
+        "success" if outcome.success else "failed"
+    )
+    setting.last_imap_test_message = outcome.message[:1000]
+    setting.last_imap_test_at = outcome.tested_at
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="admin.email_settings.imap_test",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope=SCOPE_SYSTEM,
+        target_type="email_settings",
+        target_id="1",
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={
+            "success": outcome.success,
+            "message": outcome.message[:200],
+            "folder_count": len(outcome.folders_sampled),
+        },
+        commit=False,
+    )
+    db.commit()
+    return ImapTestResult(
+        success=outcome.success,
+        message=outcome.message,
+        folders_sampled=outcome.folders_sampled,
+        server_greeting=outcome.server_greeting,
+        selected_message_count=outcome.selected_message_count,
+        tested_at=outcome.tested_at,
     )

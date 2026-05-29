@@ -17,21 +17,124 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.api import api_router
 from app.core.cache_headers import PublicCacheHeadersMiddleware
-from app.core.config import get_settings
+from app.core.config import ensure_production_safety, get_settings
+from app.core.logging_config import configure_logging, get_logger
+from app.core.request_id import RequestIDMiddleware
+
+
+# Phase A-4: configure structlog before the first logger is bound.
+# ``get_logger`` does this lazily too, but doing it explicitly here
+# pins the env at import-time so the second pass inside ``create_app``
+# is just a no-op.
+configure_logging(app_env=get_settings().app_env)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup / shutdown hooks.
 
-    Kept intentionally minimal in Phase 1. Later phases can attach
-    connection pools, schedulers, or background workers here.
+    Boots the in-process APScheduler at startup so scheduled report
+    digests (and, in a future commit, nightly automatic database
+    backups) fire even when no HTTP traffic is hitting the process.
+    The scheduler is disabled in tests via SCHEDULER_ENABLED=false.
     """
-    yield
+    from app.core.scheduler import shutdown_scheduler, start_scheduler
+
+    # Import the job modules for their register_job side effects.
+    # Adding new scheduled jobs is as simple as creating a module
+    # under app.jobs and importing it here.
+    try:
+        from app import jobs as _jobs  # noqa: F401
+    except ImportError:
+        # No jobs registered yet — scheduler boots empty, which is fine.
+        pass
+
+    start_scheduler()
+
+    # Phase B-3: open an ARQ pool so route handlers can enqueue
+    # background jobs via ``Depends(get_arq_pool)``. Only when the
+    # feature flag is on — leaving it off avoids opening an extra
+    # Redis pool for installs that don't have a worker running.
+    settings = get_settings()
+    if settings.arq_enabled:
+        from arq import create_pool
+
+        from app.worker.settings import WorkerSettings
+
+        try:
+            app.state.arq_pool = await create_pool(
+                WorkerSettings.redis_settings
+            )
+            logger.info("ARQ pool opened")
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "ARQ pool failed to open — enqueue calls will degrade"
+            )
+            app.state.arq_pool = None
+    else:
+        app.state.arq_pool = None
+
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
+        # Phase B-3: close the ARQ pool first; close_redis below is
+        # the singleton from B-2 and is separate.
+        pool = getattr(app.state, "arq_pool", None)
+        if pool is not None:
+            try:
+                await pool.aclose()
+            except Exception:  # noqa: BLE001
+                logger.exception("ARQ pool close raised during shutdown")
+        # Phase B-2: tear the Redis singleton down so a clean
+        # uvicorn shutdown closes the connection pool. No-op if
+        # ``redis_client.get_redis_client`` was never called.
+        from app.core.redis_client import close_redis
+
+        try:
+            await close_redis()
+        except Exception:  # noqa: BLE001
+            logger.exception("close_redis raised during shutdown")
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Refuse to boot in production with a weak secret key or missing
+    # CORS allowlist. No-op outside production.
+    ensure_production_safety(settings)
+
+    # Phase A-8: initialise Sentry as early as possible inside
+    # ``create_app`` so it captures exceptions raised during the rest
+    # of the boot (router import, middleware wiring, lifespan
+    # startup). The FastAPI / starlette integrations are pulled in
+    # transitively by the ``[fastapi]`` extra on sentry-sdk — no
+    # explicit middleware registration needed.
+    #
+    # Skipped entirely when no DSN is configured (the common dev /
+    # CI path) — Sentry has zero runtime overhead in that case.
+    # ``send_default_pii=False`` prevents accidental leaks of
+    # request bodies / headers / cookies into the error events.
+    if settings.sentry_dsn:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=0.1,
+            environment=settings.app_env,
+            send_default_pii=False,
+        )
+
+    # Phase A-3: only expose the interactive OpenAPI surface in
+    # development. ``/docs``, ``/redoc`` and ``/openapi.json`` leak
+    # the full route surface + every Pydantic schema to anyone who
+    # finds the URL — fine for local development, never appropriate
+    # for prod (and ambiguous for staging / preview environments,
+    # which we also keep closed by default).
+    is_development = (settings.app_env or "").lower() == "development"
+    docs_url = "/docs" if is_development else None
+    redoc_url = "/redoc" if is_development else None
+    openapi_url = "/openapi.json" if is_development else None
 
     app = FastAPI(
         title=settings.app_name,
@@ -40,19 +143,66 @@ def create_app() -> FastAPI:
             "Backend API for the Paris United Group Holding corporate website "
             "and HR ATS portal."
         ),
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
         lifespan=lifespan,
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    # CORS — strict allowlist in production, permissive LAN in dev.
+    #
+    # FastAPI's CORSMiddleware returns ``400 Bad Request`` on every
+    # preflight whose ``Origin`` header isn't in ``allow_origins``. In
+    # development the frontend can hit the API from:
+    #   * ``localhost`` / ``127.0.0.1`` on any port (3000, 3001, 5173…)
+    #   * A LAN IP (``192.168.x.x``, ``10.x.x.x``, ``172.16-31.x.x``)
+    #     when testing from a phone / tablet / another laptop on the
+    #     same WiFi.
+    # So we pass an ``allow_origin_regex`` that matches both. The
+    # strict ``allow_origins`` list still wins for explicit values;
+    # the regex is the safety net. Never enabled in production.
+    is_prod = settings.app_env.lower() == "production"
+    cors_kwargs: dict = {
+        "allow_origins": settings.cors_origins,
+        "allow_credentials": True,
+        # Phase A-3: replace the wildcard ``*`` allowlists with an
+        # explicit set. The methods cover everything the API actually
+        # exposes; the headers cover the JSON content negotiation,
+        # bearer-token auth and the request-id correlator (added in
+        # A-4). Adding a new header requires a deliberate edit here,
+        # which is the point.
+        "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Request-ID"],
+        "expose_headers": ["Content-Disposition"],
+    }
+    if not is_prod:
+        # http(s)://(localhost|127.0.0.1|RFC1918 private IP)(:any port)?
+        cors_kwargs["allow_origin_regex"] = (
+            r"^https?://("
+            r"localhost|"
+            r"127\.0\.0\.1|"
+            r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+            r"192\.168\.\d{1,3}\.\d{1,3}|"
+            r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}"
+            r")(:\d+)?$"
+        )
+    logger.info(
+        "CORS configured: app_env=%s, allow_origins=%s%s",
+        settings.app_env,
+        settings.cors_origins,
+        ", allow_origin_regex=localhost|127.0.0.1|RFC1918 LAN (any port)"
+        if not is_prod
+        else "",
     )
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+    # Phase A-4: request-id correlator. Starlette wraps middleware
+    # in registration order from the inside out, so calling
+    # ``add_middleware`` here AFTER CORS makes RequestIDMiddleware the
+    # outermost layer — it fires on every request (including CORS
+    # preflight ``OPTIONS`` that CORSMiddleware would otherwise
+    # short-circuit) and stamps ``X-Request-ID`` on every response.
+    app.add_middleware(RequestIDMiddleware)
 
     # Phase 19: rate limiting for the public write endpoints is applied
     # per-route via FastAPI dependencies — see app.core.rate_limit.

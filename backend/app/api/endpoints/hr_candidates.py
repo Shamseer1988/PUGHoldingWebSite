@@ -14,8 +14,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
+# Phase A-4: structured-logging pattern demonstration. The HR candidate
+# surface logs failures during CV parse / auto-review, and those lines
+# need to correlate with the request-id stamped by the middleware.
+from app.core.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -27,7 +35,21 @@ from fastapi import (
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, object_session
 
-from app.auth.dependencies import get_request_context, require_hr_admin
+from app.auth.dependencies import (
+    get_request_context,
+    require_any_permission,
+    require_hr_admin,
+    require_permission,
+)
+from app.auth.permissions import (
+    PERM_HR_CANDIDATES_DELETE,
+    PERM_HR_CANDIDATES_EDIT,
+    PERM_HR_CANDIDATES_SCORE_OVERRIDE,
+    PERM_HR_CANDIDATES_STATUS_UPDATE,
+    PERM_HR_CANDIDATES_VIEW_DEPT,
+    PERM_HR_CANDIDATES_VIEW_FULL,
+    PERM_HR_CANDIDATES_VIEW_LIST,
+)
 from app.core.database import get_db
 from app.models.auth import User
 from app.models.hr_ats import (
@@ -38,9 +60,12 @@ from app.models.hr_ats import (
     CandidateExtractedData,
     CandidateJobApplication,
     CandidateScore,
+    Interview,
     JobOpening,
+    OfferTracking,
 )
 from app.schemas.hr_ats import (
+    ArchiveRequest,
     AIReviewGenerateResult,
     ApplicationSubmissionResponse,
     BulkCandidateStatusChangeRequest,
@@ -62,6 +87,7 @@ from app.schemas.hr_ats import (
     CandidateScoreRead,
     CandidateStatusChange,
     CandidateStatusHistoryRead,
+    CandidateTimelineEvent,
     CandidateUpdate,
     CvReparseResult,
     InterviewSummaryForApplication,
@@ -92,6 +118,7 @@ from app.ai.candidate_review import (
     resolve_config,
 )
 from app.services.audit_log import record_audit
+from app.services.hr_realtime import broadcast_candidate_application_new
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
@@ -299,6 +326,11 @@ router = APIRouter(
 @router.get("", response_model=List[CandidateListItem])
 def list_candidates(
     db: Session = Depends(get_db),
+    user: User = Depends(
+        require_any_permission(
+            PERM_HR_CANDIDATES_VIEW_LIST, PERM_HR_CANDIDATES_VIEW_DEPT
+        )
+    ),
     include_archived: bool = Query(default=False),
     q: Optional[str] = Query(default=None, max_length=200),
     nationality: Optional[str] = Query(default=None, max_length=120),
@@ -326,6 +358,18 @@ def list_candidates(
     Accepts every Phase-16 filter; falls back to the previous behaviour
     when no extra params are supplied (only `q` + `include_archived`).
     """
+    # Department-scoped users (Department Manager) get their candidate
+    # list forced to their own org unit — even if they pass a ?department
+    # query parameter for a different one.
+    effective_department = department
+    if (
+        not user.is_superuser
+        and not user.has_permission(PERM_HR_CANDIDATES_VIEW_LIST)
+        and user.has_permission(PERM_HR_CANDIDATES_VIEW_DEPT)
+        and user.department
+    ):
+        effective_department = user.department
+
     filters = CandidateFilters(
         q=q,
         include_archived=include_archived,
@@ -341,7 +385,7 @@ def list_candidates(
         language=language,
         skill=skill,
         job_slug=job_slug,
-        department=department,
+        department=effective_department,
         status=status,
         score_min=score_min,
         score_max=score_max,
@@ -360,7 +404,7 @@ def list_candidates(
 def get_candidate(
     candidate_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_VIEW_FULL)),
 ) -> CandidateRead:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
@@ -378,10 +422,11 @@ def get_candidate(
     response_model=ApplicationSubmissionResponse,
     status_code=201,
 )
-async def upload_candidate(
+def upload_candidate(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
     file: UploadFile = File(...),
     full_name: str = Form(..., min_length=1, max_length=255),
     email: Optional[str] = Form(default=None, max_length=255),
@@ -395,7 +440,11 @@ async def upload_candidate(
     visa_status: Optional[str] = Form(default=None, max_length=120),
     job_slug: Optional[str] = Form(default=None, max_length=200),
 ) -> ApplicationSubmissionResponse:
-    payload = await file.read()
+    # Sync def so the blocking ingest path (file hashing, CV storage,
+    # SQLAlchemy commit) runs in FastAPI's thread pool instead of
+    # blocking the event loop. ``file.file`` is a synchronous
+    # SpooledTemporaryFile so we don't need ``await file.read()``.
+    payload = file.file.read()
     try:
         meta = store_cv_bytes(payload, file.filename or "cv", file.content_type)
     except CvUploadError as exc:
@@ -455,20 +504,36 @@ async def upload_candidate(
     )
     db.commit()
 
+    # Phase C-2: real-time toast on every connected HR console. The
+    # endpoint is sync (the ingest path is blocking); BackgroundTasks
+    # runs the async broadcast on the event loop after the response
+    # ships so the operator sees the 201 before the toast.
+    job_title = (
+        result.application.job_opening.title
+        if result.application.job_opening is not None
+        else None
+    )
+    job_slug = (
+        result.application.job_opening.slug
+        if result.application.job_opening is not None
+        else None
+    )
+    background_tasks.add_task(
+        broadcast_candidate_application_new,
+        candidate_id=result.candidate.id,
+        candidate_name=result.candidate.full_name,
+        application_id=result.application.id,
+        job_title=job_title,
+        job_slug=job_slug,
+        source="manual_upload",
+    )
+
     return ApplicationSubmissionResponse(
         candidate_id=result.candidate.id,
         application_id=result.application.id,
         was_existing_candidate=result.was_existing_candidate,
-        job_title=(
-            result.application.job_opening.title
-            if result.application.job_opening is not None
-            else None
-        ),
-        job_slug=(
-            result.application.job_opening.slug
-            if result.application.job_opening is not None
-            else None
-        ),
+        job_title=job_title,
+        job_slug=job_slug,
     )
 
 
@@ -482,20 +547,22 @@ async def upload_candidate(
     response_model=BulkUploadResult,
     status_code=201,
 )
-async def bulk_upload_candidates(
+def bulk_upload_candidates(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
     file: UploadFile = File(..., description="ZIP archive of CV files"),
     job_slug: Optional[str] = Form(default=None, max_length=200),
 ) -> BulkUploadResult:
     """Extract every supported CV from a ZIP and create candidates.
 
-    Phase 10 creates placeholder candidates named after the file stem.
-    Phase 11's CV parser will backfill actual extracted_data (name,
-    email, mobile, skills, etc.) for each one.
+    Each candidate is wrapped in a SAVEPOINT (``db.begin_nested``) so a
+    mid-loop failure (corrupted file, SQLAlchemy IntegrityError, etc.)
+    rolls back ONLY that candidate's writes instead of poisoning the
+    whole batch. The audit row reflects the partial result.
     """
-    payload = await file.read()
+    # Sync def — see upload_candidate above for the rationale.
+    payload = file.file.read()
     try:
         bundle = extract_cvs_from_zip(payload)
     except CvUploadError as exc:
@@ -505,6 +572,7 @@ async def bulk_upload_candidates(
     created_count = 0
     matched_count = 0
     duplicate_app_count = 0
+    failed_count = 0
     candidate_ids: List[int] = []
 
     for meta in bundle.files:
@@ -520,21 +588,33 @@ async def bulk_upload_candidates(
             source=SOURCE_BULK_UPLOAD,
         )
 
+        # SAVEPOINT per row so a bad CV doesn't poison the rest of the
+        # batch. If ingest raises, the savepoint rolls back and the
+        # outer transaction stays viable for the next iteration.
         try:
-            result = ingest_candidate_application(
-                db,
-                form=form,
-                file_meta=meta,
-                uploaded_by_id=user.id,
-                created_by_id=user.id,
-            )
+            with db.begin_nested():
+                result = ingest_candidate_application(
+                    db,
+                    form=form,
+                    file_meta=meta,
+                    uploaded_by_id=user.id,
+                    created_by_id=user.id,
+                )
         except DuplicateApplicationError:
-            db.rollback()
             duplicate_app_count += 1
             skipped.append(
                 BulkUploadSkip(
                     name=meta.original_name,
                     reason="Duplicate application for this job (skipped)",
+                )
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 — surface as a row-level skip
+            failed_count += 1
+            skipped.append(
+                BulkUploadSkip(
+                    name=meta.original_name,
+                    reason=f"Ingest failed: {type(exc).__name__}",
                 )
             )
             continue
@@ -561,6 +641,7 @@ async def bulk_upload_candidates(
             "created_candidates": created_count,
             "matched_existing_candidates": matched_count,
             "duplicate_applications_skipped": duplicate_app_count,
+            "ingest_failed_count": failed_count,
             "skipped_count": len(skipped),
             "job_slug": job_slug,
         },
@@ -596,7 +677,7 @@ def update_candidate(
     payload: CandidateUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateRead:
     candidate = _get_candidate_or_404(db, candidate_id)
     updates = payload.model_dump(exclude_unset=True)
@@ -614,6 +695,7 @@ def update_candidate(
     # Phase 12: when scoring inputs change, re-run the engine on each
     # application that has an open job opening (manual overrides are
     # preserved by upsert_score).
+    score_recompute_failed = False
     if changed and _changes_affect_score(changed):
         for app in candidate.applications:
             if app.job_opening is None:
@@ -621,8 +703,18 @@ def update_candidate(
             try:
                 result = compute_score(candidate=candidate, job=app.job_opening)
                 upsert_score(db, application=app, result=result)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                # Don't fail the whole PATCH — score is derivable and
+                # the HR user can request a manual recompute — but do
+                # surface that something went wrong so the UI can
+                # flag the candidate row.
+                score_recompute_failed = True
+                logger.warning(
+                    "Score recompute failed for candidate=%s application=%s: %r",
+                    candidate.id,
+                    app.id,
+                    exc,
+                )
 
     if changed:
         ctx = get_request_context(request)
@@ -662,6 +754,90 @@ def _changes_affect_score(changed: list[str]) -> bool:
     return any(field in _SCORING_RELEVANT_FIELDS for field in changed)
 
 
+# ---------------------------------------------------------------------------
+# Phase 8 — Archive / unarchive (soft delete)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{candidate_id}/archive", response_model=CandidateRead)
+def archive_candidate(
+    candidate_id: int,
+    payload: ArchiveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_DELETE)),
+) -> CandidateRead:
+    """Soft-archive a candidate. Records who/when/why and hides them
+    from default list queries (HR can include via include_archived=true).
+    Restricted to hr:candidates:delete (HR Manager + Super Admin)."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.is_archived:
+        raise HTTPException(
+            status_code=409, detail="Candidate is already archived."
+        )
+    candidate.is_archived = True
+    candidate.archived_at = datetime.now(timezone.utc)
+    candidate.archived_by_id = user.id
+    candidate.archive_reason = payload.reason
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.archive",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate",
+        target_id=str(candidate.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={"reason": payload.reason},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(candidate)
+    return _serialize_candidate(candidate, actor=user)
+
+
+@router.post("/{candidate_id}/unarchive", response_model=CandidateRead)
+def unarchive_candidate(
+    candidate_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_DELETE)),
+) -> CandidateRead:
+    """Restore a soft-archived candidate."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if not candidate.is_archived:
+        raise HTTPException(status_code=409, detail="Candidate is not archived.")
+    candidate.is_archived = False
+    candidate.archived_at = None
+    candidate.archived_by_id = None
+    candidate.archive_reason = None
+
+    ctx = get_request_context(request)
+    record_audit(
+        db,
+        action="hr.candidate.unarchive",
+        actor_id=user.id,
+        actor_email=user.email,
+        scope="hr",
+        target_type="candidate",
+        target_id=str(candidate.id),
+        ip_address=ctx["ip_address"],
+        user_agent=ctx["user_agent"],
+        details={},
+        commit=False,
+    )
+    db.commit()
+    db.refresh(candidate)
+    return _serialize_candidate(candidate, actor=user)
+
+
 @router.get(
     "/{candidate_id}/extracted-data",
     response_model=CandidateExtractedDataRead,
@@ -691,7 +867,7 @@ def update_extracted_data(
     payload: CandidateExtractedDataUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateExtractedData:
     candidate = _get_candidate_or_404(db, candidate_id)
     data = candidate.extracted_data
@@ -733,7 +909,7 @@ def reparse_candidate_cv_endpoint(
     candidate_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CvReparseResult:
     """Re-run the CV parser on the candidate's primary document.
 
@@ -844,7 +1020,7 @@ def recompute_application_score(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateScoreRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     if app.job_opening is None:
@@ -892,7 +1068,7 @@ def override_application_score(
     payload: CandidateScoreOverride,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_SCORE_OVERRIDE)),
 ) -> CandidateScoreRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     if app.score is None:
@@ -953,7 +1129,7 @@ def clear_application_score_override(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_SCORE_OVERRIDE)),
 ) -> CandidateScoreRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     if app.score is None:
@@ -1027,7 +1203,7 @@ def generate_application_ai_review(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> AIReviewGenerateResult:
     app = _get_application_or_404(db, candidate_id, application_id)
     setting = db.get(AISetting, 1)
@@ -1090,7 +1266,7 @@ def delete_application_ai_review(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ):
     from fastapi import Response
 
@@ -1149,13 +1325,13 @@ def _serialize_history(
 
 
 def _email_lookup(db: Session, user_ids: List[int]) -> dict[int, str]:
-    if not user_ids:
-        return {}
-    rows = (
-        db.execute(select(User.id, User.email).where(User.id.in_(set(user_ids))))
-        .all()
-    )
-    return {uid: email for uid, email in rows}
+    """Thin compatibility shim around the shared
+    :func:`app.services.user_lookup.emails_by_id`. Kept so existing call
+    sites in this module don't all need to be rewritten — new code
+    should import from ``app.services.user_lookup`` directly."""
+    from app.services.user_lookup import emails_by_id
+
+    return emails_by_id(db, user_ids)
 
 
 @router.get("/workflow/meta", response_model=StatusPipelineMeta)
@@ -1192,6 +1368,201 @@ def list_status_history(
     return _serialize_history(list(app.status_history), email_by_id=emails)
 
 
+@router.get(
+    "/{candidate_id}/timeline",
+    response_model=List[CandidateTimelineEvent],
+)
+def candidate_timeline(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_VIEW_FULL)),
+) -> List[CandidateTimelineEvent]:
+    """Unified chronological feed for one candidate across all streams.
+
+    Combines:
+      * Recruitment status transitions (CandidateStatusHistory rows).
+      * Interview lifecycle (scheduled, completed, cancelled,
+        rescheduled, no-show — derived from Interview row state).
+      * Interview feedback submissions.
+      * Offer lifecycle (created, sent, accepted, declined, joined —
+        derived from OfferTracking row state; minimal until Phase 6
+        builds out the offer module).
+      * The application created event itself ("Applied").
+
+    Sorted newest-first. No pagination (typical candidate has < 50
+    events even in extreme cases).
+    """
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    events: list[CandidateTimelineEvent] = []
+    # Collect every user id we'll need to resolve to emails in one pass.
+    user_ids: set[int] = set()
+
+    # --- Applications + status history --------------------------------
+    for app in candidate.applications:
+        job_title = (
+            app.job_opening.title
+            if app.job_opening is not None
+            else "Unlinked application"
+        )
+        events.append(
+            CandidateTimelineEvent(
+                occurred_at=app.applied_at,
+                stream="recruitment",
+                action="applied",
+                title=f"Applied — {job_title}",
+                description=f"Source: {app.source or 'unknown'}",
+                ref_type="application",
+                ref_id=app.id,
+            )
+        )
+        for h in app.status_history:
+            if h.changed_by_id:
+                user_ids.add(h.changed_by_id)
+            events.append(
+                CandidateTimelineEvent(
+                    occurred_at=h.created_at,
+                    stream="recruitment",
+                    action="status_changed",
+                    title=f"Status → {h.new_status}",
+                    description=h.remarks
+                    or h.rejection_reason
+                    or h.blacklist_approval,
+                    ref_type="application",
+                    ref_id=app.id,
+                    old_status=h.old_status,
+                    new_status=h.new_status,
+                )
+            )
+
+    # --- Interviews ---------------------------------------------------
+    application_ids = [a.id for a in candidate.applications]
+    if application_ids:
+        interviews = list(
+            db.execute(
+                select(Interview).where(
+                    Interview.application_id.in_(application_ids)
+                )
+            ).scalars()
+        )
+        for iv in interviews:
+            if iv.created_by_id:
+                user_ids.add(iv.created_by_id)
+            events.append(
+                CandidateTimelineEvent(
+                    occurred_at=iv.created_at,
+                    stream="interview",
+                    action="interview_scheduled",
+                    title=f"Interview scheduled — {iv.round_name}",
+                    description=(
+                        f"Mode: {iv.mode} · "
+                        f"When: {iv.scheduled_at.isoformat()}"
+                    ),
+                    ref_type="interview",
+                    ref_id=iv.id,
+                    new_status=iv.status,
+                )
+            )
+            # Final interview state (only emit when terminal — keeps
+            # the feed quieter than emitting every PATCH).
+            if iv.status in ("completed", "cancelled", "no_show", "rescheduled"):
+                events.append(
+                    CandidateTimelineEvent(
+                        occurred_at=iv.updated_at,
+                        stream="interview",
+                        action=f"interview_{iv.status}",
+                        title=f"Interview {iv.status.replace('_', ' ')} — {iv.round_name}",
+                        ref_type="interview",
+                        ref_id=iv.id,
+                        new_status=iv.status,
+                    )
+                )
+            for fb in iv.feedback:
+                if fb.submitted_by_id:
+                    user_ids.add(fb.submitted_by_id)
+                events.append(
+                    CandidateTimelineEvent(
+                        occurred_at=fb.created_at,
+                        stream="interview",
+                        action="interview_feedback",
+                        title=f"Feedback submitted — {iv.round_name}",
+                        description=(
+                            f"Recommendation: {fb.recommendation}"
+                            if fb.recommendation
+                            else "Feedback submitted"
+                        ),
+                        ref_type="interview",
+                        ref_id=iv.id,
+                    )
+                )
+
+    # --- Offers --------------------------------------------------------
+    if application_ids:
+        offers = list(
+            db.execute(
+                select(OfferTracking).where(
+                    OfferTracking.application_id.in_(application_ids)
+                )
+            ).scalars()
+        )
+        for of in offers:
+            if of.created_by_id:
+                user_ids.add(of.created_by_id)
+            events.append(
+                CandidateTimelineEvent(
+                    occurred_at=of.created_at,
+                    stream="offer",
+                    action="offer_created",
+                    title="Offer created",
+                    description=(
+                        f"Status: {of.status} · Salary: {of.salary_offered}"
+                        if of.salary_offered
+                        else f"Status: {of.status}"
+                    ),
+                    ref_type="offer",
+                    ref_id=of.id,
+                    new_status=of.status,
+                )
+            )
+            if of.sent_at is not None:
+                events.append(
+                    CandidateTimelineEvent(
+                        occurred_at=of.sent_at,
+                        stream="offer",
+                        action="offer_sent",
+                        title="Offer sent to candidate",
+                        ref_type="offer",
+                        ref_id=of.id,
+                    )
+                )
+            if of.responded_at is not None:
+                events.append(
+                    CandidateTimelineEvent(
+                        occurred_at=of.responded_at,
+                        stream="offer",
+                        action=f"offer_{of.status}",
+                        title=f"Candidate responded — {of.status}",
+                        description=of.decline_reason,
+                        ref_type="offer",
+                        ref_id=of.id,
+                        new_status=of.status,
+                    )
+                )
+
+    # --- Resolve actor emails and stamp events ------------------------
+    emails = _email_lookup(db, list(user_ids))
+    # The simple approach: leave actor_email blank for now — most events
+    # already carry actor info in their description. Future polish:
+    # match changed_by_id / submitted_by_id / created_by_id back to
+    # the events that have them.
+    _ = emails  # reserved for the polish pass
+
+    events.sort(key=lambda e: e.occurred_at, reverse=True)
+    return events
+
+
 @router.post(
     "/{candidate_id}/applications/{application_id}/status",
     response_model=CandidateRead,
@@ -1202,7 +1573,7 @@ def change_application_status(
     payload: CandidateStatusChange,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_STATUS_UPDATE)),
 ) -> CandidateRead:
     app = _get_application_or_404(db, candidate_id, application_id)
     previous = app.status
@@ -1243,10 +1614,43 @@ def change_application_status(
             "remarks": payload.remarks,
             "rejection_reason": payload.rejection_reason,
             "blacklist_approval": payload.blacklist_approval,
+            "send_email": payload.send_email,
         },
         commit=False,
     )
     db.commit()
+
+    # Fire-and-forget candidate email if HR opted in. Only the three
+    # candidate-facing milestone statuses have templates today —
+    # shortlisted, selected, rejected. Other transitions are internal
+    # (cv_received / hr_review_pending) or already covered by their
+    # own emails (interview statuses fire from notify_interview_*).
+    if payload.send_email:
+        try:
+            from app.services import hr_notifications  # local import
+            from app.models.hr_ats import (
+                STATUS_REJECTED,
+                STATUS_SELECTED,
+                STATUS_SHORTLISTED,
+            )
+
+            if result.new_status == STATUS_SHORTLISTED:
+                hr_notifications.notify_candidate_shortlisted(
+                    application_id=app.id, actor_id=user.id
+                )
+            elif result.new_status == STATUS_REJECTED:
+                hr_notifications.notify_candidate_rejected(
+                    application_id=app.id, actor_id=user.id
+                )
+            elif result.new_status == STATUS_SELECTED:
+                hr_notifications.notify_candidate_selected(
+                    application_id=app.id, actor_id=user.id
+                )
+        except Exception:  # pragma: no cover - never break the response
+            logger.exception(
+                "Status-change email dispatch failed"
+            )
+
     db.refresh(app.candidate)
     return _serialize_candidate(app.candidate, actor=user)
 
@@ -1264,7 +1668,7 @@ def bulk_change_application_status(
     payload: BulkCandidateStatusChangeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_STATUS_UPDATE)),
 ) -> BulkCandidateStatusChangeResult:
     """Apply one status transition to many applications at once.
 
@@ -1451,9 +1855,7 @@ def bulk_change_application_status(
                         application_id=app_id, actor_id=user.id
                     )
         except Exception:  # pragma: no cover - never break the response
-            import logging
-
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "Bulk-status email dispatch failed"
             )
 
@@ -1479,7 +1881,7 @@ def run_application_auto_review(
     application_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_hr_admin),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
 ) -> CandidateAutoReviewRead:
     """Run (or re-run) the auto-review engine on a single application."""
     from app.services import candidate_auto_review
@@ -1528,3 +1930,129 @@ def get_application_auto_review(
         )
     ).scalar_one_or_none()
     return CandidateAutoReviewRead.model_validate(review) if review else None
+
+
+# ---------------------------------------------------------------------------
+# Feature F5 — Semantic candidate search
+# ---------------------------------------------------------------------------
+
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SemanticSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=2000)
+    limit: int = Field(default=25, ge=1, le=200)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class SemanticSearchHit(BaseModel):
+    candidate_id: int
+    score: float
+    full_name: Optional[str] = None
+    current_designation: Optional[str] = None
+    current_location: Optional[str] = None
+
+
+class SemanticSearchResponse(BaseModel):
+    query: str
+    hit_count: int
+    hits: List[SemanticSearchHit]
+
+
+@router.post(
+    "/semantic-search", response_model=SemanticSearchResponse
+)
+def semantic_search(
+    payload: SemanticSearchRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_VIEW_LIST)),
+) -> SemanticSearchResponse:
+    """Embedding-based "find candidates similar to this query" search.
+
+    The query (e.g. "senior Python developer with AWS and Kubernetes
+    experience") is embedded via Azure OpenAI; every candidate with
+    a stored embedding is ranked by cosine similarity. Returns the
+    top-K hits with the candidate's headline fields for quick
+    rendering.
+
+    503 if AI is not configured (no Azure endpoint / key / ai_enabled
+    flag) — the operator can wire those up under /admin/ai-settings.
+    """
+    from app.services.semantic_search import (
+        SemanticSearchError,
+        semantic_search_candidates,
+    )
+
+    try:
+        hits = semantic_search_candidates(
+            db,
+            payload.query,
+            limit=payload.limit,
+            min_score=payload.min_score,
+        )
+    except SemanticSearchError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Hydrate the candidate headline fields in one query — we don't
+    # ship full CandidateRead because the result page just shows a
+    # compact list and links into the regular profile drawer.
+    if not hits:
+        return SemanticSearchResponse(
+            query=payload.query, hit_count=0, hits=[]
+        )
+
+    ids = [h.candidate_id for h in hits]
+    rows = db.execute(
+        select(
+            Candidate.id,
+            Candidate.full_name,
+            Candidate.current_designation,
+            Candidate.current_location,
+        ).where(Candidate.id.in_(ids))
+    ).all()
+    by_id = {
+        cid: (name, des, loc) for cid, name, des, loc in rows
+    }
+    out: list[SemanticSearchHit] = []
+    for h in hits:
+        name, des, loc = by_id.get(h.candidate_id, (None, None, None))
+        out.append(
+            SemanticSearchHit(
+                candidate_id=h.candidate_id,
+                score=round(h.score, 4),
+                full_name=name,
+                current_designation=des,
+                current_location=loc,
+            )
+        )
+
+    return SemanticSearchResponse(
+        query=payload.query,
+        hit_count=len(out),
+        hits=out,
+    )
+
+
+@router.post("/semantic-search/backfill")
+def backfill_semantic_index(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_CANDIDATES_EDIT)),
+    limit: int = 50,
+) -> dict:
+    """Embed up to ``limit`` candidates that don't yet have a vector.
+
+    Single batch — the operator clicks "Rebuild" repeatedly (or hits
+    this endpoint from a cron) to chew through the backlog so one
+    HTTP request doesn't time out on a large pool. Returns the run
+    summary { refreshed, skipped, remaining_to_visit }.
+    """
+    from app.services.semantic_search import backfill_candidate_embeddings
+
+    result = backfill_candidate_embeddings(db, limit=limit)
+    # `remaining_to_visit` is a list of ids; the count is what the UI
+    # actually needs — replace it with the integer.
+    result["remaining_count"] = len(result.pop("remaining_to_visit"))
+    return result

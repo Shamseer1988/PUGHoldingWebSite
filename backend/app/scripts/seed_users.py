@@ -7,13 +7,20 @@ Run from /backend (with the venv active and .env configured):
 The script is idempotent: rerunning it will create missing rows and
 update assignments, but it will never overwrite a user's password.
 
+The HR permission catalogue and role definitions live in
+:mod:`app.auth.permissions` — this script is the runtime entry point
+that converts that catalogue into rows in the auth tables.
+
 Seed accounts (default password ``ChangeMe!123``):
 
     superadmin@pug.example.com         super admin (all scopes)
     websiteadmin@pug.example.com       website admin (scope=website)
-    hrmanager@pug.example.com          HR manager (scope=hr)
-    hrexecutive@pug.example.com        HR executive (scope=hr)
-    interviewer@pug.example.com        Interviewer (scope=hr, read-only-ish)
+    hradmin@pug.example.com            HR Admin (Phase 1 — RBAC overhaul)
+    hrmanager@pug.example.com          HR Manager
+    hrexecutive@pug.example.com        HR Executive / Recruiter
+    deptmanager@pug.example.com        Department Manager (department=Engineering)
+    interviewer@pug.example.com        Interviewer (assigned interviews only)
+    viewer@pug.example.com             Viewer / Auditor (read-only reports)
 
 Change passwords immediately in any non-development environment.
 """
@@ -26,6 +33,17 @@ from typing import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.permissions import (
+    HR_PERMISSIONS,
+    HR_ROLES,
+    ROLE_DEPT_MANAGER,
+    ROLE_HR_ADMIN,
+    ROLE_HR_EXECUTIVE,
+    ROLE_HR_MANAGER,
+    ROLE_INTERVIEWER,
+    ROLE_SUPER_ADMIN,
+    ROLE_VIEWER,
+)
 from app.auth.security import hash_password
 from app.core.database import SessionLocal
 from app.models.auth import (
@@ -42,12 +60,14 @@ DEFAULT_PASSWORD = "ChangeMe!123"
 
 
 # ---------------------------------------------------------------------------
-# Permission catalogue (Phase 2 baseline)
+# Permission catalogue
 # ---------------------------------------------------------------------------
 
-PERMISSIONS: tuple[tuple[str, str, str], ...] = (
-    # (key, scope, description)
-    # Website admin surface
+# (key, scope, description) — combines website + HR permissions. The HR set
+# comes from app.auth.permissions; the website set is local since the
+# website admin module isn't part of the RBAC overhaul (yet).
+
+WEBSITE_PERMISSIONS: tuple[tuple[str, str, str], ...] = (
     ("website.dashboard.read", SCOPE_WEBSITE, "View website admin dashboard"),
     ("website.menu.read", SCOPE_WEBSITE, "View menus"),
     ("website.menu.write", SCOPE_WEBSITE, "Create / edit menus"),
@@ -57,28 +77,18 @@ PERMISSIONS: tuple[tuple[str, str, str], ...] = (
     ("website.settings.write", SCOPE_WEBSITE, "Change site / SEO / email / AI settings"),
     ("website.users.manage", SCOPE_WEBSITE, "Manage website admin users and roles"),
     ("website.audit.read", SCOPE_WEBSITE, "View website audit log"),
+)
 
-    # HR ATS surface
-    ("hr.dashboard.read", SCOPE_HR, "View HR dashboard"),
-    ("hr.job.read", SCOPE_HR, "View job openings"),
-    ("hr.job.write", SCOPE_HR, "Create / edit / close job openings"),
-    ("hr.candidate.read", SCOPE_HR, "View candidates"),
-    ("hr.candidate.write", SCOPE_HR, "Create / edit candidates and CVs"),
-    ("hr.candidate.salary.read", SCOPE_HR, "View candidate salary information"),
-    ("hr.candidate.cv.download", SCOPE_HR, "Download candidate CV documents"),
-    ("hr.candidate.score.override", SCOPE_HR, "Manually override candidate scores"),
-    ("hr.candidate.blacklist", SCOPE_HR, "Approve / set candidate blacklist status"),
-    ("hr.interview.read", SCOPE_HR, "View interviews"),
-    ("hr.interview.write", SCOPE_HR, "Schedule interviews / submit feedback"),
-    ("hr.report.read", SCOPE_HR, "View HR reports"),
-    ("hr.report.export", SCOPE_HR, "Export HR reports"),
-    ("hr.users.manage", SCOPE_HR, "Manage HR users and roles"),
-    ("hr.audit.read", SCOPE_HR, "View HR audit log"),
+PERMISSIONS: tuple[tuple[str, str, str], ...] = (
+    *WEBSITE_PERMISSIONS,
+    # HR — pulled from the canonical catalogue
+    *((key, SCOPE_HR, description) for key, description in HR_PERMISSIONS),
 )
 
 
 # ---------------------------------------------------------------------------
-# Role catalogue (Phase 2 baseline)
+# Role catalogue — website roles defined locally, HR roles from
+# app.auth.permissions
 # ---------------------------------------------------------------------------
 
 
@@ -90,79 +100,36 @@ class RoleSpec:
     permission_keys: tuple[str, ...]
 
 
-ROLES: tuple[RoleSpec, ...] = (
-    RoleSpec(
-        name="Super Admin",
-        scope=SCOPE_SYSTEM,
-        description="Full system access across website and HR surfaces.",
-        # System scope grants everything; we still attach explicit perms for
-        # clarity in the UI / audit log.
-        permission_keys=tuple(key for key, _, _ in PERMISSIONS),
-    ),
-    RoleSpec(
-        name="Website Admin",
-        scope=SCOPE_WEBSITE,
-        description="Manages all corporate website content and settings.",
-        permission_keys=(
-            "website.dashboard.read",
-            "website.menu.read",
-            "website.menu.write",
-            "website.content.read",
-            "website.content.write",
-            "website.settings.read",
-            "website.settings.write",
-            "website.users.manage",
-            "website.audit.read",
-        ),
-    ),
-    RoleSpec(
-        name="HR Manager",
-        scope=SCOPE_HR,
-        description="Full recruitment access including overrides and exports.",
-        permission_keys=(
-            "hr.dashboard.read",
-            "hr.job.read",
-            "hr.job.write",
-            "hr.candidate.read",
-            "hr.candidate.write",
-            "hr.candidate.salary.read",
-            "hr.candidate.cv.download",
-            "hr.candidate.score.override",
-            "hr.candidate.blacklist",
-            "hr.interview.read",
-            "hr.interview.write",
-            "hr.report.read",
-            "hr.report.export",
-            "hr.users.manage",
-            "hr.audit.read",
-        ),
-    ),
-    RoleSpec(
-        name="HR Executive",
-        scope=SCOPE_HR,
-        description="Day-to-day recruitment: upload, edit, shortlist, schedule interviews.",
-        permission_keys=(
-            "hr.dashboard.read",
-            "hr.job.read",
-            "hr.candidate.read",
-            "hr.candidate.write",
-            "hr.candidate.cv.download",
-            "hr.interview.read",
-            "hr.interview.write",
-            "hr.report.read",
-        ),
-    ),
-    RoleSpec(
-        name="Interviewer",
-        scope=SCOPE_HR,
-        description="Views only assigned interviews and submits feedback.",
-        permission_keys=(
-            "hr.dashboard.read",
-            "hr.interview.read",
-            "hr.interview.write",
-        ),
-    ),
+_WEBSITE_ADMIN = RoleSpec(
+    name="Website Admin",
+    scope=SCOPE_WEBSITE,
+    description="Manages all corporate website content and settings.",
+    permission_keys=tuple(key for key, _, _ in WEBSITE_PERMISSIONS),
 )
+
+
+def _hr_role_specs() -> tuple[RoleSpec, ...]:
+    """Convert HR_ROLES (app.auth.permissions) into the legacy RoleSpec shape."""
+    out: list[RoleSpec] = []
+    for spec in HR_ROLES:
+        scope = SCOPE_SYSTEM if spec.name == ROLE_SUPER_ADMIN else SCOPE_HR
+        # Super Admin should also have every website permission so the
+        # account can administer both portals.
+        perms = list(spec.permissions)
+        if spec.name == ROLE_SUPER_ADMIN:
+            perms.extend(key for key, _, _ in WEBSITE_PERMISSIONS)
+        out.append(
+            RoleSpec(
+                name=spec.name,
+                scope=scope,
+                description=spec.description or "",
+                permission_keys=tuple(perms),
+            )
+        )
+    return tuple(out)
+
+
+ROLES: tuple[RoleSpec, ...] = (_WEBSITE_ADMIN, *_hr_role_specs())
 
 
 # ---------------------------------------------------------------------------
@@ -176,13 +143,14 @@ class UserSpec:
     full_name: str
     role_names: tuple[str, ...]
     is_superuser: bool = False
+    department: str | None = None
 
 
 USERS: tuple[UserSpec, ...] = (
     UserSpec(
         email="superadmin@pug.example.com",
         full_name="Super Admin",
-        role_names=("Super Admin",),
+        role_names=(ROLE_SUPER_ADMIN,),
         is_superuser=True,
     ),
     UserSpec(
@@ -191,19 +159,35 @@ USERS: tuple[UserSpec, ...] = (
         role_names=("Website Admin",),
     ),
     UserSpec(
+        email="hradmin@pug.example.com",
+        full_name="HR Admin",
+        role_names=(ROLE_HR_ADMIN,),
+    ),
+    UserSpec(
         email="hrmanager@pug.example.com",
         full_name="HR Manager",
-        role_names=("HR Manager",),
+        role_names=(ROLE_HR_MANAGER,),
     ),
     UserSpec(
         email="hrexecutive@pug.example.com",
         full_name="HR Executive",
-        role_names=("HR Executive",),
+        role_names=(ROLE_HR_EXECUTIVE,),
+    ),
+    UserSpec(
+        email="deptmanager@pug.example.com",
+        full_name="Department Manager",
+        role_names=(ROLE_DEPT_MANAGER,),
+        department="Engineering",
     ),
     UserSpec(
         email="interviewer@pug.example.com",
         full_name="Interviewer",
-        role_names=("Interviewer",),
+        role_names=(ROLE_INTERVIEWER,),
+    ),
+    UserSpec(
+        email="viewer@pug.example.com",
+        full_name="Viewer",
+        role_names=(ROLE_VIEWER,),
     ),
 )
 
@@ -245,7 +229,11 @@ def _upsert_roles(
         else:
             role.scope = spec.scope
             role.description = spec.description
-        role.permissions = [permissions[key] for key in spec.permission_keys]
+        # Permissions: only attach the ones we know about. Unknown keys
+        # (e.g. legacy entries) are silently skipped.
+        role.permissions = [
+            permissions[key] for key in spec.permission_keys if key in permissions
+        ]
     db.flush()
     return existing
 
@@ -267,13 +255,15 @@ def _upsert_users(db: Session, roles: dict[str, Role]) -> list[tuple[User, bool]
                 password_hash=hash_password(DEFAULT_PASSWORD),
                 is_active=True,
                 is_superuser=spec.is_superuser,
+                department=spec.department,
             )
             db.add(user)
         else:
             user.full_name = spec.full_name
             user.is_active = True
             user.is_superuser = spec.is_superuser
-        user.roles = [roles[name] for name in spec.role_names]
+            user.department = spec.department
+        user.roles = [roles[name] for name in spec.role_names if name in roles]
         results.append((user, created))
     db.flush()
     return results

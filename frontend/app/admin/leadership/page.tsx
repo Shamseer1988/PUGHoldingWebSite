@@ -250,6 +250,7 @@ export default function LeadershipAdminPage() {
                   <ImageUpload
                     value={form.photo_url}
                     onChange={(url) => setForm({ ...form, photo_url: url ?? "" })}
+                    folder="leadership"
                     disabled={saving}
                   />
                   <p className="text-[11px] text-muted-foreground">
@@ -336,6 +337,7 @@ export default function LeadershipAdminPage() {
                       onChange={(url) =>
                         setForm({ ...form, signature_image_url: url ?? "" })
                       }
+                      folder="leadership/signatures"
                       disabled={saving}
                     />
                     <p className="text-[11px] text-muted-foreground">

@@ -402,6 +402,16 @@ class ContactReply(BaseModel):
     reply_body: str = Field(min_length=1)
 
 
+class ContactReplyAttachmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_filename: str
+    mime_type: Optional[str] = None
+    file_size: int
+    uploaded_at: datetime
+
+
 class ContactReplyRead(BaseModel):
     """One bubble in the contact-inbox chat thread."""
 
@@ -410,15 +420,19 @@ class ContactReplyRead(BaseModel):
     id: int
     contact_message_id: int
     direction: str
+    sender_type: str = "customer"
     admin_user_id: Optional[int] = None
     sender_name: Optional[str] = None
     sender_email: Optional[str] = None
     recipient_email: Optional[str] = None
     subject: Optional[str] = None
     body: str
+    clean_body_text: Optional[str] = None
     email_status: str
     error_message: Optional[str] = None
     sent_at: Optional[datetime] = None
+    has_attachments: bool = False
+    attachments: List[ContactReplyAttachmentRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -430,9 +444,22 @@ class ContactMessageRead(BaseModel):
     name: str
     email: EmailStr
     phone: Optional[str] = None
+    company_name: Optional[str] = None
     department: Optional[str] = None
     subject: Optional[str] = None
     message: str
+    # Ticket-flow fields (added in migration 20260527_0015)
+    ticket_number: Optional[str] = None
+    status: str = "new"
+    priority: str = "normal"
+    source: str = "website_contact"
+    assigned_to_user_id: Optional[int] = None
+    last_message_at: Optional[datetime] = None
+    last_customer_reply_at: Optional[datetime] = None
+    last_admin_reply_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    reopened_at: Optional[datetime] = None
+    # Legacy booleans (still populated for backwards compatibility)
     is_read: bool
     is_replied: bool
     is_archived: bool
@@ -446,6 +473,21 @@ class ContactMessageDetail(ContactMessageRead):
     """Contact message + every reply in the thread, oldest first."""
 
     replies: List[ContactReplyRead] = Field(default_factory=list)
+
+
+class ContactInboxSyncSummary(BaseModel):
+    """Result payload for the manual "Check Inbox Now" admin button."""
+
+    enabled: bool
+    fetched: int
+    processed: int
+    matched: int
+    new_tickets: int
+    skipped: int
+    errors: int
+    error: Optional[str] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
 
 
 class NewsletterSubscribe(BaseModel):

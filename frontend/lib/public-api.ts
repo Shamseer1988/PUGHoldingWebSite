@@ -552,6 +552,64 @@ export async function getFeaturedCompaniesSection(): Promise<FeaturedCompaniesSe
  */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
+const UPLOADS_PREFIX = "/api/v1/uploads/";
+
+
+/**
+ * Phase A-7: rewrite an upload URL to point at the configured R2
+ * (or other CDN) host when ``NEXT_PUBLIC_MEDIA_BASE_URL`` is set.
+ *
+ * Contract:
+ *   - Absolute URLs (``https://…``) pass through unchanged. The
+ *     backend's ``R2StorageBackend`` already returns absolute URLs
+ *     when R2 is configured server-side, so this branch is the
+ *     common case in production.
+ *   - Relative ``/api/v1/uploads/<key>`` paths get their prefix
+ *     replaced by ``${publicMediaBaseUrl}/<key>`` when the env
+ *     var is set — so an old DB row written before R2 was wired
+ *     still resolves to the CDN host.
+ *   - Anything else (other relative paths, ``null`` / undefined,
+ *     trimmed-to-empty) falls back to ``resolveAssetUrl`` so the
+ *     LAN-loopback fix-up and the rest of the existing resolution
+ *     logic still apply.
+ */
+/**
+ * Treat any value that looks like ``hostname.tld/path…`` (no leading
+ * ``http://`` or ``https://``) as a missing-protocol absolute URL.
+ *
+ * Defends against historic DB rows written when the backend's
+ * ``R2_PUBLIC_BASE_URL`` was set without ``https://`` — e.g.
+ * ``pug-media.example.com/cms/foo.jpg`` would otherwise be
+ * interpreted as a path relative to the current page and 404.
+ *
+ * Specific enough that internal app routes (``/api/...``,
+ * ``/admin``, ``/hr``) and relative paths don't trip it.
+ */
+const BARE_HOSTNAME_RE = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+\//i;
+
+function ensureProtocol(value: string): string {
+  return BARE_HOSTNAME_RE.test(value) ? `https://${value}` : value;
+}
+
+export function normaliseMediaUrl(
+  url: string | null | undefined,
+): string | null {
+  if (!url) return null;
+  const trimmed = url.replace(/\\/g, "/").trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // Bare-hostname URL → assume https. Catches DB rows saved when the
+  // backend's ``R2_PUBLIC_BASE_URL`` was missing its scheme.
+  if (BARE_HOSTNAME_RE.test(trimmed)) return `https://${trimmed}`;
+  const mediaBase = env.publicMediaBaseUrl.replace(/\/+$/, "");
+  if (mediaBase && trimmed.startsWith(UPLOADS_PREFIX)) {
+    const key = trimmed.slice(UPLOADS_PREFIX.length);
+    return `${mediaBase}/${key}`;
+  }
+  return resolveAssetUrl(trimmed);
+}
+
+
 export function resolveAssetUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   // Normalise Windows-style backslashes to forward slashes.
@@ -563,6 +621,9 @@ export function resolveAssetUrl(url: string | null | undefined): string | null {
   url = url.replace(/\\/g, "/").trim();
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
+  // ``cdn.example.com/cms/foo.jpg`` → ``https://cdn.example.com/cms/foo.jpg``.
+  // See ``normaliseMediaUrl`` above for the full rationale.
+  if (BARE_HOSTNAME_RE.test(url)) return `https://${url}`;
   if (url.startsWith("/api/")) {
     try {
       // Use the PUBLIC base URL here — never the server-side loopback.

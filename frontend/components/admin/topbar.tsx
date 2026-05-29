@@ -12,6 +12,10 @@ interface AdminTopbarProps {
   title: string;
   description?: string;
   onOpenSidebar: () => void;
+  /** Desktop-only: toggles the icons-only sidebar collapse. The same
+   *  hamburger button uses this on lg+ and ``onOpenSidebar`` on
+   *  smaller viewports. */
+  onToggleCollapsed?: () => void;
   actions?: React.ReactNode;
 }
 
@@ -19,6 +23,7 @@ export function AdminTopbar({
   title,
   description,
   onOpenSidebar,
+  onToggleCollapsed,
   actions,
 }: AdminTopbarProps) {
   const { user, logout } = useAuth();
@@ -35,7 +40,10 @@ export function AdminTopbar({
 
   return (
     <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border/60 bg-background/85 px-4 py-3 backdrop-blur sm:px-6">
-      <AdminSidebarOpener onOpen={onOpenSidebar} />
+      <AdminSidebarOpener
+        onOpen={onOpenSidebar}
+        onToggleCollapsed={onToggleCollapsed}
+      />
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">
           {title}

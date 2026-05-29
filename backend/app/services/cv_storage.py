@@ -17,7 +17,17 @@ from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
 
+from PIL import Image, UnidentifiedImageError
+
 from app.core.config import get_settings
+
+
+# Image extensions that get re-baked through Pillow before storage so
+# any embedded EXIF metadata, color profiles, or stego-style hidden
+# chunks are stripped. PDF / DOC(X) bytes are left untouched — the
+# downstream parser needs them intact, and the format is structured
+# enough that we'd rather fail-closed at parse time than re-encode.
+_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg"}
 
 
 # MIME → extension whitelist for CVs.
@@ -67,6 +77,34 @@ def _resolve_ext(mime_type: str | None, original_name: str) -> str:
     )
 
 
+def _rebake_image_bytes(data: bytes, ext: str) -> bytes:
+    """Round-trip image bytes through Pillow to strip EXIF/metadata
+    and reject malformed files.
+
+    A successful re-encode confirms the file really is the image type
+    its extension claims and produces clean bytes (no hidden chunks,
+    no scripts in metadata). On any decode error we raise
+    ``CvUploadError`` so the uploader sees a 400 rather than the
+    server storing a hostile payload.
+    """
+    try:
+        img = Image.open(BytesIO(data))
+        img.load()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise CvUploadError(
+            "Uploaded image could not be decoded — refusing to store."
+        ) from exc
+
+    pillow_fmt = "JPEG" if ext == "jpg" else ext.upper()
+    out = BytesIO()
+    # If the source has an alpha channel and we're writing JPEG, drop
+    # it — JPEG can't represent alpha and Pillow otherwise raises.
+    if pillow_fmt == "JPEG" and img.mode in ("RGBA", "LA", "P"):
+        img = img.convert("RGB")
+    img.save(out, format=pillow_fmt)
+    return out.getvalue()
+
+
 def store_cv_bytes(
     data: bytes,
     original_name: str,
@@ -76,6 +114,11 @@ def store_cv_bytes(
 
     Identical content is deduplicated naturally — the SHA-256 prefix
     becomes the filename so re-uploads collapse to the same object.
+
+    Image uploads (PNG / JPG) are re-baked through Pillow first so any
+    EXIF, ICC profile, or stego-style metadata chunks are dropped and
+    we don't store a hostile payload that happens to have a valid
+    image header.
     """
     if not data:
         raise CvUploadError("Empty upload")
@@ -85,6 +128,12 @@ def store_cv_bytes(
         )
 
     ext = _resolve_ext(mime_type, original_name)
+
+    # Image rebake (security): forces decode + re-encode and strips
+    # metadata. PDF/DOC/DOCX bytes are stored as-is for the downstream
+    # parser.
+    if ext in _IMAGE_EXTENSIONS:
+        data = _rebake_image_bytes(data, ext)
 
     file_hash = hashlib.sha256(data).hexdigest()
     filename = f"{file_hash[:16]}.{ext}"

@@ -8,7 +8,8 @@ import type { Company } from "@/lib/admin/types";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Group Companies" };
-export const revalidate = 60;
+// Phase A-1: listing — refresh every 5 min.
+export const revalidate = 300;
 
 const CATEGORY_OPTIONS: Array<"all" | Company["category"]> = [
   "all",

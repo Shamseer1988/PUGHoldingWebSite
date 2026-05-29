@@ -79,6 +79,64 @@ class CandidateRow:
     matched_application_ids: List[int] = field(default_factory=list)
 
 
+def _is_postgres(db: Session) -> bool:
+    """Detect Postgres vs SQLite at the engine level.
+
+    The candidate FTS column + GIN index live only on Postgres (the
+    migration is a no-op on SQLite). The search builder branches on
+    this so the test suite — which runs in-memory SQLite — exercises
+    the ``ILIKE``-on-``full_text`` fallback and prod takes the
+    indexed ``tsvector`` path.
+    """
+    bind = db.get_bind()
+    return bind.dialect.name == "postgresql"
+
+
+def _apply_keyword_filter(stmt, db: Session, q: str):
+    """Widen the free-text query to also match the CV body.
+
+    The same observable behaviour on either dialect — a candidate
+    whose extracted CV text contains the query term is found — with
+    Postgres routing through a GIN-backed ``tsvector @@ tsquery``
+    and SQLite falling back to ``ILIKE`` on the same column.
+    """
+    like = f"%{q.lower()}%"
+    base_predicates = (
+        (func.lower(Candidate.full_name).like(like))
+        | (func.lower(Candidate.email).like(like))
+        | (Candidate.mobile.like(f"%{q}%"))
+    )
+
+    if _is_postgres(db):
+        # ``websearch_to_tsquery`` accepts the same syntax operators
+        # most search UIs already use (``"phrase"``, ``-not``, ``OR``)
+        # without raising on malformed input — kinder to interactive
+        # filter panels than ``to_tsquery`` would be.
+        fts_match = (
+            func.to_tsvector(
+                "simple", func.coalesce(CandidateExtractedData.full_text, "")
+            )
+            .op("@@")(func.websearch_to_tsquery("simple", q))
+        )
+        cv_subquery = (
+            select(CandidateExtractedData.candidate_id)
+            .where(fts_match)
+            .scalar_subquery()
+        )
+    else:
+        cv_subquery = (
+            select(CandidateExtractedData.candidate_id)
+            .where(
+                func.lower(
+                    func.coalesce(CandidateExtractedData.full_text, "")
+                ).like(like)
+            )
+            .scalar_subquery()
+        )
+
+    return stmt.where(base_predicates | Candidate.id.in_(cv_subquery))
+
+
 def search_candidates(
     db: Session, filters: CandidateFilters
 ) -> List[CandidateRow]:
@@ -92,12 +150,7 @@ def search_candidates(
     if not filters.include_archived:
         stmt = stmt.where(Candidate.is_archived.is_(False))
     if filters.q:
-        like = f"%{filters.q.lower()}%"
-        stmt = stmt.where(
-            (func.lower(Candidate.full_name).like(like))
-            | (func.lower(Candidate.email).like(like))
-            | (Candidate.mobile.like(f"%{filters.q}%"))
-        )
+        stmt = _apply_keyword_filter(stmt, db, filters.q)
     if filters.nationality:
         stmt = stmt.where(
             func.lower(Candidate.nationality).like(

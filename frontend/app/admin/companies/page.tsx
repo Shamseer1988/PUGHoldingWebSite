@@ -497,6 +497,7 @@ function CompanyDrawer({
                 label="Brand logo"
                 value={form.brand_logo_url}
                 onChange={(url) => set("brand_logo_url", url)}
+                folder="companies/logos"
                 disabled={saving}
               />
               <p className="mt-2 text-xs text-muted-foreground">
@@ -623,6 +624,7 @@ function CompanyDrawer({
                 label="Featured image"
                 value={form.featured_image_url}
                 onChange={(url) => set("featured_image_url", url)}
+                folder="companies"
                 disabled={saving}
               />
 
@@ -717,6 +719,7 @@ function CompanyDrawer({
                     onChange={(url) =>
                       set("homepage_group_video_poster_url", url)
                     }
+                    folder="companies"
                     disabled={saving}
                   />
                 )}
@@ -878,6 +881,7 @@ function BrandLogoRepeater({
                 label="Logo image"
                 value={logo.image_url || null}
                 onChange={(url) => update(idx, { image_url: url ?? "" })}
+                folder="companies/logos"
                 disabled={disabled}
               />
 

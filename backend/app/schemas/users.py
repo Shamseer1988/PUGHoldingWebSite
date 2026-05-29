@@ -57,3 +57,57 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_superuser: Optional[bool] = None
     role_ids: Optional[List[int]] = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 — role-permission matrix
+# ---------------------------------------------------------------------------
+
+
+class PermissionInfo(BaseModel):
+    """One permission entry shown in the matrix."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    key: str
+    scope: str
+    description: Optional[str] = None
+
+
+class RoleDetail(BaseModel):
+    """Full role payload with its permission grants — used by the
+    /admin/roles/{id} GET endpoint that powers the matrix UI."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    scope: str
+    description: Optional[str] = None
+    permission_ids: List[int] = Field(default_factory=list)
+    permission_keys: List[str] = Field(default_factory=list)
+    user_count: int = 0
+
+
+class RoleCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=64)
+    scope: str = Field(pattern=r"^(system|website|hr)$")
+    description: Optional[str] = Field(default=None, max_length=255)
+    permission_ids: List[int] = Field(default_factory=list)
+
+
+class RoleUpdate(BaseModel):
+    """Patch the role itself (rename, redescribe, retag scope). Permission
+    grants are updated separately via the dedicated /permissions endpoint
+    so audit trails stay clean."""
+
+    name: Optional[str] = Field(default=None, min_length=2, max_length=64)
+    scope: Optional[str] = Field(default=None, pattern=r"^(system|website|hr)$")
+    description: Optional[str] = Field(default=None, max_length=255)
+
+
+class RolePermissionUpdate(BaseModel):
+    """Replace the full set of permission grants on a role."""
+
+    permission_ids: List[int] = Field(default_factory=list)
