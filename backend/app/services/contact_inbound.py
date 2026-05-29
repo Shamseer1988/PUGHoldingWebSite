@@ -1021,14 +1021,32 @@ def _process_one(
     if outcome.message_id and _reply_already_exists(db, outcome.message_id):
         outcome.skipped_reason = "duplicate message id"
         _mark_inspected(client, uid)
+        logger.info(
+            "IMAP UID=%s skipped (duplicate Message-ID %s) — already threaded",
+            uid_str,
+            outcome.message_id,
+        )
         return outcome
 
     ticket = _match_ticket(db, msg)
+    # Pull subject + sender once for the per-message log lines below
+    # (skipped + matched both want them; cheap to compute, expensive to
+    # debug without).
+    _log_subject = (_decode_header(msg.get("Subject")) or "(no subject)")[:120]
+    _log_sender = _email_address_from_header(msg.get("From")) or "(no sender)"
     if ticket is None:
         if config.create_new_tickets:
             new_msg = _create_ticket_from_email(db, msg)
             ticket = new_msg
             outcome.matched_via = "new ticket"
+            logger.info(
+                "IMAP UID=%s opened NEW ticket %s for unmatched mail "
+                "from=%s subject=%r",
+                uid_str,
+                new_msg.ticket_number,
+                _log_sender,
+                _log_subject,
+            )
         else:
             # Non-ticket mail — DO NOT touch \Seen and DO NOT move.
             # The user's Outlook should treat this exactly as if we
@@ -1036,11 +1054,29 @@ def _process_one(
             # don't re-fetch the same message on every poll.
             outcome.skipped_reason = "no matching ticket"
             _mark_inspected(client, uid)
+            logger.info(
+                "IMAP UID=%s skipped (no matching ticket): from=%s "
+                "subject=%r — neither X-PUG-Contact-Thread, In-Reply-To, "
+                "References, nor [PUG-CNT-…] subject bracket matched a "
+                "known ticket. Probably an admin self-notification or "
+                "unrelated mail.",
+                uid_str,
+                _log_sender,
+                _log_subject,
+            )
             return outcome
     else:
         outcome.matched_ticket = ticket[0]
         outcome.matched_via = ticket[2]
         ticket = ticket[1]
+        logger.info(
+            "IMAP UID=%s matched ticket %s via %s (from=%s subject=%r)",
+            uid_str,
+            outcome.matched_ticket,
+            outcome.matched_via,
+            _log_sender,
+            _log_subject,
+        )
 
     body_text, body_html = _extract_bodies(msg)
     clean_text = strip_quoted_reply(body_text)
