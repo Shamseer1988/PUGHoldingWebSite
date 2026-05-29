@@ -462,7 +462,7 @@ function CampaignDrawer({
   async function uploadBanner(file: File) {
     setUploadingBanner(true);
     try {
-      const uploaded = await adminApi.uploadImage(file);
+      const uploaded = await adminApi.uploadImage(file, "marketing/campaigns");
       setBannerUrl(uploaded.url);
     } catch (err) {
       onError((err as AdminApiError).message);

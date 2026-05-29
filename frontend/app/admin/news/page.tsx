@@ -307,6 +307,7 @@ function NewsDrawer({
               <ImageUpload
                 value={form.cover_image_url}
                 onChange={(url) => set("cover_image_url", url ?? "")}
+                folder="news"
                 disabled={saving}
               />
               <p className="text-[11px] text-muted-foreground">

@@ -503,6 +503,7 @@ function PageDrawer({
               <ImageUpload
                 value={form.banner_image_url}
                 onChange={(url) => set("banner_image_url", url ?? "")}
+                folder="pages"
                 disabled={saving}
               />
             </div>
@@ -511,6 +512,7 @@ function PageDrawer({
               <ImageUpload
                 value={form.banner_mobile_url}
                 onChange={(url) => set("banner_mobile_url", url ?? "")}
+                folder="pages"
                 disabled={saving}
               />
             </div>

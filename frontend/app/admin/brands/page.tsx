@@ -551,7 +551,7 @@ function BrandDialog({
     setUploading(slot);
     setError(null);
     try {
-      const result = await adminApi.uploadImage(file);
+      const result = await adminApi.uploadImage(file, "brands");
       if (slot === "main") set("logo_url", result.url);
       else set("logo_url_alt", result.url);
     } catch (err) {

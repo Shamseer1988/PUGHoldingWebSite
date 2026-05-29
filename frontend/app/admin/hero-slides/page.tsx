@@ -269,6 +269,7 @@ function SlideDrawer({ open, title, form, onChange, onClose, onSave, saving }: {
               <ImageUpload
                 value={form.background_image_url}
                 onChange={(url) => set("background_image_url", url ?? "")}
+                folder="hero"
                 disabled={saving}
               />
               <p className="text-[11px] text-muted-foreground">

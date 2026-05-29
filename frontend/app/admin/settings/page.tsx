@@ -523,6 +523,7 @@ export default function SiteSettingsAdminPage() {
                 <ImageUpload
                   value={form.home_about_image_url}
                   onChange={(url) => set("home_about_image_url", url ?? "")}
+                  folder="settings"
                   disabled={saving}
                 />
               </div>

@@ -7,6 +7,7 @@ who-did-what-when.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -1248,18 +1249,58 @@ def list_audit_logs(
 # ---------------------------------------------------------------------------
 
 
+# ``folder`` query param is a thin organisational hint — files land
+# under ``cms/<folder>/<hash>.<ext>`` instead of the flat
+# ``cms/<hash>.<ext>``. Enforced shape: 1-4 segments of
+# ``[a-z0-9-]+`` joined by ``/``. That regex blocks every path-
+# traversal pattern (``..``, leading ``/``, backslashes, encoded
+# slashes) while staying permissive enough that new sub-areas can
+# be added without changing the validator.
+_CMS_FOLDER_RE = re.compile(r"^[a-z0-9-]+(?:/[a-z0-9-]+){0,3}$")
+
+
+def _resolve_cms_subfolder(folder: Optional[str]) -> str:
+    """Validate the caller-supplied ``folder`` and return a clean
+    ``cms/<sub>`` (or ``cms`` when empty). Raises 400 on anything
+    that doesn't match the safe shape."""
+    if folder is None:
+        return "cms"
+    candidate = folder.strip().strip("/")
+    if candidate == "":
+        return "cms"
+    if not _CMS_FOLDER_RE.match(candidate):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid folder. Use 1-4 segments of lowercase letters / "
+                "digits / hyphens joined by '/' (e.g. 'hero', 'companies/logos')."
+            ),
+        )
+    return f"cms/{candidate}"
+
+
 @router.post("/uploads/image", response_model=UploadResponse, status_code=201)
 async def upload_image(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_website_admin),
     file: UploadFile = File(...),
+    folder: Optional[str] = Query(
+        default=None,
+        description=(
+            "Optional subfolder under ``cms/`` to route this upload into "
+            "(e.g. ``hero``, ``companies/logos``, ``marketing/catalogues``). "
+            "Lowercase letters / digits / hyphens / slashes only."
+        ),
+    ),
 ) -> UploadResponse:
     """Accept a single image upload from the admin CMS.
 
-    Files are stored under ``<upload_dir>/cms/`` with a content-hash
-    filename so identical uploads dedupe naturally. Returns a public
-    URL the frontend can render.
+    Files are stored under ``<upload_dir>/<prefix>/`` with a
+    content-hash filename so identical uploads dedupe naturally.
+    ``prefix`` is ``cms`` by default, or ``cms/<folder>`` when the
+    caller passes a ``folder`` query param. Returns a public URL the
+    frontend can render.
     """
     ext = ALLOWED_IMAGE_MIME.get(file.content_type or "")
     if ext is None:
@@ -1280,7 +1321,8 @@ async def upload_image(
         raise HTTPException(status_code=400, detail="Empty upload")
 
     settings = get_settings()
-    base = Path(settings.upload_dir) / "cms"
+    prefix = _resolve_cms_subfolder(folder)
+    base = Path(settings.upload_dir) / prefix
     base.mkdir(parents=True, exist_ok=True)
 
     content_hash = hashlib.sha256(data).hexdigest()
@@ -1305,20 +1347,20 @@ async def upload_image(
 
     variant_set = optimize_image(
         target,
-        public_base_url="/api/v1/uploads/cms",
+        public_base_url=f"/api/v1/uploads/{prefix}",
         mime_type=file.content_type,
     )
 
     # Phase A-6: push the original + every variant through the
     # storage abstraction. With R2 configured, ``upload`` returns an
-    # ``https://media.…/cms/<file>`` URL; with the local backend it
-    # returns the existing ``/api/v1/uploads/cms/<file>`` path so the
-    # StaticFiles mount keeps serving it.
+    # ``https://media.…/<prefix>/<file>`` URL; with the local backend
+    # it returns the existing ``/api/v1/uploads/<prefix>/<file>`` path
+    # so the StaticFiles mount keeps serving it.
     storage = get_storage()
     storage_is_local = isinstance(storage, LocalStorageBackend)
 
     url = await storage.upload(
-        f"cms/{filename}", data, file.content_type
+        f"{prefix}/{filename}", data, file.content_type
     )
 
     variants_payload = None
@@ -1326,7 +1368,7 @@ async def upload_image(
         rebuilt = {"webp": {}, "jpg": {}}
         for fmt, urls in variant_set.as_dict().items():
             for variant, local_url in urls.items():
-                # ``optimize_image`` produced ``/api/v1/uploads/cms/<name>``
+                # ``optimize_image`` produced ``/api/v1/uploads/<prefix>/<name>``
                 # — translate back to a filesystem path so we can read
                 # the bytes and hand them to the backend.
                 variant_name = Path(local_url).name
@@ -1341,7 +1383,7 @@ async def upload_image(
                 with variant_path.open("rb") as fh:
                     variant_bytes = fh.read()
                 rebuilt[fmt][variant] = await storage.upload(
-                    f"cms/{variant_name}", variant_bytes, content_type
+                    f"{prefix}/{variant_name}", variant_bytes, content_type
                 )
                 # With remote storage active, the local variant file
                 # is now redundant — the storage backend owns the

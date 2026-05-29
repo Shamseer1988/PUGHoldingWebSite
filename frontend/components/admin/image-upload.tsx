@@ -34,6 +34,13 @@ interface ImageUploadProps {
   label?: string;
   /** Show a manual URL input alongside the file picker. */
   allowManualUrl?: boolean;
+  /**
+   * Subfolder under ``cms/`` to route uploads into. Examples:
+   * ``"hero"``, ``"news"``, ``"companies/logos"``,
+   * ``"marketing/catalogues"``. When omitted, files land in the
+   * flat ``cms/`` root.
+   */
+  folder?: string;
   disabled?: boolean;
   className?: string;
 }
@@ -51,6 +58,7 @@ export function ImageUpload({
   onChange,
   label,
   allowManualUrl = true,
+  folder,
   disabled,
   className,
 }: ImageUploadProps) {
@@ -75,7 +83,7 @@ export function ImageUpload({
     setError(null);
     setUploading(true);
     try {
-      const uploaded = await adminApi.uploadImage(file);
+      const uploaded = await adminApi.uploadImage(file, folder);
       handleChange(uploaded.url);
     } catch (err) {
       if (err instanceof AdminApiError) {

@@ -168,10 +168,22 @@ export const adminApi = {
   delete<T = void>(path: string) {
     return request<T>(path, { method: "DELETE" });
   },
-  uploadImage(file: File): Promise<UploadedImage> {
+  /**
+   * Upload an image to the CMS storage.
+   *
+   * ``folder`` routes the file under ``cms/<folder>/`` instead of
+   * the flat ``cms/`` root — e.g. ``"hero"`` produces
+   * ``cms/hero/<hash>.jpg``. Backend validates the shape
+   * (lowercase letters / digits / hyphens / slashes only) so
+   * arbitrary strings can't escape the prefix.
+   */
+  uploadImage(file: File, folder?: string): Promise<UploadedImage> {
     const fd = new FormData();
     fd.append("file", file);
-    return postMultipart<UploadedImage>("/admin/cms/uploads/image", fd);
+    const path = folder
+      ? `/admin/cms/uploads/image?folder=${encodeURIComponent(folder)}`
+      : "/admin/cms/uploads/image";
+    return postMultipart<UploadedImage>(path, fd);
   },
   uploadMedia<T>(file: File): Promise<T> {
     const fd = new FormData();
