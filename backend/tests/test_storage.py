@@ -193,6 +193,27 @@ class TestR2StorageBackend:
         url = _run(backend.upload("cms/bar.png", b"X", "image/png"))
         assert url == "https://media.example.com/cms/bar.png"
 
+    def test_upload_prepends_https_when_public_base_url_lacks_scheme(
+        self, fake_boto3
+    ):
+        """Operators frequently set ``R2_PUBLIC_BASE_URL=cdn.example.com``
+        without the ``https://`` prefix. The resulting
+        ``cdn.example.com/cms/foo.jpg`` would otherwise be saved as-is
+        into the DB and treated as a relative URL by the browser,
+        404-ing the image. Auto-promote to ``https://`` so a missed
+        scheme doesn't break uploads silently."""
+        backend = _r2_backend(public_base_url="cdn.example.com")
+        url = _run(backend.upload("cms/bar.png", b"X", "image/png"))
+        assert url == "https://cdn.example.com/cms/bar.png"
+
+    def test_upload_preserves_explicit_http_scheme(self, fake_boto3):
+        """If an operator deliberately uses plain ``http://`` (LAN dev,
+        internal mirror) we leave it alone — only the no-scheme case
+        gets promoted."""
+        backend = _r2_backend(public_base_url="http://cdn.example.com")
+        url = _run(backend.upload("cms/bar.png", b"X", "image/png"))
+        assert url == "http://cdn.example.com/cms/bar.png"
+
     def test_upload_defaults_content_type_when_missing(self, fake_boto3):
         instance, _ = fake_boto3
         backend = _r2_backend()

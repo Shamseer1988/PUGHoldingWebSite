@@ -187,10 +187,19 @@ class R2StorageBackend:
         Phase A-5 (``R2_PUBLIC_BASE_URL``). Falls back to the long
         ``<account>.r2.cloudflarestorage.com/<bucket>/<key>`` form
         when no custom domain is set.
+
+        Defends against the common ``.env`` slip where the operator
+        types ``cdn.example.com`` instead of ``https://cdn.example.com``
+        — the resulting ``cdn.example.com/cms/foo.jpg`` is treated
+        as a relative path by the browser and 404s. Force-prepend
+        ``https://`` when the configured base lacks a scheme.
         """
         clean_key = key.lstrip("/")
         if self.public_base_url:
-            return f"{self.public_base_url.rstrip('/')}/{clean_key}"
+            base = self.public_base_url.rstrip("/")
+            if not base.lower().startswith(("http://", "https://")):
+                base = f"https://{base}"
+            return f"{base}/{clean_key}"
         return f"{self.endpoint_url.rstrip('/')}/{self.bucket}/{clean_key}"
 
 
