@@ -101,6 +101,18 @@ class EmailSetting(Base):
     imap_port: Mapped[Optional[int]] = mapped_column(Integer)
     imap_username: Mapped[Optional[str]] = mapped_column(String(255))
     imap_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    # OAuth2 (Microsoft 365) — Basic Auth IMAP is retired on most M365
+    # tenants. ``imap_auth_method`` is the discriminator; when set to
+    # ``oauth2`` the poller fetches a Bearer token from Entra ID and
+    # uses XOAUTH2 instead of password-based LOGIN. The encrypted
+    # client secret follows the same Fernet pattern as SMTP passwords.
+    imap_auth_method: Mapped[str] = mapped_column(
+        String(16), nullable=False,
+        default="password", server_default="password",
+    )
+    imap_oauth_tenant_id: Mapped[Optional[str]] = mapped_column(String(64))
+    imap_oauth_client_id: Mapped[Optional[str]] = mapped_column(String(64))
+    imap_oauth_client_secret_encrypted: Mapped[Optional[str]] = mapped_column(Text)
     imap_use_ssl: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

@@ -263,6 +263,14 @@ export interface EmailSettings {
   imap_error_folder?: string | null;
   imap_poll_interval_minutes?: number | null;
   imap_create_new_tickets?: boolean;
+  // OAuth2 (Microsoft 365). When `imap_auth_method === 'oauth2'`
+  // the password field is unused; the backend authenticates by
+  // fetching a Bearer token from Entra ID and sending XOAUTH2.
+  imap_auth_method?: "password" | "oauth2";
+  imap_oauth_tenant_id?: string | null;
+  imap_oauth_client_id?: string | null;
+  /** True when an encrypted client secret is stored. Value never leaves the backend. */
+  has_imap_oauth_client_secret?: boolean;
   last_imap_test_status?: EmailTestStatus;
   last_imap_test_message?: string | null;
   last_imap_test_at?: string | null;
@@ -303,6 +311,12 @@ export interface EmailSettingsUpdate {
   imap_error_folder?: string | null;
   imap_poll_interval_minutes?: number | null;
   imap_create_new_tickets?: boolean;
+  // OAuth2 — same blank-preserves pattern as imap_password.
+  imap_auth_method?: "password" | "oauth2";
+  imap_oauth_tenant_id?: string | null;
+  imap_oauth_client_id?: string | null;
+  /** Blank/undefined preserves the existing encrypted secret. */
+  imap_oauth_client_secret?: string;
 }
 
 export interface EmailTestResult {

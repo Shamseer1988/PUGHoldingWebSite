@@ -58,6 +58,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret
+from app.services.m365_oauth import (
+    M365OAuthError,
+    build_xoauth2_payload,
+    fetch_imap_token,
+)
 from app.models.cms import (
     CONTACT_STATUS_OPEN,
     CONTACT_STATUS_PENDING_ADMIN,
@@ -78,6 +83,14 @@ from app.services.contact_threading import (
 # ---------------------------------------------------------------------------
 # Resolved config — merges DB row with env defaults
 # ---------------------------------------------------------------------------
+
+
+# Discriminator values for ``ResolvedImapConfig.auth_method``. Keep
+# this list narrow — adding a new mechanism means more than typing a
+# string; the ``_connect`` dispatcher has to learn it too.
+AUTH_PASSWORD = "password"
+AUTH_OAUTH2 = "oauth2"
+SUPPORTED_AUTH_METHODS = (AUTH_PASSWORD, AUTH_OAUTH2)
 
 
 @dataclass(frozen=True)
@@ -101,17 +114,34 @@ class ResolvedImapConfig:
     error_folder: Optional[str]
     poll_interval_minutes: int
     create_new_tickets: bool
+    # OAuth2 fields — populated when ``auth_method == AUTH_OAUTH2``.
+    # In password mode they're None and ``_connect`` ignores them.
+    auth_method: str = AUTH_PASSWORD
+    oauth_tenant_id: Optional[str] = None
+    oauth_client_id: Optional[str] = None
+    oauth_client_secret: Optional[str] = None
 
     @property
     def is_ready(self) -> bool:
-        return bool(self.enabled and self.host and self.username and self.password)
+        return bool(self.enabled) and self.is_complete
 
     @property
     def is_complete(self) -> bool:
-        """Same as ``is_ready`` but ignores the enabled flag — useful
-        for the test endpoint which lets the admin verify creds before
-        flipping the master switch."""
-        return bool(self.host and self.username and self.password)
+        """Has every value the chosen auth path needs.
+
+        Same as ``is_ready`` but ignores the enabled flag — useful for
+        the test endpoint which lets the admin verify creds before
+        flipping the master switch.
+        """
+        if not (self.host and self.username):
+            return False
+        if self.auth_method == AUTH_OAUTH2:
+            return bool(
+                self.oauth_tenant_id
+                and self.oauth_client_id
+                and self.oauth_client_secret
+            )
+        return bool(self.password)
 
 
 def resolve_imap_config(db: Session) -> ResolvedImapConfig:
@@ -121,6 +151,22 @@ def resolve_imap_config(db: Session) -> ResolvedImapConfig:
     db_pwd = (
         decrypt_secret(row.imap_password_encrypted)
         if row and row.imap_password_encrypted
+        else None
+    )
+    # OAuth fields are DB-only — they were added after the env-config
+    # path shipped, and operators who want OAuth use the admin UI.
+    auth_method = (
+        (row.imap_auth_method if row and row.imap_auth_method else AUTH_PASSWORD)
+    )
+    if auth_method not in SUPPORTED_AUTH_METHODS:
+        # An unknown value — possibly a future code path running
+        # against an older worker — degrades to password mode so the
+        # poller's is_complete check can still flag "missing creds"
+        # cleanly instead of crashing inside _connect.
+        auth_method = AUTH_PASSWORD
+    oauth_secret = (
+        decrypt_secret(row.imap_oauth_client_secret_encrypted)
+        if row and row.imap_oauth_client_secret_encrypted
         else None
     )
     return ResolvedImapConfig(
@@ -158,6 +204,10 @@ def resolve_imap_config(db: Session) -> ResolvedImapConfig:
             if row and row.imap_create_new_tickets
             else _create_new_tickets_env()
         ),
+        auth_method=auth_method,
+        oauth_tenant_id=row.imap_oauth_tenant_id if row else None,
+        oauth_client_id=row.imap_oauth_client_id if row else None,
+        oauth_client_secret=oauth_secret,
     )
 
 
@@ -342,6 +392,10 @@ def test_imap_connection(
     db: Session,
     *,
     override_password: Optional[str] = None,
+    override_oauth_tenant_id: Optional[str] = None,
+    override_oauth_client_id: Optional[str] = None,
+    override_oauth_client_secret: Optional[str] = None,
+    override_auth_method: Optional[str] = None,
 ) -> ImapTestOutcome:
     """Validate the saved IMAP config by opening a real connection.
 
@@ -349,26 +403,68 @@ def test_imap_connection(
     SELECT folder, optional LIST so the admin sees a few sibling
     folder names for context — but never fetches a message.
 
-    Accepts an ``override_password`` so the admin can validate
-    *just-typed* credentials before saving them (so they don't
-    overwrite a working password with a bad one).
+    Override params let the admin validate *just-typed* credentials
+    without saving them first (so they don't overwrite a working
+    secret with a bad one). Blank/None override values fall through
+    to the resolved config.
     """
     config = resolve_imap_config(db)
-    if override_password is not None and override_password.strip():
-        # Swap the password while keeping the rest of the resolved
-        # config (host/port/SSL/folder).
+
+    # Effective auth method: explicit override > resolved value.
+    auth_method = (
+        override_auth_method
+        if override_auth_method in SUPPORTED_AUTH_METHODS
+        else config.auth_method
+    )
+    # Each override only replaces the corresponding value if the admin
+    # actually typed one — keeps "save just one field" UX consistent
+    # between the two modes.
+    effective_password = (
+        override_password.strip()
+        if override_password and override_password.strip()
+        else config.password
+    )
+    effective_oauth_tenant = (
+        override_oauth_tenant_id.strip()
+        if override_oauth_tenant_id and override_oauth_tenant_id.strip()
+        else config.oauth_tenant_id
+    )
+    effective_oauth_client_id = (
+        override_oauth_client_id.strip()
+        if override_oauth_client_id and override_oauth_client_id.strip()
+        else config.oauth_client_id
+    )
+    effective_oauth_client_secret = (
+        override_oauth_client_secret.strip()
+        if override_oauth_client_secret and override_oauth_client_secret.strip()
+        else config.oauth_client_secret
+    )
+    if any(
+        v is not None
+        for v in (
+            override_password,
+            override_oauth_tenant_id,
+            override_oauth_client_id,
+            override_oauth_client_secret,
+            override_auth_method,
+        )
+    ) or auth_method != config.auth_method:
         config = ResolvedImapConfig(
             enabled=True,
             host=config.host,
             port=config.port,
             username=config.username,
-            password=override_password,
+            password=effective_password,
             use_ssl=config.use_ssl,
             folder=config.folder,
             processed_folder=config.processed_folder,
             error_folder=config.error_folder,
             poll_interval_minutes=config.poll_interval_minutes,
             create_new_tickets=config.create_new_tickets,
+            auth_method=auth_method,
+            oauth_tenant_id=effective_oauth_tenant,
+            oauth_client_id=effective_oauth_client_id,
+            oauth_client_secret=effective_oauth_client_secret,
         )
 
     if not config.is_complete:
@@ -377,8 +473,16 @@ def test_imap_connection(
             missing.append("host")
         if not config.username:
             missing.append("username")
-        if not config.password:
-            missing.append("password")
+        if config.auth_method == AUTH_OAUTH2:
+            if not config.oauth_tenant_id:
+                missing.append("tenant ID")
+            if not config.oauth_client_id:
+                missing.append("client ID")
+            if not config.oauth_client_secret:
+                missing.append("client secret")
+        else:
+            if not config.password:
+                missing.append("password")
         return ImapTestOutcome(
             success=False,
             message=(
@@ -559,6 +663,23 @@ def _connect(config: ResolvedImapConfig) -> imaplib.IMAP4:
                 port,
             )
 
+    if config.auth_method == AUTH_OAUTH2:
+        _login_oauth2(client, config, host=host)
+    else:
+        _login_password(client, config, host=host)
+
+    try:
+        # Detach the client from idle so subsequent SELECTs don't block.
+        client.noop()
+    except Exception:  # noqa: BLE001
+        pass
+    return client
+
+
+def _login_password(
+    client: imaplib.IMAP4, config: ResolvedImapConfig, *, host: str
+) -> None:
+    """Plain ``IMAP4.login`` for legacy / non-M365 providers."""
     try:
         client.login(config.username or "", config.password or "")
     except imaplib.IMAP4.error as exc:
@@ -570,28 +691,64 @@ def _connect(config: ResolvedImapConfig) -> imaplib.IMAP4:
         # cryptic message means.
         if "outlook.office" in (host or "").lower() or "office365" in lower:
             raise _ImapAuthError(
-                "Microsoft 365 rejected the credentials. Microsoft has "
-                "disabled Basic Auth for most tenants. Either: (1) "
-                "enable MFA on this mailbox and use a 16-character "
-                "App Password instead of the regular password, or (2) "
-                "ask your tenant admin to run "
-                "`Set-CASMailbox -ImapEnabled $true` for this mailbox "
-                "+ allow Authenticated SMTP. Server said: " + raw
-            )
+                "Microsoft 365 rejected the credentials. Basic Auth + "
+                "App Passwords are retired on most tenants — switch "
+                "the auth method to OAuth2 in Email Configuration → "
+                "IMAP inbox and provide tenant ID / client ID / "
+                "client secret. Server said: " + raw
+            ) from exc
         if "authenticate" in lower or "authentication" in lower or "login" in lower:
             raise _ImapAuthError(
                 f"IMAP login refused by {host}: {raw}. Check the username "
                 f"and password — many providers require an App Password "
                 f"when MFA is on."
-            )
+            ) from exc
         raise
 
+
+def _login_oauth2(
+    client: imaplib.IMAP4, config: ResolvedImapConfig, *, host: str
+) -> None:
+    """XOAUTH2 SASL exchange for Microsoft 365.
+
+    Two failure paths to distinguish for the operator:
+
+    * Token fetch failed — credentials wrong / consent missing /
+      tenant misnamed. ``M365OAuthError`` already carries an
+      actionable message.
+    * Token OK but IMAP rejected it — usually means the SP wasn't
+      registered with Exchange Online (``New-ServicePrincipal``) or
+      the mailbox grant (``Add-MailboxPermission``) was never run.
+    """
     try:
-        # Detach the client from idle so subsequent SELECTs don't block.
-        client.noop()
-    except Exception:  # noqa: BLE001
-        pass
-    return client
+        token = fetch_imap_token(
+            tenant_id=config.oauth_tenant_id or "",
+            client_id=config.oauth_client_id or "",
+            client_secret=config.oauth_client_secret or "",
+        )
+    except M365OAuthError as exc:
+        raise _ImapAuthError(str(exc)) from exc
+
+    username = config.username or ""
+    payload = build_xoauth2_payload(username, token)
+    try:
+        # imaplib calls the callable with the server's continuation
+        # challenge; for XOAUTH2 the initial challenge is empty bytes
+        # and we hand back the full ``user=...auth=Bearer ...`` blob.
+        client.authenticate("XOAUTH2", lambda _challenge: payload)
+    except imaplib.IMAP4.error as exc:
+        raw = str(exc)
+        raise _ImapAuthError(
+            "Microsoft accepted the token but the mailbox refused it. "
+            "Most common cause: the app registration's service "
+            "principal hasn't been granted mailbox access. From an "
+            "Exchange Online PowerShell, run:\n"
+            f"  New-ServicePrincipal -AppId <client-id> -ServiceId "
+            f"<sp-object-id>\n"
+            f"  Add-MailboxPermission -Identity {username} -User "
+            f"<sp-object-id> -AccessRights FullAccess -AutoMapping:$false\n"
+            f"Server said: {raw}"
+        ) from exc
 
 
 # Custom IMAP keyword stamped onto every UID we've already inspected.
@@ -1218,10 +1375,13 @@ def process_fake_message(
 
 
 __all__ = [
+    "AUTH_OAUTH2",
+    "AUTH_PASSWORD",
     "ImapTestOutcome",
     "InboundPollSummary",
     "InboundReplyOutcome",
     "ResolvedImapConfig",
+    "SUPPORTED_AUTH_METHODS",
     "poll_inbox",
     "process_fake_message",
     "resolve_imap_config",

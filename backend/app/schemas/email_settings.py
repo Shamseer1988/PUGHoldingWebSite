@@ -62,6 +62,13 @@ class EmailSettingsRead(BaseModel):
     imap_error_folder: Optional[str] = None
     imap_poll_interval_minutes: Optional[int] = None
     imap_create_new_tickets: bool = False
+    # OAuth2 (Microsoft 365). ``has_imap_oauth_client_secret`` is the
+    # SMTP-style "is a secret stored" flag — the secret value never
+    # leaves the backend.
+    imap_auth_method: str = "password"
+    imap_oauth_tenant_id: Optional[str] = None
+    imap_oauth_client_id: Optional[str] = None
+    has_imap_oauth_client_secret: bool = False
     last_imap_test_status: str = "never"
     last_imap_test_message: Optional[str] = None
     last_imap_test_at: Optional[datetime] = None
@@ -119,6 +126,15 @@ class EmailSettingsUpdate(BaseModel):
         default=None, ge=1, le=60 * 24
     )
     imap_create_new_tickets: Optional[bool] = None
+    # OAuth2 (Microsoft 365). ``imap_oauth_client_secret`` follows the
+    # smtp_password / imap_password pattern: blank / None keeps the
+    # existing encrypted value, non-blank re-encrypts and overwrites.
+    imap_auth_method: Optional[str] = Field(
+        default=None, pattern="^(password|oauth2)$"
+    )
+    imap_oauth_tenant_id: Optional[str] = Field(default=None, max_length=64)
+    imap_oauth_client_id: Optional[str] = Field(default=None, max_length=64)
+    imap_oauth_client_secret: Optional[str] = Field(default=None, max_length=500)
 
     @field_validator(
         "imap_host",
@@ -126,6 +142,8 @@ class EmailSettingsUpdate(BaseModel):
         "imap_folder",
         "imap_processed_folder",
         "imap_error_folder",
+        "imap_oauth_tenant_id",
+        "imap_oauth_client_id",
         mode="before",
     )
     @classmethod
@@ -147,12 +165,25 @@ class EmailTestResult(BaseModel):
 
 
 class ImapTestRequest(BaseModel):
-    """Optional password override — lets the admin verify a freshly-
-    typed password without saving it first (so they can't overwrite a
-    working password with a bad one). Blank/missing means "use what's
-    already in the DB / env"."""
+    """Optional credential overrides for the test endpoint.
+
+    Lets the admin verify freshly-typed credentials without saving
+    them first (so they can't overwrite a working secret with a bad
+    one). Each blank/missing field falls back to the value already in
+    the DB / env.
+
+    OAuth fields are accepted in both modes — the test endpoint
+    respects ``imap_auth_method`` so the admin can flip-and-test
+    without committing the mode change either.
+    """
 
     imap_password: Optional[str] = Field(default=None, max_length=500)
+    imap_auth_method: Optional[str] = Field(
+        default=None, pattern="^(password|oauth2)$"
+    )
+    imap_oauth_tenant_id: Optional[str] = Field(default=None, max_length=64)
+    imap_oauth_client_id: Optional[str] = Field(default=None, max_length=64)
+    imap_oauth_client_secret: Optional[str] = Field(default=None, max_length=500)
 
 
 class ImapTestResult(BaseModel):

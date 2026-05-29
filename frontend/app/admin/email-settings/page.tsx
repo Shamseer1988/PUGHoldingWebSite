@@ -72,6 +72,11 @@ type Form = {
   imap_error_folder: string;
   imap_poll_interval_minutes: string;
   imap_create_new_tickets: boolean;
+  // OAuth2 (Microsoft 365)
+  imap_auth_method: "password" | "oauth2";
+  imap_oauth_tenant_id: string;
+  imap_oauth_client_id: string;
+  imap_oauth_client_secret: string;
 };
 
 function blankForm(): Form {
@@ -105,6 +110,10 @@ function blankForm(): Form {
     imap_error_folder: "",
     imap_poll_interval_minutes: "5",
     imap_create_new_tickets: false,
+    imap_auth_method: "password",
+    imap_oauth_tenant_id: "",
+    imap_oauth_client_id: "",
+    imap_oauth_client_secret: "",
   };
 }
 
@@ -143,6 +152,13 @@ function formFromSettings(s: EmailSettings): Form {
         ? String(s.imap_poll_interval_minutes)
         : "5",
     imap_create_new_tickets: s.imap_create_new_tickets ?? false,
+    imap_auth_method: s.imap_auth_method === "oauth2" ? "oauth2" : "password",
+    imap_oauth_tenant_id: s.imap_oauth_tenant_id ?? "",
+    imap_oauth_client_id: s.imap_oauth_client_id ?? "",
+    // Client secret is never returned by the API — empty input means
+    // "keep existing"; the placeholder + has_imap_oauth_client_secret
+    // flag give the admin a hint about what's already stored.
+    imap_oauth_client_secret: "",
   };
 }
 
@@ -236,13 +252,19 @@ function EmailSettingsBody() {
           ? Number(form.imap_poll_interval_minutes)
           : null,
         imap_create_new_tickets: form.imap_create_new_tickets,
+        imap_auth_method: form.imap_auth_method,
+        imap_oauth_tenant_id: form.imap_oauth_tenant_id.trim() || null,
+        imap_oauth_client_id: form.imap_oauth_client_id.trim() || null,
       };
-      // Only send passwords when the admin actually typed one.
+      // Only send passwords / secrets when the admin actually typed one.
       if (form.smtp_password.length > 0) {
         body.smtp_password = form.smtp_password;
       }
       if (form.imap_password.length > 0) {
         body.imap_password = form.imap_password;
+      }
+      if (form.imap_oauth_client_secret.length > 0) {
+        body.imap_oauth_client_secret = form.imap_oauth_client_secret;
       }
       const fresh = await adminApi.put<EmailSettings>(
         "/admin/email-settings",
@@ -290,11 +312,26 @@ function EmailSettingsBody() {
     setError(null);
     setImapTestResult(null);
     try {
-      // Send the just-typed password (if any) so the admin can
-      // verify creds without saving them first.
-      const body: { imap_password?: string } = {};
+      // Send the just-typed creds (if any) so the admin can verify
+      // them without committing the changes to the DB first.
+      const body: {
+        imap_password?: string;
+        imap_auth_method?: "password" | "oauth2";
+        imap_oauth_tenant_id?: string;
+        imap_oauth_client_id?: string;
+        imap_oauth_client_secret?: string;
+      } = { imap_auth_method: form.imap_auth_method };
       if (form.imap_password.length > 0) {
         body.imap_password = form.imap_password;
+      }
+      if (form.imap_oauth_tenant_id.trim()) {
+        body.imap_oauth_tenant_id = form.imap_oauth_tenant_id.trim();
+      }
+      if (form.imap_oauth_client_id.trim()) {
+        body.imap_oauth_client_id = form.imap_oauth_client_id.trim();
+      }
+      if (form.imap_oauth_client_secret.length > 0) {
+        body.imap_oauth_client_secret = form.imap_oauth_client_secret;
       }
       const result = await adminApi.post<ImapTestResult>(
         "/admin/email-settings/imap-test",
@@ -720,12 +757,67 @@ function EmailSettingsBody() {
               </span>
             </label>
 
+            {/* Authentication method — Microsoft retired Basic Auth IMAP
+                on most M365 tenants, so OAuth2 is the only path for new
+                Exchange Online deployments. Existing rows default to
+                ``password`` so non-M365 providers keep working. */}
+            <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+              <p className="text-sm font-medium">Authentication method</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex items-start gap-2 rounded-md border border-border/60 bg-background p-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1 h-4 w-4 accent-pug-green-600"
+                    name="imap-auth-method"
+                    checked={form.imap_auth_method === "password"}
+                    onChange={() => set("imap_auth_method", "password")}
+                    disabled={saving}
+                  />
+                  <span className="flex-1">
+                    <span className="block font-medium">
+                      Password / App Password
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Gmail, generic IMAP servers, and pre-2023 M365
+                      mailboxes that still allow App Passwords.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 rounded-md border border-border/60 bg-background p-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1 h-4 w-4 accent-pug-green-600"
+                    name="imap-auth-method"
+                    checked={form.imap_auth_method === "oauth2"}
+                    onChange={() => set("imap_auth_method", "oauth2")}
+                    disabled={saving}
+                  />
+                  <span className="flex-1">
+                    <span className="block font-medium">
+                      Microsoft 365 OAuth2
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Required for current Microsoft 365 tenants. Needs
+                      an Entra ID App Registration with
+                      <code className="mx-1 rounded bg-muted px-1">IMAP.AccessAsApp</code>
+                      and a mailbox grant via
+                      <code className="mx-1 rounded bg-muted px-1">New-ServicePrincipal</code>.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Host">
                 <Input
                   value={form.imap_host}
                   onChange={(e) => set("imap_host", e.target.value)}
-                  placeholder="imap.example.com"
+                  placeholder={
+                    form.imap_auth_method === "oauth2"
+                      ? "outlook.office365.com"
+                      : "imap.example.com"
+                  }
                   disabled={saving}
                 />
               </Field>
@@ -750,16 +842,23 @@ function EmailSettingsBody() {
               </Field>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Username">
-                <Input
-                  value={form.imap_username}
-                  onChange={(e) => set("imap_username", e.target.value)}
-                  placeholder="support@example.com"
-                  autoComplete="off"
-                  disabled={saving}
-                />
-              </Field>
+            <Field label="Username (mailbox UPN)">
+              <Input
+                value={form.imap_username}
+                onChange={(e) => set("imap_username", e.target.value)}
+                placeholder="support@example.com"
+                autoComplete="off"
+                disabled={saving}
+              />
+              {form.imap_auth_method === "oauth2" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The full UPN of the M365 shared mailbox the
+                  application has been granted access to.
+                </p>
+              )}
+            </Field>
+
+            {form.imap_auth_method === "password" ? (
               <Field
                 label={
                   data?.has_imap_password
@@ -784,7 +883,62 @@ function EmailSettingsBody() {
                   Password — your normal sign-in password will fail.
                 </p>
               </Field>
-            </div>
+            ) : (
+              <div className="space-y-3 rounded-lg border border-border/60 bg-background p-3">
+                <p className="text-xs text-muted-foreground">
+                  Values from your Entra ID App Registration. The
+                  client secret is encrypted at rest and never returned
+                  by the API. Leave the secret blank when editing other
+                  fields to keep the existing value.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Tenant ID">
+                    <Input
+                      value={form.imap_oauth_tenant_id}
+                      onChange={(e) =>
+                        set("imap_oauth_tenant_id", e.target.value)
+                      }
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      autoComplete="off"
+                      disabled={saving}
+                    />
+                  </Field>
+                  <Field label="Client (Application) ID">
+                    <Input
+                      value={form.imap_oauth_client_id}
+                      onChange={(e) =>
+                        set("imap_oauth_client_id", e.target.value)
+                      }
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      autoComplete="off"
+                      disabled={saving}
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label={
+                    data?.has_imap_oauth_client_secret
+                      ? "Client secret (leave blank to keep existing)"
+                      : "Client secret"
+                  }
+                >
+                  <Input
+                    type="password"
+                    value={form.imap_oauth_client_secret}
+                    onChange={(e) =>
+                      set("imap_oauth_client_secret", e.target.value)
+                    }
+                    placeholder={
+                      data?.has_imap_oauth_client_secret
+                        ? "•••••••••• (already set)"
+                        : "Paste the Value column from Certificates & secrets"
+                    }
+                    autoComplete="new-password"
+                    disabled={saving}
+                  />
+                </Field>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="flex items-center gap-2 text-sm">

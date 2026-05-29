@@ -96,6 +96,12 @@ def _to_read(db: Session, setting: EmailSetting) -> EmailSettingsRead:
         last_imap_test_message=setting.last_imap_test_message,
         last_imap_test_at=setting.last_imap_test_at,
         imap_env_fallback_active=imap_env_fallback,
+        imap_auth_method=setting.imap_auth_method or "password",
+        imap_oauth_tenant_id=setting.imap_oauth_tenant_id,
+        imap_oauth_client_id=setting.imap_oauth_client_id,
+        has_imap_oauth_client_secret=bool(
+            setting.imap_oauth_client_secret_encrypted
+        ),
     )
 
 
@@ -116,6 +122,7 @@ def update_email_settings(
     updates = payload.model_dump(exclude_unset=True)
     new_password = updates.pop("smtp_password", None)
     new_imap_password = updates.pop("imap_password", None)
+    new_oauth_secret = updates.pop("imap_oauth_client_secret", None)
 
     changed: list[str] = []
     for field, value in updates.items():
@@ -134,6 +141,19 @@ def update_email_settings(
 
         setting.imap_password_encrypted = encrypt_secret(new_imap_password)
         changed.append("imap_password")
+
+    # IMAP OAuth2 client secret — same Fernet pattern again. Rotating
+    # the secret invalidates the cached token; the next poll fetches
+    # a fresh one from Microsoft.
+    if new_oauth_secret is not None and new_oauth_secret.strip():
+        from app.core.crypto import encrypt_secret
+        from app.services.m365_oauth import clear_cache
+
+        setting.imap_oauth_client_secret_encrypted = encrypt_secret(
+            new_oauth_secret
+        )
+        clear_cache()
+        changed.append("imap_oauth_client_secret")
 
     if changed:
         setting.updated_by_id = user.id
@@ -207,7 +227,12 @@ def test_imap_settings(
     badge without re-running the test on every load.
     """
     outcome = test_imap_connection(
-        db, override_password=payload.imap_password
+        db,
+        override_password=payload.imap_password,
+        override_oauth_tenant_id=payload.imap_oauth_tenant_id,
+        override_oauth_client_id=payload.imap_oauth_client_id,
+        override_oauth_client_secret=payload.imap_oauth_client_secret,
+        override_auth_method=payload.imap_auth_method,
     )
 
     setting = EmailService.get_or_create_settings(db)
