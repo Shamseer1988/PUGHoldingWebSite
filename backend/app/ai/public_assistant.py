@@ -469,28 +469,15 @@ def _live_answer(
     config: ResolvedAIConfig,
     extra_public_prompt: Optional[str],
 ) -> AskResult:
-    if not (
-        config.azure_endpoint
-        and config.azure_deployment
-        and config.azure_api_key
-    ):
-        raise AIConfigError(
-            "AI is set to 'live' but Azure endpoint / deployment / API key are not configured."
-        )
+    # Phase C-6: provider abstraction. See ``candidate_review._generate_live``
+    # for the rationale on the error-vocabulary translation.
+    from app.ai.providers import ProviderError, get_chat_provider
+    from app.ai.providers.factory import ProviderConfigError
 
     try:
-        from openai import AzureOpenAI  # imported lazily
-    except ImportError as exc:  # pragma: no cover
-        raise AIConfigError(
-            "openai package is not installed. Run `pip install -r requirements.txt`."
-        ) from exc
-
-    client = AzureOpenAI(
-        api_key=config.azure_api_key,
-        api_version=config.azure_api_version or "2024-08-01-preview",
-        azure_endpoint=config.azure_endpoint,
-        timeout=config.request_timeout_seconds,
-    )
+        provider = get_chat_provider(config)
+    except ProviderConfigError as exc:
+        raise AIConfigError(str(exc)) from exc
 
     system_prompt = SYSTEM_PROMPT
     if extra_public_prompt and extra_public_prompt.strip():
@@ -499,17 +486,16 @@ def _live_answer(
     user_prompt = _build_user_prompt(question, context, history)
 
     try:
-        completion = client.chat.completions.create(
-            model=config.azure_deployment,
-            temperature=config.temperature,
-            max_tokens=min(config.max_output_tokens, 600),
+        completion = provider.complete(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            temperature=config.temperature,
+            max_tokens=min(config.max_output_tokens, 600),
         )
-    except Exception as exc:  # noqa: BLE001
-        raise AIProviderError(f"Azure OpenAI call failed: {exc}") from exc
+    except ProviderError as exc:
+        raise AIProviderError(str(exc)) from exc
 
     raw = completion.model_dump()
     answer = ""
@@ -627,28 +613,16 @@ def _live_answer_stream(
     ``AIProviderError`` — the orchestrator above converts that to a
     fallback frame so the visitor always sees a response.
     """
-    if not (
-        config.azure_endpoint
-        and config.azure_deployment
-        and config.azure_api_key
-    ):
-        raise AIConfigError(
-            "AI is set to 'live' but Azure endpoint / deployment / API key are not configured."
-        )
+    # Phase C-6: provider abstraction. The provider's
+    # ``complete_stream`` already opts into ``include_usage`` so the
+    # last frame carries token counts.
+    from app.ai.providers import ProviderError, get_chat_provider
+    from app.ai.providers.factory import ProviderConfigError
 
     try:
-        from openai import AzureOpenAI  # imported lazily
-    except ImportError as exc:  # pragma: no cover
-        raise AIConfigError(
-            "openai package is not installed. Run `pip install -r requirements.txt`."
-        ) from exc
-
-    client = AzureOpenAI(
-        api_key=config.azure_api_key,
-        api_version=config.azure_api_version or "2024-08-01-preview",
-        azure_endpoint=config.azure_endpoint,
-        timeout=config.request_timeout_seconds,
-    )
+        provider = get_chat_provider(config)
+    except ProviderConfigError as exc:
+        raise AIConfigError(str(exc)) from exc
 
     system_prompt = SYSTEM_PROMPT
     if extra_public_prompt and extra_public_prompt.strip():
@@ -656,31 +630,19 @@ def _live_answer_stream(
 
     user_prompt = _build_user_prompt(question, context, history)
 
-    try:
-        completion = client.chat.completions.create(
-            model=config.azure_deployment,
-            temperature=config.temperature,
-            max_tokens=min(config.max_output_tokens, 600),
-            stream=True,
-            # ``stream_options`` opts into the final usage frame that
-            # the Azure / OpenAI servers append after the last delta.
-            # Lets us populate ``prompt_tokens`` / ``completion_tokens``
-            # on the closing event without a second request.
-            stream_options={"include_usage": True},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise AIProviderError(f"Azure OpenAI call failed: {exc}") from exc
-
     chunks: List[str] = []
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
 
     try:
-        for chunk in completion:
+        for chunk in provider.complete_stream(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=config.temperature,
+            max_tokens=min(config.max_output_tokens, 600),
+        ):
             # Usage frame: arrives last when ``include_usage`` is on
             # and carries no ``choices`` payload.
             usage = getattr(chunk, "usage", None)
@@ -694,8 +656,8 @@ def _live_answer_stream(
             if piece:
                 chunks.append(piece)
                 yield ("delta", piece)
-    except Exception as exc:  # noqa: BLE001
-        raise AIProviderError(f"Azure OpenAI stream interrupted: {exc}") from exc
+    except ProviderError as exc:
+        raise AIProviderError(str(exc)) from exc
 
     answer = "".join(chunks).strip()
     if not answer:

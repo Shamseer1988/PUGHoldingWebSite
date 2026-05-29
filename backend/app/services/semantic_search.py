@@ -128,12 +128,16 @@ def _ai_configured() -> bool:
 
 
 def compute_query_embedding(text: str) -> Optional[list[float]]:
-    """Embed ``text`` via Azure OpenAI. Returns None if AI is not
-    configured; raises :class:`SemanticSearchError` on provider error.
+    """Embed ``text`` via the configured AI provider. Returns None
+    if AI is not configured; raises :class:`SemanticSearchError` on
+    provider error.
 
-    Mocked from tests — patch this function rather than the OpenAI
-    client. ``import openai`` is lazy so the module imports cleanly
-    in environments where the SDK isn't installed.
+    Phase C-6: routes through ``app.ai.providers.get_embedding_provider``
+    so swapping Azure for OpenAI direct / Anthropic later is one
+    line in the factory rather than a rewrite here.
+
+    Mocked from tests — patch this function rather than the
+    underlying provider client.
     """
     if not _ai_configured():
         return None
@@ -142,6 +146,9 @@ def compute_query_embedding(text: str) -> Optional[list[float]]:
 
     import os
 
+    from app.ai.providers import ProviderError, get_embedding_provider
+    from app.ai.providers.factory import ProviderConfigError
+
     settings = get_settings()
     deployment = (
         os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
@@ -149,28 +156,16 @@ def compute_query_embedding(text: str) -> Optional[list[float]]:
         or DEFAULT_EMBEDDING_MODEL
     )
     try:
-        from openai import AzureOpenAI  # lazy import
-    except ImportError as exc:
-        raise SemanticSearchError(
-            "openai package is not installed."
-        ) from exc
+        provider = get_embedding_provider(
+            settings, deployment_override=deployment
+        )
+    except ProviderConfigError as exc:
+        raise SemanticSearchError(str(exc)) from exc
 
-    client = AzureOpenAI(
-        api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-        azure_endpoint=settings.azure_openai_endpoint,
-        timeout=30,
-    )
     try:
-        resp = client.embeddings.create(input=text, model=deployment)
-    except Exception as exc:  # noqa: BLE001 — surface as a clean error
-        raise SemanticSearchError(
-            f"Embedding provider call failed: {exc}"
-        ) from exc
-
-    if not resp.data:
-        raise SemanticSearchError("Embedding provider returned no data.")
-    return list(resp.data[0].embedding)
+        return provider.embed(text)
+    except ProviderError as exc:
+        raise SemanticSearchError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
