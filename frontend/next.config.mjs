@@ -44,6 +44,11 @@ const csp = [
     (apiOrigin ? apiOrigin + " " : "") +
     "https://www.google-analytics.com https://vitals.vercel-insights.com " +
     "*.r2.cloudflarestorage.com",
+  // ``frame-src`` allows the Google Maps embed on the Contact page +
+  // the optional admin-pasted map embed in the footer. ``youtube.com``
+  // covers any future hero video embeds. Anything else in an iframe is
+  // blocked.
+  "frame-src 'self' https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
