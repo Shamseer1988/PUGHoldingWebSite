@@ -1,0 +1,195 @@
+# ============================================================================
+# Production Docker Compose stack
+# ============================================================================
+# Standalone — does NOT extend docker-compose.yml. Run with:
+#
+#     docker compose -f docker-compose.prod.yml up -d --build
+#
+# Differences from docker-compose.yml (local dev):
+#
+#   * No source bind-mounts — uses the production target of each
+#     Dockerfile. Rebuild with --build after `git pull`.
+#   * Postgres + Redis have NO exposed host ports. Only the Docker
+#     network can reach them, so a misconfigured EC2 Security Group
+#     can no longer leak the database to the public internet.
+#   * Backend boots gunicorn with multiple uvicorn workers instead of
+#     ``uvicorn --reload`` — no filesystem watcher, multi-process.
+#   * SECRET_KEY is required via backend/.env. There is no compose
+#     fallback because the production validator would refuse to boot
+#     with the dev placeholder anyway.
+#   * Nginx container terminates TLS using the Cloudflare Origin
+#     Certificate dropped into deploy/docker/tls/. It's the only
+#     entry point: ports 80 + 443 mapped to the host, everything
+#     else stays on the compose-internal network.
+#
+# Pre-flight on the EC2 host (one-time):
+#
+#   1. backend/.env present with at minimum:
+#        SECRET_KEY              (run: python3 -c "import secrets; print(secrets.token_urlsafe(64))")
+#        POSTGRES_PASSWORD       (strong random)
+#        PUBLIC_SITE_URL=https://parisunitedgroup.com
+#        CORS_ALLOWED_ORIGINS=https://parisunitedgroup.com,https://www.parisunitedgroup.com
+#        plus R2_*, AZURE_OPENAI_*, SENTRY_DSN_BACKEND as you use them
+#
+#   2. frontend/.env.local present with:
+#        NEXT_PUBLIC_API_BASE_URL=https://parisunitedgroup.com/api/v1
+#
+#   3. deploy/docker/tls/origin.crt + origin.key — generated in
+#      Cloudflare dashboard (SSL/TLS → Origin Server → Create
+#      Certificate, 15-year validity). chmod 600 the key file.
+#
+# Bring up:    docker compose -f docker-compose.prod.yml up -d --build
+# Tail logs:   docker compose -f docker-compose.prod.yml logs -f
+# Stop:        docker compose -f docker-compose.prod.yml down
+# Drop data:   docker compose -f docker-compose.prod.yml down -v   ← destructive
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in backend/.env or shell env}
+      POSTGRES_DB: ${POSTGRES_DB:-pug_holding}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug_user} -d ${POSTGRES_DB:-pug_holding}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No ``ports:`` block — Postgres is reachable only from other
+    # containers on the default network. A SQL client on the host
+    # needs ``docker compose exec postgres psql …``.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No ports — internal only, same rationale as Postgres above.
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: true
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_ENV: production
+    # Override the Dockerfile CMD to use gunicorn with multiple
+    # uvicorn workers (production-grade) instead of single-process
+    # uvicorn. Workers count = (2 * cores) + 1 is the classic rule;
+    # 4 is a sensible default for a t3.small / t3.medium and stays
+    # comfortable in 2 GB RAM. Tune up if your instance is larger.
+    command:
+      - sh
+      - -c
+      - >
+        alembic upgrade head &&
+        exec gunicorn app.main:app
+        --bind 0.0.0.0:8000
+        --workers 4
+        --worker-class uvicorn.workers.UvicornWorker
+        --access-logfile -
+        --error-logfile -
+        --timeout 300
+        --graceful-timeout 30
+    volumes:
+      - uploads_data:/app/uploads
+    # No host ports — Nginx is the entry point.
+
+  worker:
+    # ARQ background worker (Phase B-3). Opt-in via the ``worker``
+    # profile so a default ``up`` doesn't pull it in. Bring up with:
+    #   docker compose -f docker-compose.prod.yml --profile worker up -d
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: true
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: production
+      ARQ_ENABLED: "true"
+    command: ["python", "worker_runner.py"]
+    volumes:
+      - uploads_data:/app/uploads
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file:
+      - path: ./frontend/.env.local
+        required: true
+    environment:
+      # Server-side fetches hit the backend via the compose network.
+      API_BASE_URL: http://backend:8000/api/v1
+      NODE_ENV: production
+    # No host ports — Nginx is the entry point. Next.js still listens
+    # on 3000 inside the container; the upstream block in
+    # deploy/docker/nginx.conf points at frontend:3000.
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/docker/tls:/etc/nginx/tls:ro
+      # Uploads are served directly by Nginx for legacy local-storage
+      # mode. R2-backed installs never hit this path (URLs go
+      # straight to the R2 custom domain) but mounting read-only
+      # keeps both modes working from the same image.
+      - uploads_data:/var/www/uploads:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
