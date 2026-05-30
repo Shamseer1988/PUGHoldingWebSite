@@ -30,6 +30,13 @@ Backend test suite: **577 passing** at completion (511 pre-existing
 
 Total new acceptance tests across the rework: **133**.
 
+### Advanced module (separate roadmap — see ``HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt``)
+
+| AM-Phase | Theme | Commits | Tests added |
+|---:|---|---|---:|
+| 1 | CV uploads → R2 storage backend | PR #29 | 9 |
+| 2 | **Candidate assessment workflow** — MCQ-multi templates + tokenised invites + identity verify (email/mobile/DOB) + branded form with watermark + auto-score | this PR | 46 (39 backend + 7 frontend) |
+
 ---
 
 ## 2. Files changed (highlights)
