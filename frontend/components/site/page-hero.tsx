@@ -17,8 +17,34 @@ interface PageHeroProps {
   children?: React.ReactNode;
   /** Centre the heading + description. */
   centered?: boolean;
+  /**
+   * Vertical scale of the hero.
+   *
+   *   - ``default`` (current behaviour, used by ~13 pages): tall
+   *     statement banner with ``py-16 sm:py-20 lg:py-24`` so the
+   *     hero anchors the page's first scroll-fold.
+   *   - ``compact``: roughly half the vertical padding
+   *     (``py-8 sm:py-10 lg:py-12``). Used by the Offers landing
+   *     where the hero is followed immediately by an interactive
+   *     filter bar — the operator wants the campaigns above the
+   *     fold, not the hero.
+   *
+   * Default keeps the exact pre-existing class string so the other
+   * pages (companies / careers / news / media / about / contact /
+   * terms / privacy …) stay pixel-identical.
+   */
+  size?: "default" | "compact";
   className?: string;
 }
+
+
+// Inner-padding presets per ``size``. Kept as constants so the
+// vitest can assert the exact class strings haven't drifted.
+const HERO_PADDING: Record<NonNullable<PageHeroProps["size"]>, string> = {
+  default: "py-16 sm:py-20 lg:py-24",
+  compact: "py-8 sm:py-10 lg:py-12",
+};
+
 
 /**
  * Standard banner used at the top of every secondary public page.
@@ -33,6 +59,7 @@ export function PageHero({
   videoUrl,
   children,
   centered = false,
+  size = "default",
   className,
 }: PageHeroProps) {
   const resolvedVideo = normaliseMediaUrl(videoUrl ?? null);
@@ -121,7 +148,7 @@ export function PageHero({
         />
       )}
 
-      <div className="container mx-auto px-4 py-16 sm:py-20 lg:py-24">
+      <div className={cn("container mx-auto px-4", HERO_PADDING[size])}>
         <div
           className={cn(
             "max-w-3xl space-y-4",

@@ -76,7 +76,11 @@ export default async function CampaignDetailPage({ params }: PageProps) {
             aria-hidden
           />
         )}
-        <div className="relative mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
+        {/* Match the compact ``<PageHero size="compact">`` on
+            ``/offers`` (``py-8 sm:py-10 lg:py-12``) so the section
+            chrome reads consistently across the two Offers pages
+            without affecting any other public page's hero. */}
+        <div className="relative mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:py-12">
           <Link
             href="/offers"
             className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.18em] text-white/70 hover:text-white"
