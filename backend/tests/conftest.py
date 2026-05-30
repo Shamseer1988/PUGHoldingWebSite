@@ -77,6 +77,25 @@ def _reset_rate_limits() -> Generator[None, None, None]:
     reset_rate_limits()
 
 
+@pytest.fixture(autouse=True)
+def _reset_storage_backend_cache() -> Generator[None, None, None]:
+    """``get_storage()`` is ``lru_cache``-d so the boto3 client is
+    built once per process. In tests that's a footgun: a fixture that
+    ``monkeypatch.setenv("UPLOAD_DIR", ...)`` then ``get_settings.cache_clear()``s
+    expects the storage layer to pick up the new path on the next
+    call. Without clearing this cache the storage stays pinned to
+    whatever path the FIRST test that touched it locked in, and
+    subsequent tests write to the wrong tmp_path.
+
+    Cheap to reset — it's a single function-level cache — so we just
+    blow it away around every test."""
+    from app.services.storage import get_storage
+
+    get_storage.cache_clear()
+    yield
+    get_storage.cache_clear()
+
+
 class _PerCallFakeRedis:
     """Builds a fresh ``FakeRedis`` per method access, bound to the
     same shared ``FakeServer``.

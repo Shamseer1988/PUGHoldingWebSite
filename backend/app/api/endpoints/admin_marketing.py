@@ -109,8 +109,9 @@ _DASHBOARD_VIEWER = require_any_permission(
 from app.services.audit_log import record_audit
 from app.services.catalogue_processor import (
     CatalogueProcessingError,
-    delete_catalogue_files,
+    delete_catalogue_assets,
     process_catalogue,
+    source_pdf_key,
 )
 
 
@@ -592,6 +593,10 @@ def delete_catalogue(
     row = _catalogue_or_404(db, catalogue_id)
     cid = row.id
     slug = row.slug
+    # Capture the page count BEFORE we drop the row — once the cascade
+    # fires we can't recover it, but the storage cleanup needs it to
+    # know which page keys to walk.
+    page_count = row.page_count
     _audit(
         db,
         actor,
@@ -599,15 +604,18 @@ def delete_catalogue(
         action="marketing.catalogue.delete",
         target_type="catalogue",
         target_id=row.id,
-        details={"slug": slug, "page_count": row.page_count},
+        details={"slug": slug, "page_count": page_count},
     )
     db.delete(row)
     db.commit()
-    # Best-effort filesystem cleanup AFTER the row is gone.
+    # Best-effort storage cleanup AFTER the row is gone — works for
+    # both local-disk and R2 backends via deterministic keys.
     try:
-        delete_catalogue_files(cid)
+        delete_catalogue_assets(cid, page_count)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to clean files for catalogue %s: %s", cid, exc)
+        logger.warning(
+            "Failed to clean storage for catalogue %s: %s", cid, exc
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -622,28 +630,27 @@ def reprocess_catalogue(
 ) -> CatalogueDetail:
     """Re-render an existing catalogue's PDF.
 
-    Reads the stored source.pdf back from disk and runs it through
-    the processor again — useful after tuning render quality or
-    recovering a failed initial upload without re-uploading the file.
+    Pulls the stored source.pdf back from the storage backend (R2 or
+    local disk) under the same deterministic key the processor wrote
+    it to, then runs it through the processor again. Useful after
+    tuning render quality or recovering a failed initial upload
+    without re-uploading the file.
     """
-    from pathlib import Path
-
-    from app.core.config import get_settings
+    from app.services.storage import get_storage
 
     row = _catalogue_or_404(db, catalogue_id)
-    settings = get_settings()
-    relative = (row.pdf_url or "").split("/api/v1/uploads/", 1)[-1]
-    pdf_path = Path(settings.upload_dir) / relative if relative else None
-    if pdf_path is None or not pdf_path.exists():
+    try:
+        pdf_bytes = get_storage().download_sync(source_pdf_key(row.id))
+    except FileNotFoundError as exc:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Original PDF is missing on disk — re-upload the catalogue."
+                "Original PDF is missing from storage — re-upload the catalogue."
             ),
-        )
+        ) from exc
 
     try:
-        result = process_catalogue(db, row, pdf_path.read_bytes())
+        result = process_catalogue(db, row, pdf_bytes)
     except CatalogueProcessingError as exc:
         _audit(
             db,
