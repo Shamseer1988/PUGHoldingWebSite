@@ -33,6 +33,11 @@ export interface OfferIndexCampaign {
   is_featured: boolean;
   is_killer_offer: boolean;
   is_flash_sale: boolean;
+  /** True when ``end_date`` is in the past. UI renders an
+   *  ``EXPIRED`` badge + muted cover; the row stays in
+   *  ``all_campaigns`` but is excluded from the highlighted
+   *  carousels. */
+  is_expired: boolean;
   catalogue_count: number;
   cover_image_url: string | null;
 }
@@ -63,6 +68,9 @@ export interface CampaignPublicDetail {
   branch: string | null;
   start_date: string | null;
   end_date: string | null;
+  /** See ``OfferIndexCampaign.is_expired`` — same semantics. The
+   *  detail page surfaces this as a prominent banner notice. */
+  is_expired: boolean;
   meta_title: string | null;
   meta_description: string | null;
   catalogues: Catalogue[];

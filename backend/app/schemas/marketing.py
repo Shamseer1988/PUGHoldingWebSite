@@ -221,6 +221,12 @@ class OffersIndexCampaign(BaseModel):
     is_featured: bool
     is_killer_offer: bool
     is_flash_sale: bool
+    # ``True`` when ``end_date`` is in the past. Surfaced on the
+    # public landing so historical campaigns render with an
+    # "EXPIRED" badge instead of being hidden entirely — the
+    # operator can still review past assets and customers don't
+    # land on a 404 when following an old social-share link.
+    is_expired: bool = False
     catalogue_count: int
     cover_image_url: Optional[str]
 
@@ -268,6 +274,11 @@ class CampaignPublicDetail(BaseModel):
     branch: Optional[str]
     start_date: Optional[date]
     end_date: Optional[date]
+    # See ``OffersIndexCampaign.is_expired`` — same semantics. The
+    # detail page surfaces this with a prominent banner notice so
+    # someone who lands here via an old share link sees that the
+    # promotion has ended.
+    is_expired: bool = False
     meta_title: Optional[str]
     meta_description: Optional[str]
     catalogues: List[CatalogueRead] = Field(default_factory=list)

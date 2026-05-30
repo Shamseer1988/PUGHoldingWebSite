@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
+  Clock,
   Flame,
   MapPin,
   Search,
@@ -308,6 +309,7 @@ function CampaignCard({
   large?: boolean;
 }) {
   const cover = campaign.cover_image_url ?? campaign.banner_image_url;
+  const expired = campaign.is_expired;
   // The cover usually has a 2:3 aspect (vertical catalogue page),
   // but if the campaign only has a wide banner image (16:9) we
   // render that one instead. Either way we use ``object-cover`` so
@@ -315,9 +317,17 @@ function CampaignCard({
   return (
     <Link
       href={`/offers/${campaign.slug}`}
-      className="group block overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:shadow-lg"
+      aria-label={
+        expired
+          ? `${campaign.title} (expired campaign)`
+          : campaign.title
+      }
+      className={cn(
+        "group block overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:shadow-lg",
+        expired && "opacity-80 hover:opacity-100"
+      )}
       style={
-        campaign.theme_color
+        !expired && campaign.theme_color
           ? {
               boxShadow: `0 1px 0 ${campaign.theme_color}22 inset`,
             }
@@ -341,28 +351,46 @@ function CampaignCard({
             src={resolveAssetUrl(cover) ?? ""}
             alt={campaign.title}
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+            className={cn(
+              "h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]",
+              expired && "grayscale-[40%]"
+            )}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted-foreground">
             <Tag className="h-8 w-8 opacity-40" />
           </div>
         )}
+        {expired && (
+          // Subtle dim overlay on top of the cover so an expired
+          // killer/flash card reads as "done" at a glance instead
+          // of competing with live campaigns for attention.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-foreground/15"
+          />
+        )}
         {/* Flag chips overlay */}
         <div className="absolute left-3 top-3 flex flex-wrap gap-1">
-          {campaign.is_killer_offer && (
+          {expired && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-foreground/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-background">
+              <Clock className="h-2.5 w-2.5" />
+              Expired
+            </span>
+          )}
+          {!expired && campaign.is_killer_offer && (
             <span className="inline-flex items-center gap-1 rounded-full bg-rose-600/95 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
               <Flame className="h-2.5 w-2.5" />
               Killer
             </span>
           )}
-          {campaign.is_flash_sale && (
+          {!expired && campaign.is_flash_sale && (
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-600/95 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
               <Zap className="h-2.5 w-2.5" />
               Flash
             </span>
           )}
-          {campaign.is_featured && (
+          {!expired && campaign.is_featured && (
             <span className="inline-flex items-center gap-1 rounded-full bg-pug-gold-500/95 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-pug-green-800">
               <Sparkles className="h-2.5 w-2.5" />
               Featured
@@ -377,7 +405,12 @@ function CampaignCard({
             {campaign.branch}
           </p>
         )}
-        <h3 className="line-clamp-2 text-base font-semibold leading-snug">
+        <h3
+          className={cn(
+            "line-clamp-2 text-base font-semibold leading-snug",
+            expired && "text-muted-foreground"
+          )}
+        >
           {campaign.title}
         </h3>
         {campaign.description && (
@@ -387,15 +420,38 @@ function CampaignCard({
         )}
         <p className="pt-1 text-xs text-muted-foreground">
           {campaign.catalogue_count} catalogue
-          {campaign.catalogue_count === 1 ? "" : "s"} ·
+          {campaign.catalogue_count === 1 ? "" : "s"}
+          {campaign.end_date && (
+            <>
+              {" · "}
+              {expired ? "Ended " : "Ends "}
+              {formatEndDate(campaign.end_date)}
+            </>
+          )}
+          {" · "}
           <span className="ml-1 inline-flex items-center gap-1 font-medium text-primary">
-            Open
+            {expired ? "View" : "Open"}
             <ArrowRight className="h-3 w-3" />
           </span>
         </p>
       </div>
     </Link>
   );
+}
+
+
+function formatEndDate(iso: string): string {
+  // Backend returns ISO date (``YYYY-MM-DD``). Format as locale
+  // short-month so it reads cleanly in the card footer.
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 
