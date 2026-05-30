@@ -103,6 +103,8 @@ PERM_MARKETING_CAMPAIGNS_READ = "marketing:campaigns:read"
 PERM_MARKETING_CAMPAIGNS_MANAGE = "marketing:campaigns:manage"
 PERM_MARKETING_CATALOGUES_READ = "marketing:catalogues:read"
 PERM_MARKETING_CATALOGUES_MANAGE = "marketing:catalogues:manage"
+PERM_MARKETING_SHORT_URLS_READ = "marketing:short_urls:read"
+PERM_MARKETING_SHORT_URLS_MANAGE = "marketing:short_urls:manage"
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +174,8 @@ MARKETING_PERMISSIONS: Tuple[Tuple[str, str], ...] = (
     (PERM_MARKETING_CAMPAIGNS_MANAGE, "Create and manage offer campaigns"),
     (PERM_MARKETING_CATALOGUES_READ, "Browse catalogues and pages (read-only)"),
     (PERM_MARKETING_CATALOGUES_MANAGE, "Upload, edit and reprocess catalogues"),
+    (PERM_MARKETING_SHORT_URLS_READ, "Browse short URLs and click counters (read-only)"),
+    (PERM_MARKETING_SHORT_URLS_MANAGE, "Create, edit and delete branded short URLs"),
 )
 
 MARKETING_PERMISSION_KEYS = frozenset(k for k, _ in MARKETING_PERMISSIONS)
@@ -180,6 +184,7 @@ _MARKETING_READ_ONLY = (
     PERM_MARKETING_DASHBOARD_VIEW,
     PERM_MARKETING_CAMPAIGNS_READ,
     PERM_MARKETING_CATALOGUES_READ,
+    PERM_MARKETING_SHORT_URLS_READ,
 )
 
 

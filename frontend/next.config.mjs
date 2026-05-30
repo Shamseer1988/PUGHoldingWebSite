@@ -142,6 +142,16 @@ const nextConfig = {
       process.env.API_BASE_URL ??
       "http://localhost:8000/api/v1";
     return [
+      // Branded short URLs — ``/go/{slug}`` resolves to the backend
+      // public endpoint, which 302s to the campaign target. Pattern
+      // accepts upper-case too so a flyer printed in CAPS still
+      // works (the backend lower-cases before lookup). Kept as a
+      // rewrite so every click round-trips through us for the
+      // counter.
+      {
+        source: "/go/:slug([A-Za-z0-9_-]{3,32})",
+        destination: `${apiBase}/go/:slug`,
+      },
       {
         source: "/:filename(google[a-zA-Z0-9_-]{4,64}\\.html)",
         destination: `${apiBase}/public/seo/verify/:filename`,
