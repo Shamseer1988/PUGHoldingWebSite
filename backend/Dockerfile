@@ -53,30 +53,26 @@ WORKDIR /app
 #
 #   libpq5              — psycopg2-binary's runtime (always required).
 #   postgresql-client-17 — pg_dump / pg_restore for the Admin → Database
-#                         Backup feature. Pulled from the official PGDG
-#                         apt repo because Debian Bookworm ships
-#                         postgresql-client v15, and pg_dump refuses to
-#                         dump a v17 server (the compose stack uses
-#                         ``postgres:17-alpine``). Major-version
-#                         compatibility is "client >= server".
+#                         Backup feature. Pulled from Debian's own
+#                         repo — ``python:3.11-slim`` is on Debian
+#                         trixie (13), which ships PostgreSQL 17 as
+#                         the default and packages
+#                         ``postgresql-client-17`` directly. No PGDG
+#                         third-party repo needed.
 #
-# curl + gnupg are needed to register the PGDG signing key and are
-# purged at the end of the layer so the final image doesn't ship a
-# network-fetch toolchain. ca-certificates is small enough to keep —
-# the rest of the stack uses it too.
+#                         Major-version compat rule for pg_dump is
+#                         "client >= server" and the compose stack
+#                         uses ``postgres:17-alpine``, so v17 client
+#                         matches exactly. If a future base image
+#                         rebases onto an older Debian (e.g. bookworm
+#                         ships client 15), this line will fail loudly
+#                         with "package not found" — at which point
+#                         add the PGDG repo back, scoped to the active
+#                         codename via ``. /etc/os-release``.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg \
-    && install -d /usr/share/postgresql-common/pgdg \
-    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
-        > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update \
     && apt-get install -y --no-install-recommends \
         libpq5 \
         postgresql-client-17 \
-    && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the per-user Python install from builder.
