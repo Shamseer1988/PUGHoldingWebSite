@@ -32,6 +32,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi.responses import RedirectResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -49,6 +50,7 @@ from app.auth.permissions import (
     PERM_HR_CANDIDATES_VIEW_DEPT,
     PERM_HR_CANDIDATES_VIEW_FULL,
     PERM_HR_CANDIDATES_VIEW_LIST,
+    PERM_HR_CV_DOWNLOAD,
 )
 from app.core.database import get_db
 from app.models.auth import User
@@ -2056,3 +2058,50 @@ def backfill_semantic_index(
     # actually needs — replace it with the integer.
     result["remaining_count"] = len(result.pop("remaining_to_visit"))
     return result
+
+
+# ---------------------------------------------------------------------------
+# CV download — replaces the legacy ``/api/v1/uploads/cvs/…`` StaticFiles
+# serving path. The candidate's primary CV lives on R2 (or local disk in
+# dev) under a key stored on ``CandidateDocument.file_path``; this
+# endpoint 302-redirects to a fresh pre-signed URL so HR can click
+# through without the bytes streaming through the FastAPI process.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{candidate_id}/cv")
+def download_candidate_cv(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_HR_CV_DOWNLOAD)),  # noqa: ARG001 — guard
+) -> RedirectResponse:
+    """302 to a short-lived URL for the candidate's primary CV.
+
+    Looks up the candidate's primary ``CandidateDocument`` (or
+    the most recent one if no primary is flagged), resolves the
+    stored storage key, and asks the storage backend for a
+    pre-signed URL with a 10-minute TTL. On R2 that's a real
+    signed GET; on the local-disk backend it's the legacy
+    ``/api/v1/uploads/…`` URL the StaticFiles mount serves.
+
+    404s for unknown candidate, candidate with no documents, or
+    storage objects that no longer exist (e.g. mid-migration).
+    """
+    from app.services.cv_storage import cv_download_url
+
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    docs = list(candidate.documents)
+    if not docs:
+        raise HTTPException(status_code=404, detail="No CV on file")
+    primary = next((d for d in docs if d.is_primary), docs[0])
+    if not primary.file_path:
+        raise HTTPException(status_code=404, detail="CV file_path missing on document")
+
+    try:
+        url = cv_download_url(primary.file_path, expires_in=600)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="CV not available") from exc
+
+    return RedirectResponse(url=url, status_code=302)

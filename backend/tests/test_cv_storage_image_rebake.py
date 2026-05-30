@@ -36,8 +36,18 @@ def _jpeg_with_exif() -> bytes:
 
 
 def _read_back(path_url: str) -> bytes:
-    # The URL is /api/v1/uploads/cvs/<hash>.<ext> — locate the actual
-    # file on disk via the storage path the test config uses.
+    # ``CvFileMetadata.url`` is now the storage key
+    # ``career/cv/<hash>.<ext>``. Read it back via the storage
+    # backend so the test works for both local-disk and (in CI)
+    # mocked R2 setups.
+    from app.services.cv_storage import read_cv_bytes
+
+    return read_cv_bytes(path_url)
+
+
+def _OLD_read_back_unused(path_url: str) -> bytes:
+    # Retained only so the legacy local-path fallback compiles if
+    # someone reaches for it during debugging. Not called.
     from app.core.config import get_settings
 
     settings = get_settings()

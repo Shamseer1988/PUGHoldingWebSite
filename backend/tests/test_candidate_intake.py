@@ -98,7 +98,8 @@ def test_public_application_creates_candidate_doc_and_app(
     assert len(docs) == 1
     assert docs[0].is_primary is True
     assert docs[0].file_hash is not None
-    assert docs[0].file_path.startswith("/api/v1/uploads/cvs/")
+    # Post-R2 the column stores the storage key, not a URL.
+    assert docs[0].file_path.startswith("career/cv/")
 
     apps = list(db_session.execute(select(CandidateJobApplication)).scalars())
     assert len(apps) == 1
