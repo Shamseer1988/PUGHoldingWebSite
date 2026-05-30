@@ -5,6 +5,7 @@
  * server bundle stays clean.
  */
 import { env } from "@/lib/env";
+import { resolveAssetUrl } from "@/lib/public-api";
 
 
 /** Stable per-browser id used as a privacy-preserving session key
@@ -65,7 +66,18 @@ export async function logCatalogueView(
   }
 }
 
-/** Build the public download URL for a catalogue's source PDF. */
+/** Build the public download URL for a catalogue's source PDF.
+ *
+ * Goes through ``resolveAssetUrl`` so the loopback→real-host
+ * rewrite kicks in: if the build baked
+ * ``NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`` (the
+ * default fallback) but the browser is on
+ * ``parisunitedgroup.com``, the URL becomes
+ * ``https://parisunitedgroup.com/api/v1/...`` instead of an
+ * unreachable ``localhost:8000`` link. Going through the same
+ * helper that ``<img src>`` resolution uses keeps the rewrite rules
+ * in one place. */
 export function catalogueDownloadUrl(catalogueId: number): string {
-  return `${env.apiBaseUrl}/offers/catalogues/${catalogueId}/download`;
+  const path = `/api/v1/offers/catalogues/${catalogueId}/download`;
+  return resolveAssetUrl(path) ?? path;
 }
