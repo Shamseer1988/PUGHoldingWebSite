@@ -1,25 +1,42 @@
-"""CV file storage helpers (Phase 10).
+"""CV file storage helpers.
 
-Mirrors the image upload pattern from Phase B8.5: validates MIME type
-and size, computes a SHA-256 hash, stores the file under
-``<upload_dir>/cvs/<hash_prefix>.<ext>``, and returns a public URL.
+Validates MIME type + size, computes a SHA-256 hash, pushes the bytes
+through :mod:`app.services.storage` under
+``career/cv/{hash_prefix}.{ext}``, and returns the storage **key**
+(the string that gets persisted on ``CandidateDocument.file_path``).
 
-Single-file uploads return one CvFileMetadata. Bulk ZIP uploads iterate
-inner files of supported types and return a list of metadata + skip
-records for unsupported entries.
+The key is content-addressed, not application-scoped, because
+``store_cv_bytes`` is called BEFORE the candidate / application rows
+are created — the apply endpoint stores the file first, then runs
+``ingest_candidate_application`` which links the key to the DB. This
+gives us natural dedup for free: the same CV uploaded twice
+collapses to one object, which keeps R2 storage costs predictable.
+
+CVs are private — never linked publicly. HR fetches them through a
+backend endpoint that ``302``-redirects to a fresh, short-lived
+pre-signed URL via :func:`cv_download_url`. The CV parser still
+takes a filesystem path (pdfminer / python-docx / pytesseract), so
+:func:`read_cv_bytes` + :func:`stage_cv_locally` exist to bridge
+in-process consumers (auto-review, bulk reports) to the new R2-backed
+storage without touching the parser internals.
+
+Bulk ZIP uploads iterate inner files of supported types and return
+a list of metadata + skip records for unsupported entries.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import List, Tuple
+from typing import Iterator, List, Optional, Tuple
 
 from PIL import Image, UnidentifiedImageError
 
-from app.core.config import get_settings
+from app.services.storage import get_storage
 
 
 # Image extensions that get re-baked through Pillow before storage so
@@ -45,8 +62,27 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_ZIP_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
+# Key prefix for every CV stored, regardless of whether the
+# uploader was the public career page, an HR single upload, or an
+# HR bulk ZIP. Lives alongside ``catalogues/``, ``cms/``, etc. in the
+# R2 bucket — see ``docs`` for the full key catalogue.
+CV_KEY_PREFIX = "career/cv"
+
+
 @dataclass(slots=True)
 class CvFileMetadata:
+    """Return value of :func:`store_cv_bytes`.
+
+    ``url`` is the **storage key** — historically this was a relative
+    URL ``/api/v1/uploads/cvs/<hash>.<ext>`` because CVs lived on
+    local disk and FastAPI's StaticFiles mount served them directly.
+    Post-R2 the field still carries a string that gets stored
+    verbatim on ``CandidateDocument.file_path``, but the string is
+    now a storage backend key like ``career/cv/<hash>.<ext>``. The
+    name is kept for back-compat with every consumer that already
+    reads ``meta.url``.
+    """
+
     url: str
     filename: str  # stored filename (hash + ext)
     original_name: str
@@ -137,16 +173,18 @@ def store_cv_bytes(
 
     file_hash = hashlib.sha256(data).hexdigest()
     filename = f"{file_hash[:16]}.{ext}"
+    key = f"{CV_KEY_PREFIX}/{filename}"
 
-    settings = get_settings()
-    base = Path(settings.upload_dir) / "cvs"
-    base.mkdir(parents=True, exist_ok=True)
-    target = base / filename
-    if not target.exists():
-        target.write_bytes(data)
+    # Push to the storage backend (R2 in production, local disk in
+    # dev). ``upload_sync`` is idempotent — R2 silently overwrites
+    # the same key, local disk just rewrites the file. Either way
+    # the content-addressed key means we never accumulate near-
+    # duplicate copies of the same CV.
+    storage = get_storage()
+    storage.upload_sync(key, data, _content_type_for(ext, mime_type))
 
     return CvFileMetadata(
-        url=f"/api/v1/uploads/cvs/{filename}",
+        url=key,
         filename=filename,
         original_name=original_name,
         size=len(data),
@@ -154,6 +192,118 @@ def store_cv_bytes(
         file_hash=file_hash,
         extension=ext,
     )
+
+
+# ---------------------------------------------------------------------------
+# Read-side helpers — bridge the storage backend to consumers that still
+# need bytes (parser, exports). Everything that reads a CV should go
+# through one of these so the storage layer stays the single source of
+# truth.
+# ---------------------------------------------------------------------------
+
+
+def read_cv_bytes(file_path: str) -> bytes:
+    """Fetch CV bytes by storage key.
+
+    ``file_path`` is whatever was stored on
+    ``CandidateDocument.file_path`` — for new uploads that's the
+    storage key (``career/cv/<hash>.<ext>``); for pre-migration rows
+    it can still be the legacy ``/api/v1/uploads/cvs/<file>`` URL,
+    which :func:`_storage_key_from_legacy` normalises.
+
+    Raises ``FileNotFoundError`` when the object is missing from
+    storage so callers can render a clean 404.
+    """
+    key = _storage_key_from_legacy(file_path)
+    return get_storage().download_sync(key)
+
+
+def cv_download_url(file_path: str, expires_in: int = 600) -> str:
+    """Return a short-lived URL the browser can fetch the CV from.
+
+    On R2: a real pre-signed GET URL bound to ``expires_in`` seconds
+    (default 10 min — long enough for HR to click → load → print,
+    short enough that a shared URL doesn't leak indefinitely). On
+    the local backend: the legacy ``/api/v1/uploads/...`` URL the
+    StaticFiles mount serves.
+    """
+    key = _storage_key_from_legacy(file_path)
+    return get_storage().presigned_url(key, expires_in=expires_in)
+
+
+@contextlib.contextmanager
+def stage_cv_locally(file_path: str) -> Iterator[Path]:
+    """Materialise a CV to a temp file on local disk so the parser
+    libraries (pdfminer / python-docx / pytesseract) can open it
+    with the path-based API they expect.
+
+    Cleans the temp file on exit. Use as::
+
+        with stage_cv_locally(doc.file_path) as p:
+            text = extract_text(p, extension=doc.file_extension)
+
+    Avoid letting the temp file outlive the ``with`` block — the
+    point is to keep R2 bytes out of long-lived local state.
+    """
+    data = read_cv_bytes(file_path)
+    suffix = "." + (Path(file_path).suffix.lstrip(".") or "bin")
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(data)
+        tmp.flush()
+        tmp.close()
+        yield Path(tmp.name)
+    finally:
+        with contextlib.suppress(OSError):
+            Path(tmp.name).unlink(missing_ok=True)
+
+
+def _storage_key_from_legacy(file_path: str) -> str:
+    """Normalise a ``CandidateDocument.file_path`` to a storage key.
+
+    Three shapes flow through here in practice:
+
+      * ``career/cv/<hash>.<ext>`` — modern key (post-migration), used as-is.
+      * ``/api/v1/uploads/cvs/<file>`` — pre-R2 legacy URL.
+      * ``cvs/<file>`` — same legacy layout without the StaticFiles
+        prefix (some test fixtures dropped the leading mount).
+
+    We map every legacy form to ``career/cv/<basename>`` because the
+    migration script uploads the existing files to that key. After
+    migration runs, every DB row's ``file_path`` is in the modern
+    form and this function is a no-op for them.
+    """
+    s = (file_path or "").strip()
+    if not s:
+        raise FileNotFoundError("Empty CV file_path")
+    if s.startswith(CV_KEY_PREFIX + "/"):
+        return s
+    legacy_prefix = "/api/v1/uploads/cvs/"
+    if s.startswith(legacy_prefix):
+        return f"{CV_KEY_PREFIX}/{s[len(legacy_prefix):]}"
+    if s.startswith("cvs/"):
+        return f"{CV_KEY_PREFIX}/{s[len('cvs/'):]}"
+    # Last-resort: assume the whole string is the basename.
+    return f"{CV_KEY_PREFIX}/{Path(s).name}"
+
+
+def _content_type_for(ext: str, mime_type: Optional[str]) -> str:
+    """Resolve the Content-Type R2 should serve the file with.
+
+    Prefer the uploader-declared MIME when it's in our allowlist;
+    fall back to the extension lookup so the edge sets a sensible
+    header even when the client sent ``application/octet-stream``.
+    """
+    if mime_type and mime_type in ALLOWED_CV_MIME:
+        return mime_type
+    return {
+        "pdf": "application/pdf",
+        "doc": "application/msword",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+    }.get(ext, "application/octet-stream")
 
 
 @dataclass(slots=True)

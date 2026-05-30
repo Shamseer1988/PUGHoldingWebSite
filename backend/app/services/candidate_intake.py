@@ -334,19 +334,23 @@ def _merge(candidate: Candidate, attr: str, new_value) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_document_path(file_meta: CvFileMetadata) -> Path:
-    """Map the document's public URL back to its on-disk path."""
-    settings = get_settings()
-    # CvFileMetadata.url looks like "/api/v1/uploads/cvs/<filename>".
-    return Path(settings.upload_dir) / "cvs" / file_meta.filename
-
-
 def _parse_document(file_meta: CvFileMetadata) -> Optional[ParsedCv]:
-    path = _resolve_document_path(file_meta)
-    if not path.exists():
-        logger.warning("CV file missing for parsing: %s", path)
+    """Fetch the CV bytes from storage and run the parser.
+
+    The parser (pdfminer / python-docx / pytesseract) needs a real
+    filesystem path, so :func:`stage_cv_locally` materialises the
+    R2 (or local) bytes into a temp file that's cleaned up on exit.
+    Missing objects log + return None — the caller treats it as a
+    soft "no data" rather than an error.
+    """
+    from app.services.cv_storage import stage_cv_locally
+
+    try:
+        with stage_cv_locally(file_meta.url) as path:
+            return parse_cv(path, extension=file_meta.extension)
+    except FileNotFoundError:
+        logger.warning("CV missing from storage: %s", file_meta.url)
         return None
-    return parse_cv(path, extension=file_meta.extension)
 
 
 def _persist_extracted_data(

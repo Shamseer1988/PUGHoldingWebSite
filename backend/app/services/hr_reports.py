@@ -1233,7 +1233,12 @@ def candidate_full_export_report(
                     candidate.documents[0],
                 )
             if primary_doc is not None:
-                cv_link = primary_doc.file_path
+                # Point at the backend download endpoint rather than
+                # the raw storage key. The exported sheet may be
+                # opened later by an HR teammate; the endpoint 302s
+                # to a fresh pre-signed URL on each click, so the
+                # link doesn't expire from the recipient's POV.
+                cv_link = f"/api/v1/hr/candidates/{candidate.id}/cv"
 
             education = ""
             if candidate.extracted_data and candidate.extracted_data.education:

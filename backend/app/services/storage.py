@@ -84,6 +84,26 @@ class StorageBackend(Protocol):
         """Synchronous variant of :meth:`delete`. No-op on missing keys."""
         ...
 
+    def presigned_url(self, key: str, expires_in: int = 600) -> str:
+        """Return a short-lived URL the browser can fetch ``key`` from
+        without backend credentials.
+
+        Used by the candidate-CV download flow (and by any future
+        private-asset surface): the backend resolves ``key`` from the
+        DB then 302-redirects the request here, so private bytes
+        never need to stream through us. ``expires_in`` is in seconds;
+        callers default to 5–15 min.
+
+        Implementations:
+
+          * R2 backend issues a real S3v4 pre-signed GET URL.
+          * Local backend can't expire anything — it returns the
+            same legacy ``/api/v1/uploads/<key>`` URL the StaticFiles
+            mount served before R2 was wired. Adequate for dev /
+            unit tests.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Local-disk backend (preserved fallback)
@@ -137,6 +157,16 @@ class LocalStorageBackend:
             target.unlink(missing_ok=True)
         except OSError as exc:  # pragma: no cover — disk-level rarities
             logger.warning("LocalStorageBackend delete failed", key=key, error=str(exc))
+
+    def presigned_url(
+        self, key: str, expires_in: int = 600  # noqa: ARG002 — local can't expire
+    ) -> str:
+        # Local can't sign anything — the StaticFiles mount at
+        # ``/api/v1/uploads`` serves the same bytes the upload wrote.
+        # The ``expires_in`` arg is accepted for interface parity but
+        # ignored; local dev / unit tests don't need real expiry.
+        clean = key.lstrip("/")
+        return f"{self.public_url_prefix.rstrip('/')}/{clean}"
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +262,24 @@ class R2StorageBackend:
             logger.warning(
                 "R2StorageBackend delete failed", key=key, error=str(exc)
             )
+
+    def presigned_url(self, key: str, expires_in: int = 600) -> str:
+        # Issue an S3v4-signed GET URL. boto3 does the signing
+        # synchronously against the in-memory client (the heavy
+        # crypto setup happened in ``__post_init__``) so callers
+        # don't need to wait. We always sign against the raw R2
+        # endpoint — even when ``public_base_url`` is configured —
+        # because pre-signed URLs are bound to the host they were
+        # signed for, and the public custom-domain proxy strips the
+        # query-string signature on most setups.
+        return self._client.generate_presigned_url(  # type: ignore[attr-defined]
+            "get_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": key.lstrip("/"),
+            },
+            ExpiresIn=int(expires_in),
+        )
 
     # --- helpers ------------------------------------------------------------
 
