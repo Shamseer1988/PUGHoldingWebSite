@@ -12,7 +12,6 @@ import {
   ChevronRight,
   DatabaseBackup,
   ExternalLink,
-  FileArchive,
   FileText,
   History,
   Image as ImageIcon,
@@ -30,6 +29,7 @@ import {
   Sparkles,
   Tag,
   Users,
+  Wrench,
   X,
 } from "lucide-react";
 
@@ -101,9 +101,9 @@ const NAV: NavGroup[] = [
         icon: BookOpen,
       },
       {
-        label: "PDF compressor",
-        href: "/admin/marketing/pdf-compressor",
-        icon: FileArchive,
+        label: "Tools",
+        href: "/admin/marketing/tools",
+        icon: Wrench,
       },
     ],
   },
