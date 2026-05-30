@@ -29,13 +29,33 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: pug_user
-      POSTGRES_PASSWORD: pug_password
-      POSTGRES_DB: pug_holding
+      # Each ``${VAR:-default}`` reads from your shell env first, then
+      # from a ``.env`` file alongside this compose file, and only
+      # falls back to the default when neither is set. So a fresh
+      # checkout still Just Works (defaults below), but you can
+      # override per-machine by dropping a ``.env`` in the repo root:
+      #
+      #     POSTGRES_USER=my_user
+      #     POSTGRES_PASSWORD=long-random-pass
+      #     POSTGRES_DB=my_db
+      #
+      # ``backend/.env`` is separate (loaded via env_file by the
+      # backend service for the app's runtime settings); keep the
+      # same values in both so the backend can connect to the DB
+      # the postgres service just created.
+      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pug_user -d pug_holding"]
+      # ``$$VAR`` escapes a single ``$`` so the variable is resolved
+      # INSIDE the container at runtime — against the values the
+      # ``environment`` block above just set — rather than at
+      # compose-interpolation time. Without the double-dollar the
+      # healthcheck would hard-code whatever user/db was active when
+      # ``docker compose up`` ran, and break on any later override.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -82,6 +102,14 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      # Mirror the postgres service's interpolation so the backend
+      # connects with the SAME credentials the DB was just created
+      # with — overriding any stale value in backend/.env. Anything
+      # in your shell env or root ``.env`` flows through to both
+      # services from one place.
+      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       REDIS_URL: redis://redis:6379/0
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
@@ -121,6 +149,13 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      # Same rationale as the backend service — keep all three DB
+      # vars driven by the shared compose-level interpolation so the
+      # worker connects with the credentials the postgres service
+      # actually created.
+      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       SECRET_KEY: "compose-dev-secret-do-not-use-in-production"
