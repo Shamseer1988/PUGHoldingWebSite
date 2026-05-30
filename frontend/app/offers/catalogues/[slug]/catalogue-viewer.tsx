@@ -43,6 +43,44 @@ import { cn } from "@/lib/utils";
 type FlipBookComponent = React.ComponentType<Record<string, unknown>>;
 
 
+/**
+ * Which page indices are visually on screen at ``pageIndex``?
+ *
+ * react-pageflip fires its ``flip`` event with the LEFT page index
+ * of the current spread (see ``page-flip/src/Collection/PageCollection.ts``
+ * — ``this.currentPageIndex = spread[0]``). In landscape with
+ * ``showCover``, valid left-page indices are ``0`` (cover alone),
+ * then ``1, 3, 5, …`` for the regular pairs, and possibly the last
+ * index alone when the total page count is even (back cover).
+ *
+ * The viewer used to mark thumbnails / outline rows as "current"
+ * via ``i === pageIndex``, which only highlighted the LEFT page of
+ * the visible spread — confusing UX given both pages are on
+ * screen. This helper returns every index that's actually
+ * rendered so the highlight, indicator, and any "is this page
+ * visible" check can use one source of truth.
+ */
+export function getVisibleIndices(
+  pageIndex: number,
+  pageCount: number,
+  isPortrait: boolean,
+): number[] {
+  if (pageCount === 0) return [];
+  if (isPortrait) return [pageIndex];
+  if (pageIndex === 0) return [0]; // cover alone
+  // showCover landscape: the back cover lands alone only when
+  // pageCount is even (cover + an odd number of body pages leaves
+  // the last one without a pair). When odd, the last index is the
+  // RIGHT page of the final pair, so the spread is [pageIndex-1, pageIndex].
+  if (pageIndex === pageCount - 1 && pageCount % 2 === 0) {
+    return [pageIndex];
+  }
+  return pageIndex + 1 < pageCount
+    ? [pageIndex, pageIndex + 1]
+    : [pageIndex];
+}
+
+
 interface Props {
   catalogue: CatalogueDetail;
 }
@@ -59,6 +97,18 @@ export function CatalogueViewer({ catalogue }: Props) {
   const [FlipBookComp, setFlipBookComp] =
     React.useState<FlipBookComponent | null>(null);
 
+  const pages = catalogue.pages ?? [];
+  const pageCount = pages.length;
+  // Set of page indices actually visible at ``pageIndex`` — handles
+  // the cover / back-cover-alone / paired-spread cases in landscape
+  // mode and the trivial single-page case on mobile. Used by the
+  // thumbnail + outline highlight and the status readout so they
+  // agree on "what's on screen right now".
+  const visibleIndices = React.useMemo(
+    () => getVisibleIndices(pageIndex, pageCount, isMobile),
+    [pageIndex, pageCount, isMobile],
+  );
+
   const containerRef = React.useRef<HTMLDivElement>(null);
   // react-pageflip exposes a class-component instance with one
   // synchronous accessor (``pageFlip()``) that returns the
@@ -71,9 +121,6 @@ export function CatalogueViewer({ catalogue }: Props) {
       flip(target: number): void;
     };
   } | null>(null);
-
-  const pages = catalogue.pages;
-  const pageCount = pages.length;
 
   // -----------------------------------------------------------------
   // Lazy-load react-pageflip on mount (uses ``window`` at import).
@@ -587,7 +634,7 @@ export function CatalogueViewer({ catalogue }: Props) {
       {thumbsOpen && (
         <ThumbnailGrid
           pages={pages}
-          currentIndex={pageIndex}
+          visibleIndices={visibleIndices}
           onJump={goTo}
           onClose={() => setThumbsOpen(false)}
         />
@@ -595,7 +642,7 @@ export function CatalogueViewer({ catalogue }: Props) {
       {outlineOpen && (
         <OutlinePanel
           pages={pages}
-          currentIndex={pageIndex}
+          visibleIndices={visibleIndices}
           onJump={goTo}
           onClose={() => setOutlineOpen(false)}
         />
@@ -731,12 +778,12 @@ function ProgressBar({
 
 function ThumbnailGrid({
   pages,
-  currentIndex,
+  visibleIndices,
   onJump,
   onClose,
 }: {
   pages: CataloguePage[];
-  currentIndex: number;
+  visibleIndices: number[];
   onJump: (i: number) => void;
   onClose: () => void;
 }) {
@@ -768,11 +815,12 @@ function ThumbnailGrid({
               onClick={() => onJump(i)}
               className={cn(
                 "group block overflow-hidden rounded border bg-zinc-800 transition-all",
-                i === currentIndex
+                visibleIndices.includes(i)
                   ? "border-pug-gold-300 ring-2 ring-pug-gold-300/40"
                   : "border-white/10 opacity-80 hover:opacity-100"
               )}
               aria-label={`Jump to page ${p.page_number}`}
+              aria-current={visibleIndices.includes(i) ? "page" : undefined}
               title={`Page ${p.page_number}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -796,12 +844,12 @@ function ThumbnailGrid({
 
 function OutlinePanel({
   pages,
-  currentIndex,
+  visibleIndices,
   onJump,
   onClose,
 }: {
   pages: CataloguePage[];
-  currentIndex: number;
+  visibleIndices: number[];
   onJump: (i: number) => void;
   onClose: () => void;
 }) {
@@ -830,9 +878,10 @@ function OutlinePanel({
             <button
               type="button"
               onClick={() => onJump(i)}
+              aria-current={visibleIndices.includes(i) ? "page" : undefined}
               className={cn(
                 "flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors",
-                i === currentIndex
+                visibleIndices.includes(i)
                   ? "bg-white/10 text-white"
                   : "text-zinc-300 hover:bg-white/5 hover:text-white"
               )}

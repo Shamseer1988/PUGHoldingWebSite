@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, BookOpen, MapPin } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, MapPin } from "lucide-react";
 
 import type { Catalogue } from "@/lib/admin/marketing-types";
 import { resolveAssetUrl } from "@/lib/public-api";
 import { getCampaignBySlug } from "@/lib/public-offers";
+import { cn } from "@/lib/utils";
 
 
 export const revalidate = 60;
@@ -50,6 +51,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
   }
 
   const themed = campaign.theme_color || "#17382f";
+  const expired = campaign.is_expired;
 
   return (
     <main className="min-h-screen bg-background">
@@ -57,7 +59,9 @@ export default async function CampaignDetailPage({ params }: PageProps) {
       <section
         className="relative overflow-hidden border-b border-border/60"
         style={{
-          background: `linear-gradient(135deg, ${themed}f2, ${themed}cc)`,
+          background: expired
+            ? "linear-gradient(135deg, #3f3f46f2, #18181bcc)"
+            : `linear-gradient(135deg, ${themed}f2, ${themed}cc)`,
         }}
       >
         {campaign.banner_image_url && (
@@ -65,7 +69,10 @@ export default async function CampaignDetailPage({ params }: PageProps) {
           <img
             src={resolveAssetUrl(campaign.banner_image_url) ?? ""}
             alt=""
-            className="absolute inset-0 h-full w-full object-cover opacity-30 mix-blend-screen"
+            className={cn(
+              "absolute inset-0 h-full w-full object-cover mix-blend-screen",
+              expired ? "opacity-15 grayscale" : "opacity-30"
+            )}
             aria-hidden
           />
         )}
@@ -77,6 +84,12 @@ export default async function CampaignDetailPage({ params }: PageProps) {
             <ArrowLeft className="h-3 w-3" />
             All offers
           </Link>
+          {expired && (
+            <span className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white backdrop-blur">
+              <Clock className="h-3 w-3" />
+              Campaign ended
+            </span>
+          )}
           <h1 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">
             {campaign.title}
           </h1>
@@ -107,6 +120,44 @@ export default async function CampaignDetailPage({ params }: PageProps) {
         </div>
       </section>
 
+      {/* Expired notice strip — sits between the banner and the
+          catalogue grid so it's the first thing the customer reads
+          before clicking into a viewer. Keeps the call-out distinct
+          from the banner's chrome so it doesn't get overlooked. */}
+      {expired && (
+        <div className="border-b border-amber-500/30 bg-amber-500/10">
+          <div className="mx-auto flex max-w-5xl items-start gap-3 px-4 py-4 text-sm text-amber-900 dark:text-amber-200 sm:px-6">
+            <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">
+                This campaign has ended
+                {campaign.end_date && (
+                  <>
+                    {" "}
+                    (
+                    {new Date(campaign.end_date).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                    )
+                  </>
+                )}
+                .
+              </p>
+              <p className="mt-0.5 text-amber-800/85 dark:text-amber-200/80">
+                The catalogues below are kept for reference. Prices and
+                availability may have changed. Visit{" "}
+                <Link href="/offers" className="font-semibold underline hover:no-underline">
+                  current offers
+                </Link>{" "}
+                for live promotions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Catalogue grid */}
       <section className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
         {campaign.catalogues.length === 0 ? (
@@ -115,9 +166,14 @@ export default async function CampaignDetailPage({ params }: PageProps) {
             No catalogues attached to this campaign yet.
           </div>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            className={cn(
+              "grid gap-5 sm:grid-cols-2 lg:grid-cols-3",
+              expired && "opacity-90"
+            )}
+          >
             {campaign.catalogues.map((c) => (
-              <CatalogueCard key={c.id} catalogue={c} />
+              <CatalogueCard key={c.id} catalogue={c} expired={expired} />
             ))}
           </div>
         )}
@@ -127,10 +183,21 @@ export default async function CampaignDetailPage({ params }: PageProps) {
 }
 
 
-function CatalogueCard({ catalogue }: { catalogue: Catalogue }) {
+function CatalogueCard({
+  catalogue,
+  expired = false,
+}: {
+  catalogue: Catalogue;
+  expired?: boolean;
+}) {
   return (
     <Link
       href={`/offers/catalogues/${catalogue.slug}`}
+      aria-label={
+        expired
+          ? `${catalogue.title} (from an expired campaign)`
+          : catalogue.title
+      }
       className="group block overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:shadow-lg"
     >
       <div className="relative aspect-[3/4] overflow-hidden bg-muted">
@@ -140,16 +207,30 @@ function CatalogueCard({ catalogue }: { catalogue: Catalogue }) {
             src={resolveAssetUrl(catalogue.cover_image_url) ?? ""}
             alt={catalogue.title}
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+            className={cn(
+              "h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]",
+              expired && "grayscale-[40%]"
+            )}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted-foreground">
             <BookOpen className="h-10 w-10 opacity-40" />
           </div>
         )}
+        {expired && (
+          <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-foreground/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-background">
+            <Clock className="h-2.5 w-2.5" />
+            Expired
+          </span>
+        )}
       </div>
       <div className="space-y-1 p-4">
-        <h3 className="line-clamp-2 font-semibold leading-snug">
+        <h3
+          className={cn(
+            "line-clamp-2 font-semibold leading-snug",
+            expired && "text-muted-foreground"
+          )}
+        >
           {catalogue.title}
         </h3>
         {catalogue.description && (
@@ -160,7 +241,9 @@ function CatalogueCard({ catalogue }: { catalogue: Catalogue }) {
         <p className="pt-1 text-[11px] text-muted-foreground">
           {catalogue.page_count} page
           {catalogue.page_count === 1 ? "" : "s"} ·
-          <span className="ml-1 font-medium text-primary">Open viewer →</span>
+          <span className="ml-1 font-medium text-primary">
+            {expired ? "View archive →" : "Open viewer →"}
+          </span>
         </p>
       </div>
     </Link>

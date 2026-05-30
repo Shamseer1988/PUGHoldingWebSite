@@ -155,8 +155,13 @@ export default function CataloguesPage() {
           setError("Not authenticated.");
           return;
         }
-        const env = await import("@/lib/env").then((m) => m.env);
-        const url = `${env.apiBaseUrl}/admin/marketing/catalogues/${row.id}/qr-code.png`;
+        // Use resolveAssetUrl so the loopback→real-host rewrite
+        // applies if NEXT_PUBLIC_API_BASE_URL baked to localhost:8000
+        // (the default fallback) — otherwise the fetch goes to a host
+        // the browser can't reach in prod / LAN dev.
+        const { resolveAssetUrl } = await import("@/lib/public-api");
+        const path = `/api/v1/admin/marketing/catalogues/${row.id}/qr-code.png`;
+        const url = resolveAssetUrl(path) ?? path;
         const resp = await fetch(url, {
           headers: { Authorization: `Bearer ${session.accessToken}` },
         });

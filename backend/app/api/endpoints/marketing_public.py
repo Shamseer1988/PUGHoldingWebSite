@@ -50,18 +50,32 @@ router = APIRouter(prefix="/offers", tags=["Public - Offers & Catalogues"])
 # ---------------------------------------------------------------------------
 
 
-def _active_campaign_clause():
-    """Filter for "campaign should currently appear in public listings"
-    — active flag set and (no end_date OR end_date in the future)."""
+def _publishable_campaign_clause():
+    """Filter for "campaign is publicly visible on the landing".
+
+    Includes EXPIRED campaigns intentionally — the landing renders
+    them with an "EXPIRED" badge so customers can still see past
+    promotions (and old share links don't 404). We only exclude:
+
+      * ``is_active = false`` — explicit admin hide.
+      * ``start_date > today`` — campaigns scheduled but not yet
+        live shouldn't leak before their reveal.
+
+    Use :func:`_is_expired` to compute the badge state per row.
+    """
     today = date.today()
     return and_(
         OfferCampaign.is_active.is_(True),
-        or_(OfferCampaign.end_date.is_(None), OfferCampaign.end_date >= today),
         or_(
             OfferCampaign.start_date.is_(None),
             OfferCampaign.start_date <= today,
         ),
     )
+
+
+def _is_expired(campaign: OfferCampaign) -> bool:
+    """``True`` when the campaign's end_date is strictly in the past."""
+    return campaign.end_date is not None and campaign.end_date < date.today()
 
 
 def _ready_catalogue_count_lookup(
@@ -126,6 +140,7 @@ def _to_index_card(
         is_featured=c.is_featured,
         is_killer_offer=c.is_killer_offer,
         is_flash_sale=c.is_flash_sale,
+        is_expired=_is_expired(c),
         catalogue_count=counts.get(c.id, 0),
         cover_image_url=covers.get(c.id),
     )
@@ -145,12 +160,14 @@ def list_offers(
     """Landing payload for the public ``/offers`` page.
 
     Returns four bucketed lists (featured, killer, flash, all) plus
-    the distinct branch list for the filter chips. Inactive /
-    expired campaigns are excluded.
+    the distinct branch list for the filter chips. Inactive and
+    not-yet-started campaigns are excluded; **expired** campaigns
+    are included with ``is_expired = true`` so the UI can badge
+    them and old share links still resolve.
     """
     stmt = (
         select(OfferCampaign)
-        .where(_active_campaign_clause())
+        .where(_publishable_campaign_clause())
         .order_by(
             OfferCampaign.sort_order.asc(),
             desc(OfferCampaign.created_at),
@@ -178,9 +195,17 @@ def list_offers(
     # land on. Admins can flip is_active=false to fully hide instead.
     cards = [c for c in cards if c.catalogue_count > 0]
 
-    featured = [c for c in cards if c.is_featured]
-    killer = [c for c in cards if c.is_killer_offer]
-    flash = [c for c in cards if c.is_flash_sale]
+    # Sort active campaigns first, expired ones at the bottom. Keeps
+    # the page's first scroll-fold on what's actually live without
+    # losing the historical record below it.
+    cards.sort(key=lambda c: (c.is_expired, 0))
+
+    # Highlighted carousels are for CURRENT promos only — surfacing
+    # an expired flash sale would mislead the customer. ``all_campaigns``
+    # keeps everything (expired included, badged in the UI).
+    featured = [c for c in cards if c.is_featured and not c.is_expired]
+    killer = [c for c in cards if c.is_killer_offer and not c.is_expired]
+    flash = [c for c in cards if c.is_flash_sale and not c.is_expired]
 
     # Every active+ready catalogue — regardless of campaign attachment.
     # The previous "standalone only" filter caused the landing to look
@@ -274,6 +299,7 @@ def get_campaign_detail(
         branch=campaign.branch,
         start_date=campaign.start_date,
         end_date=campaign.end_date,
+        is_expired=_is_expired(campaign),
         meta_title=campaign.meta_title,
         meta_description=campaign.meta_description,
         catalogues=[_serialize_catalogue(c) for c in catalogues],
