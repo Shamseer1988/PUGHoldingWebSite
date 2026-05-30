@@ -371,6 +371,7 @@ export default function CampaignsPage() {
       {(creating || editing) && (
         <CampaignDrawer
           editing={editing}
+          branchSuggestions={branchOptions}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -399,11 +400,16 @@ export default function CampaignsPage() {
 
 function CampaignDrawer({
   editing,
+  branchSuggestions,
   onClose,
   onSaved,
   onError,
 }: {
   editing: OfferCampaign | null;
+  /** Distinct branch values already used by other campaigns. Powers
+   *  the branch autocomplete — the operator can type a fresh value
+   *  or pick one of the existing ones from the native dropdown. */
+  branchSuggestions: string[];
   onClose: () => void;
   onSaved: (title: string, mode: "create" | "edit") => void;
   onError: (msg: string) => void;
@@ -691,7 +697,20 @@ function CampaignDrawer({
                   onChange={(e) => setBranch(e.target.value)}
                   disabled={saving}
                   placeholder="Doha / Lusail / All"
+                  list="c-branch-suggestions"
+                  autoComplete="off"
                 />
+                {/* Native datalist — the design system stays untouched
+                    (same shadcn ``Input``), the browser draws a small
+                    dropdown of previously-used branches when the field
+                    focuses, and the operator can still type any fresh
+                    value. Empty list is fine — browsers just show no
+                    dropdown. */}
+                <datalist id="c-branch-suggestions">
+                  {branchSuggestions.map((b) => (
+                    <option key={b} value={b} />
+                  ))}
+                </datalist>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="c-start">Start date</Label>
