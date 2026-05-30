@@ -7,10 +7,17 @@ Uses PyMuPDF (``fitz``) to rasterise each PDF page at two resolutions:
   * Thumbnail: ~280 px wide WebP, used in the page-strip + as the
     catalogue cover image.
 
-Output files live under
-``{settings.upload_dir}/catalogues/{catalogue_id}/`` and are
-content-addressed via the catalogue id + page number — re-processing
-overwrites in place, no orphans.
+Storage layout — both the source PDF and the rendered pages are
+pushed through the pluggable :mod:`app.services.storage` backend
+under deterministic keys:
+
+  ``catalogues/{catalogue_id}/source.pdf``
+  ``catalogues/{catalogue_id}/page_{N:03d}.webp``
+  ``catalogues/{catalogue_id}/page_{N:03d}.thumb.webp``
+
+The backend (R2 or local disk) decides how that key resolves to a
+public URL; the URL it returns is what we persist on the Catalogue
+and CataloguePage rows.
 
 Processing runs **synchronously** inside the admin upload request.
 For small flyers (under 30 pages) that completes in 5–15 seconds on
@@ -21,17 +28,14 @@ informed when a process is mid-flight after a server restart.
 from __future__ import annotations
 
 import logging
-import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
-from pathlib import Path
 from typing import Optional
 
 from PIL import Image
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.marketing import (
     CATALOGUE_FAILED,
     CATALOGUE_PROCESSING,
@@ -39,6 +43,7 @@ from app.models.marketing import (
     Catalogue,
     CataloguePage,
 )
+from app.services.storage import get_storage
 
 
 logger = logging.getLogger(__name__)
@@ -66,18 +71,22 @@ class ProcessResult:
     bytes_written: int
 
 
-def storage_dir_for(catalogue_id: int) -> Path:
-    """Return (and create) the on-disk directory for a catalogue's
-    rendered pages. Lives under ``{upload_dir}/catalogues/<id>/``."""
-    settings = get_settings()
-    target = Path(settings.upload_dir) / "catalogues" / str(catalogue_id)
-    target.mkdir(parents=True, exist_ok=True)
-    return target
+# ---------------------------------------------------------------------------
+# Key helpers — public so the admin endpoints can build the same keys when
+# they need to fetch / delete an asset without going through the processor.
+# ---------------------------------------------------------------------------
 
 
-def public_url(relative_path: str) -> str:
-    """Build the public URL for a file under the uploads mount."""
-    return f"/api/v1/uploads/{relative_path.lstrip('/')}"
+def source_pdf_key(catalogue_id: int) -> str:
+    return f"catalogues/{catalogue_id}/source.pdf"
+
+
+def page_image_key(catalogue_id: int, page_number: int) -> str:
+    return f"catalogues/{catalogue_id}/page_{page_number:03d}.webp"
+
+
+def page_thumbnail_key(catalogue_id: int, page_number: int) -> str:
+    return f"catalogues/{catalogue_id}/page_{page_number:03d}.thumb.webp"
 
 
 def process_catalogue(
@@ -89,8 +98,12 @@ def process_catalogue(
     Called by the admin upload endpoint and by the "re-process"
     button. Side effects:
 
-      * Wipes the catalogue's on-disk directory and the existing
-        ``CataloguePage`` rows so re-runs don't leak old assets.
+      * Drops the existing ``CataloguePage`` rows so re-runs don't
+        leak stale viewer entries.
+      * Pushes the source PDF + every page + every thumbnail to the
+        configured storage backend. Public URLs returned by the
+        backend are what land on the DB rows — works transparently
+        against either local disk or Cloudflare R2.
       * Sets ``processing_status`` to ``processing`` for the duration,
         then ``ready`` (or ``failed`` with ``processing_error``).
       * Stamps ``processed_at`` + ``page_count`` + ``cover_image_url``
@@ -124,36 +137,32 @@ def process_catalogue(
     catalogue.processing_error = None
     db.flush()
 
-    storage = storage_dir_for(catalogue.id)
-    # Wipe stale renders from a prior run so old pages don't linger
-    # if the new PDF has fewer pages.
-    if storage.exists():
-        for f in storage.iterdir():
-            if f.is_file() and (
-                f.suffix.lower() == ".webp"
-                or f.name.endswith(".pdf")
-                or f.name.endswith(".thumb.webp")
-            ):
-                try:
-                    f.unlink()
-                except OSError:
-                    pass
+    storage = get_storage()
 
-    # Drop old CataloguePage rows for this catalogue — the cascade
-    # would handle file refs but the rows themselves are what the
-    # viewer reads.
+    # Drop old CataloguePage rows for this catalogue. The processor
+    # writes deterministic keys, so an upload's renders overwrite the
+    # previous run's bytes in storage — no orphan-cleanup pass needed
+    # for the new pages. Pages that no longer exist (PDF shrank) are
+    # rare enough that we accept the orphan rather than running a
+    # prefix-list across R2 on every re-render.
     for page in list(catalogue.pages):
         db.delete(page)
     db.flush()
 
-    # Save the original PDF so customers can download it. The
-    # admin-upload endpoint already wrote it once when receiving the
-    # request, but we re-write here so process_catalogue is the
-    # single source of truth for the on-disk layout.
-    pdf_path = storage / "source.pdf"
-    pdf_path.write_bytes(pdf_bytes)
+    # Push the source PDF first so the reprocess endpoint can read it
+    # back from the same place the public viewer downloads it from.
+    try:
+        pdf_url = storage.upload_sync(
+            source_pdf_key(catalogue.id), pdf_bytes, "application/pdf"
+        )
+    except Exception as exc:  # noqa: BLE001
+        catalogue.processing_status = CATALOGUE_FAILED
+        catalogue.processing_error = f"Failed to upload source PDF: {exc}"
+        db.flush()
+        raise CatalogueProcessingError(catalogue.processing_error) from exc
+
     catalogue.file_size_bytes = len(pdf_bytes)
-    catalogue.pdf_url = public_url(f"catalogues/{catalogue.id}/source.pdf")
+    catalogue.pdf_url = pdf_url
 
     bytes_written = len(pdf_bytes)
     cover_image_url: Optional[str] = None
@@ -202,14 +211,17 @@ def process_catalogue(
             )
 
             page_number = page_index + 1
-            full_name = f"page_{page_number:03d}.webp"
-            thumb_name = f"page_{page_number:03d}.thumb.webp"
-            (storage / full_name).write_bytes(full_bytes)
-            (storage / thumb_name).write_bytes(thumb_bytes)
+            image_url = storage.upload_sync(
+                page_image_key(catalogue.id, page_number),
+                full_bytes,
+                "image/webp",
+            )
+            thumb_url = storage.upload_sync(
+                page_thumbnail_key(catalogue.id, page_number),
+                thumb_bytes,
+                "image/webp",
+            )
             bytes_written += full_size + thumb_size
-
-            image_url = public_url(f"catalogues/{catalogue.id}/{full_name}")
-            thumb_url = public_url(f"catalogues/{catalogue.id}/{thumb_name}")
 
             db.add(
                 CataloguePage(
@@ -252,17 +264,28 @@ def process_catalogue(
     )
 
 
-def delete_catalogue_files(catalogue_id: int) -> None:
-    """Remove every rendered file for a catalogue. Called from the
-    catalogue-delete endpoint so we don't leak disk space."""
-    settings = get_settings()
-    target = Path(settings.upload_dir) / "catalogues" / str(catalogue_id)
-    if target.exists():
+def delete_catalogue_assets(catalogue_id: int, page_count: int) -> None:
+    """Best-effort cleanup of every asset a catalogue uploaded.
+
+    Called from the catalogue-delete endpoint AFTER the DB row + page
+    rows have been removed. Walks the deterministic keys
+    :func:`source_pdf_key` / :func:`page_image_key` /
+    :func:`page_thumbnail_key` and deletes each — works against R2
+    without needing a prefix-list call, and against local disk by
+    just unlinking the files. Errors are logged + swallowed so a
+    transient storage failure doesn't poison the user-facing delete.
+    """
+    storage = get_storage()
+    keys = [source_pdf_key(catalogue_id)]
+    for n in range(1, page_count + 1):
+        keys.append(page_image_key(catalogue_id, n))
+        keys.append(page_thumbnail_key(catalogue_id, n))
+    for key in keys:
         try:
-            shutil.rmtree(target)
-        except OSError as exc:
+            storage.delete_sync(key)
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Could not clean catalogue dir %s: %s", target, exc
+                "Failed to delete catalogue asset %s: %s", key, exc
             )
 
 
@@ -285,8 +308,9 @@ __all__ = [
     "THUMB_WIDTH_PX",
     "WEBP_QUALITY_FULL",
     "WEBP_QUALITY_THUMB",
-    "delete_catalogue_files",
+    "delete_catalogue_assets",
+    "page_image_key",
+    "page_thumbnail_key",
     "process_catalogue",
-    "public_url",
-    "storage_dir_for",
+    "source_pdf_key",
 ]

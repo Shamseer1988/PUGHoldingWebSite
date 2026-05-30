@@ -109,8 +109,9 @@ _DASHBOARD_VIEWER = require_any_permission(
 from app.services.audit_log import record_audit
 from app.services.catalogue_processor import (
     CatalogueProcessingError,
-    delete_catalogue_files,
+    delete_catalogue_assets,
     process_catalogue,
+    source_pdf_key,
 )
 
 
@@ -592,6 +593,10 @@ def delete_catalogue(
     row = _catalogue_or_404(db, catalogue_id)
     cid = row.id
     slug = row.slug
+    # Capture the page count BEFORE we drop the row — once the cascade
+    # fires we can't recover it, but the storage cleanup needs it to
+    # know which page keys to walk.
+    page_count = row.page_count
     _audit(
         db,
         actor,
@@ -599,15 +604,18 @@ def delete_catalogue(
         action="marketing.catalogue.delete",
         target_type="catalogue",
         target_id=row.id,
-        details={"slug": slug, "page_count": row.page_count},
+        details={"slug": slug, "page_count": page_count},
     )
     db.delete(row)
     db.commit()
-    # Best-effort filesystem cleanup AFTER the row is gone.
+    # Best-effort storage cleanup AFTER the row is gone — works for
+    # both local-disk and R2 backends via deterministic keys.
     try:
-        delete_catalogue_files(cid)
+        delete_catalogue_assets(cid, page_count)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to clean files for catalogue %s: %s", cid, exc)
+        logger.warning(
+            "Failed to clean storage for catalogue %s: %s", cid, exc
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -622,28 +630,27 @@ def reprocess_catalogue(
 ) -> CatalogueDetail:
     """Re-render an existing catalogue's PDF.
 
-    Reads the stored source.pdf back from disk and runs it through
-    the processor again — useful after tuning render quality or
-    recovering a failed initial upload without re-uploading the file.
+    Pulls the stored source.pdf back from the storage backend (R2 or
+    local disk) under the same deterministic key the processor wrote
+    it to, then runs it through the processor again. Useful after
+    tuning render quality or recovering a failed initial upload
+    without re-uploading the file.
     """
-    from pathlib import Path
-
-    from app.core.config import get_settings
+    from app.services.storage import get_storage
 
     row = _catalogue_or_404(db, catalogue_id)
-    settings = get_settings()
-    relative = (row.pdf_url or "").split("/api/v1/uploads/", 1)[-1]
-    pdf_path = Path(settings.upload_dir) / relative if relative else None
-    if pdf_path is None or not pdf_path.exists():
+    try:
+        pdf_bytes = get_storage().download_sync(source_pdf_key(row.id))
+    except FileNotFoundError as exc:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Original PDF is missing on disk — re-upload the catalogue."
+                "Original PDF is missing from storage — re-upload the catalogue."
             ),
-        )
+        ) from exc
 
     try:
-        result = process_catalogue(db, row, pdf_path.read_bytes())
+        result = process_catalogue(db, row, pdf_bytes)
     except CatalogueProcessingError as exc:
         _audit(
             db,
@@ -688,8 +695,6 @@ def catalogue_qr_code(
     never the backend's own host — so the QR resolves when scanned
     from a phone outside the local network.
     """
-    from pathlib import Path
-
     from app.core.config import get_settings
     from app.services.qr_codes import build_catalogue_qr
 
@@ -698,10 +703,11 @@ def catalogue_qr_code(
     site_url = settings.public_site_url.rstrip("/")
     public_url = f"{site_url}/offers/catalogues/{row.slug}"
 
-    # Logo lookup order: per-catalogue upload → global brand logo
-    # → "PUG" monogram fallback inside the QR service.
-    logo_path = _resolve_qr_logo_path(settings, row)
-    png_bytes = build_catalogue_qr(public_url, logo_path=logo_path)
+    # Logo lookup order: per-catalogue upload (via storage backend)
+    # → global brand logo on disk → "PUG" monogram fallback inside
+    # the QR service.
+    logo_bytes = _resolve_qr_logo_bytes(settings, row)
+    png_bytes = build_catalogue_qr(public_url, logo_bytes=logo_bytes)
 
     safe_slug = "".join(
         ch if ch.isalnum() or ch in "-_" else "-" for ch in row.slug
@@ -719,34 +725,81 @@ def catalogue_qr_code(
     )
 
 
-def _resolve_qr_logo_path(settings, catalogue: Catalogue):
+# Per-catalogue QR logo storage keys live under ``qr-logos/{id}{ext}``.
+# We brute-force the same five extensions for cleanup so we never
+# need a prefix-list call against R2 — at most five deletes per
+# upload/delete operation.
+_QR_LOGO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
+
+
+def _qr_logo_storage_key(catalogue_id: int, ext: str) -> str:
+    return f"qr-logos/{catalogue_id}{ext}"
+
+
+def _qr_logo_key_from_url(url: str) -> Optional[str]:
+    """Recover the storage key from whatever URL form the row carries.
+
+    Works for both backend URL shapes:
+
+        local : ``/api/v1/uploads/qr-logos/42.png``
+        R2    : ``https://media.example.com/qr-logos/42.png``
+
+    Returns ``None`` if the URL doesn't contain a ``/qr-logos/``
+    segment — that means an old / unexpected layout and we'd rather
+    skip the lookup than guess.
+    """
+    if not url:
+        return None
+    marker = "/qr-logos/"
+    idx = url.find(marker)
+    if idx < 0:
+        return None
+    return "qr-logos/" + url[idx + len(marker):]
+
+
+def _resolve_qr_logo_bytes(settings, catalogue: Catalogue) -> Optional[bytes]:
     """Resolve which logo image, if any, to stamp into the QR centre.
 
     Preference order:
-      1. ``catalogue.qr_logo_url`` (uploaded by admin per catalogue)
-      2. ``uploads/brand-logo.png`` or ``uploads/logo.png`` (global)
+      1. ``catalogue.qr_logo_url`` (per-catalogue upload, fetched
+         via the storage backend so R2-hosted logos work).
+      2. ``uploads/brand-logo.png`` or ``uploads/logo.png`` (global
+         operator fallback, always read off local disk because it's
+         a deploy-time file rather than CMS content).
       3. ``None`` — the QR service falls back to a ``PUG`` text badge.
     """
     from pathlib import Path
 
-    upload_dir = Path(settings.upload_dir)
+    from app.services.storage import get_storage
 
     if catalogue.qr_logo_url:
-        # Stored as e.g. ``/api/v1/uploads/qr-logos/42.png`` — peel
-        # off the mount prefix so we can resolve a filesystem path.
-        rel = catalogue.qr_logo_url
-        marker = "/uploads/"
-        idx = rel.find(marker)
-        if idx >= 0:
-            rel = rel[idx + len(marker):]
-        candidate = upload_dir / rel
-        if candidate.exists():
-            return candidate
+        key = _qr_logo_key_from_url(catalogue.qr_logo_url)
+        if key:
+            try:
+                return get_storage().download_sync(key)
+            except FileNotFoundError:
+                # Logo row carries a URL but the bytes are gone —
+                # fall through to the global default rather than
+                # 500ing the QR endpoint.
+                logger.warning(
+                    "qr_logo missing from storage", key=key, catalogue_id=catalogue.id
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "qr_logo fetch failed",
+                    key=key,
+                    catalogue_id=catalogue.id,
+                    error=str(exc),
+                )
 
+    upload_dir = Path(settings.upload_dir)
     for name in ("brand-logo.png", "logo.png"):
         p = upload_dir / name
         if p.exists():
-            return p
+            try:
+                return p.read_bytes()
+            except OSError:
+                continue
     return None
 
 
@@ -763,17 +816,19 @@ def upload_catalogue_qr_logo(
 ) -> CatalogueRead:
     """Upload (or replace) the QR-centre brand logo for one catalogue.
 
-    Accepts the common raster + vector formats. The image is stored
-    under ``uploads/qr-logos/{catalogue_id}{ext}`` so re-uploads
-    overwrite the previous file deterministically. The stored URL is
-    served via the public ``/api/v1/uploads`` static mount.
+    Accepts the common raster + vector formats. Stored via the
+    pluggable storage backend under ``qr-logos/{catalogue_id}{ext}``
+    so re-uploads overwrite deterministically and the same code path
+    works for local-disk and R2 installs.
     """
     from pathlib import Path
+
+    from app.services.storage import get_storage
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".png", ".jpg", ".jpeg", ".svg", ".webp"}:
+    if ext not in _QR_LOGO_EXTENSIONS:
         raise HTTPException(
             status_code=400,
             detail="Logo must be a PNG, JPG, SVG or WebP image.",
@@ -781,21 +836,6 @@ def upload_catalogue_qr_logo(
 
     row = _catalogue_or_404(db, catalogue_id)
 
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    logo_dir = Path(settings.upload_dir) / "qr-logos"
-    logo_dir.mkdir(parents=True, exist_ok=True)
-
-    # Delete any previous extension we wrote so the on-disk state
-    # stays in sync with the stored URL.
-    for existing in logo_dir.glob(f"{row.id}.*"):
-        try:
-            existing.unlink()
-        except OSError:
-            pass
-
-    out_path = logo_dir / f"{row.id}{ext}"
     data = file.file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty logo file.")
@@ -804,9 +844,38 @@ def upload_catalogue_qr_logo(
             status_code=413,
             detail="Logo file exceeds the 4 MB cap.",
         )
-    out_path.write_bytes(data)
 
-    row.qr_logo_url = f"/api/v1/uploads/qr-logos/{row.id}{ext}"
+    storage = get_storage()
+    # A previous upload with a different extension would otherwise
+    # linger as a storage orphan AND keep getting served via the old
+    # URL until next overwrite. Brute-force-delete every known ext
+    # — at most 5 round-trips, no list-objects required.
+    for old_ext in _QR_LOGO_EXTENSIONS:
+        if old_ext == ext:
+            continue
+        try:
+            storage.delete_sync(_qr_logo_storage_key(row.id, old_ext))
+        except Exception:  # noqa: BLE001
+            pass
+
+    content_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".svg": "image/svg+xml",
+        ".webp": "image/webp",
+    }[ext]
+    try:
+        logo_url = storage.upload_sync(
+            _qr_logo_storage_key(row.id, ext), data, content_type
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to upload logo to storage: {exc}",
+        ) from exc
+
+    row.qr_logo_url = logo_url
     _audit(
         db,
         actor,
@@ -814,7 +883,7 @@ def upload_catalogue_qr_logo(
         action="marketing.catalogue.qr_logo.upload",
         target_type="catalogue",
         target_id=row.id,
-        details={"slug": row.slug, "bytes": len(data)},
+        details={"slug": row.slug, "bytes": len(data), "ext": ext},
     )
     db.commit()
     db.refresh(row)
@@ -832,20 +901,25 @@ def delete_catalogue_qr_logo(
     actor: User = Depends(require_permission(PERM_MARKETING_CATALOGUES_MANAGE)),
 ) -> CatalogueRead:
     """Remove the per-catalogue QR logo, falling back to the global one."""
-    from pathlib import Path
+    from app.services.storage import get_storage
 
     row = _catalogue_or_404(db, catalogue_id)
     if not row.qr_logo_url:
         return CatalogueRead.model_validate(row)
 
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    logo_dir = Path(settings.upload_dir) / "qr-logos"
-    for existing in logo_dir.glob(f"{row.id}.*"):
+    storage = get_storage()
+    # Drop the row's recorded key plus every other known extension —
+    # belt-and-braces in case a prior upload left an orphan.
+    keys_to_drop = set()
+    primary = _qr_logo_key_from_url(row.qr_logo_url)
+    if primary:
+        keys_to_drop.add(primary)
+    for ext in _QR_LOGO_EXTENSIONS:
+        keys_to_drop.add(_qr_logo_storage_key(row.id, ext))
+    for key in keys_to_drop:
         try:
-            existing.unlink()
-        except OSError:
+            storage.delete_sync(key)
+        except Exception:  # noqa: BLE001
             pass
 
     row.qr_logo_url = None

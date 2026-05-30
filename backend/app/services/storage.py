@@ -41,10 +41,13 @@ logger = get_logger(__name__)
 class StorageBackend(Protocol):
     """The minimum surface every storage backend must expose.
 
-    Both methods are ``async`` so the API layer can ``await`` without
-    blocking the FastAPI event loop. Sync implementations (boto3, the
-    local-disk writer) hop to a worker thread internally via
-    ``asyncio.to_thread``.
+    Both async methods exist so FastAPI ``async def`` handlers can
+    ``await`` without blocking the event loop. The ``*_sync``
+    variants exist for the ``def`` (threadpool) call sites — most
+    notably the catalogue processor, which is invoked from a sync
+    upload handler and stays sync end-to-end. Implementations should
+    keep the two variants byte-for-byte equivalent (the async ones
+    typically just thread-pool the sync ones).
     """
 
     async def upload(
@@ -61,6 +64,24 @@ class StorageBackend(Protocol):
 
     async def delete(self, key: str) -> None:
         """Remove ``key`` from the backend. No-op on missing keys."""
+        ...
+
+    def upload_sync(
+        self, key: str, data: bytes, content_type: Optional[str]
+    ) -> str:
+        """Synchronous variant of :meth:`upload`. Same return semantics."""
+        ...
+
+    def download_sync(self, key: str) -> bytes:
+        """Read ``key`` back as bytes. Raises ``FileNotFoundError`` if absent.
+
+        Used by the catalogue re-process endpoint to fetch the
+        previously uploaded source PDF.
+        """
+        ...
+
+    def delete_sync(self, key: str) -> None:
+        """Synchronous variant of :meth:`delete`. No-op on missing keys."""
         ...
 
 
@@ -85,9 +106,14 @@ class LocalStorageBackend:
     async def upload(
         self, key: str, data: bytes, content_type: Optional[str]
     ) -> str:
-        return await asyncio.to_thread(self._upload_sync, key, data)
+        return await asyncio.to_thread(self.upload_sync, key, data, content_type)
 
-    def _upload_sync(self, key: str, data: bytes) -> str:
+    def upload_sync(
+        self,
+        key: str,
+        data: bytes,
+        content_type: Optional[str] = None,  # noqa: ARG002 — disk doesn't care
+    ) -> str:
         # ``Path("/tmp/x") / "/foo"`` discards the left side because
         # the operand is "absolute" — strip the leading slash before
         # joining or the file lands at the filesystem root instead of
@@ -98,10 +124,14 @@ class LocalStorageBackend:
         target.write_bytes(data)
         return f"{self.public_url_prefix.rstrip('/')}/{clean_key}"
 
-    async def delete(self, key: str) -> None:
-        await asyncio.to_thread(self._delete_sync, key)
+    def download_sync(self, key: str) -> bytes:
+        target = self.root / key.lstrip("/")
+        return target.read_bytes()
 
-    def _delete_sync(self, key: str) -> None:
+    async def delete(self, key: str) -> None:
+        await asyncio.to_thread(self.delete_sync, key)
+
+    def delete_sync(self, key: str) -> None:
         target = self.root / key.lstrip("/")
         try:
             target.unlink(missing_ok=True)
@@ -162,8 +192,12 @@ class R2StorageBackend:
     async def upload(
         self, key: str, data: bytes, content_type: Optional[str]
     ) -> str:
-        await asyncio.to_thread(
-            self._client.put_object,  # type: ignore[attr-defined]
+        return await asyncio.to_thread(self.upload_sync, key, data, content_type)
+
+    def upload_sync(
+        self, key: str, data: bytes, content_type: Optional[str] = None
+    ) -> str:
+        self._client.put_object(  # type: ignore[attr-defined]
             Bucket=self.bucket,
             Key=key.lstrip("/"),
             Body=data,
@@ -171,12 +205,33 @@ class R2StorageBackend:
         )
         return self._public_url(key)
 
+    def download_sync(self, key: str) -> bytes:
+        try:
+            response = self._client.get_object(  # type: ignore[attr-defined]
+                Bucket=self.bucket, Key=key.lstrip("/")
+            )
+        except Exception as exc:  # noqa: BLE001 — boto3 raises ClientError
+            # Re-raise as the universal "not there" so the catalogue
+            # reprocess endpoint can surface a clean 400 regardless of
+            # which backend is active.
+            raise FileNotFoundError(
+                f"R2 object not found: {key.lstrip('/')}"
+            ) from exc
+        return response["Body"].read()
+
     async def delete(self, key: str) -> None:
-        await asyncio.to_thread(
-            self._client.delete_object,  # type: ignore[attr-defined]
-            Bucket=self.bucket,
-            Key=key.lstrip("/"),
-        )
+        await asyncio.to_thread(self.delete_sync, key)
+
+    def delete_sync(self, key: str) -> None:
+        try:
+            self._client.delete_object(  # type: ignore[attr-defined]
+                Bucket=self.bucket,
+                Key=key.lstrip("/"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "R2StorageBackend delete failed", key=key, error=str(exc)
+            )
 
     # --- helpers ------------------------------------------------------------
 
