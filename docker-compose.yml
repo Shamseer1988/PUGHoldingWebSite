@@ -3,9 +3,13 @@
 # ---------------------------------------------------------------------------
 # Four services wired for a one-command dev environment:
 #
-#   postgres — Pinned to 17-alpine. Credentials match the backend's
-#              Settings defaults so a fresh ``docker compose up`` Just
-#              Works without touching ``.env`` first.
+#   postgres — Pinned to 17-alpine. Reads its ``POSTGRES_USER`` /
+#              ``POSTGRES_PASSWORD`` / ``POSTGRES_DB`` from
+#              ``backend/.env`` — the same file the backend and
+#              worker services load — so initdb and the app agree
+#              on creds by construction. Copy
+#              ``backend/.env.example`` to ``backend/.env`` before
+#              the first ``docker compose up``.
 #   redis    — 7-alpine with AOF persistence; used by Phase B-2
 #              (rate-limit + cache) and Phase B-3 (ARQ queue) once
 #              they land.
@@ -28,30 +32,22 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
-    environment:
-      # Each ``${VAR:-default}`` reads from your shell env first, then
-      # from a ``.env`` file alongside this compose file, and only
-      # falls back to the default when neither is set. So a fresh
-      # checkout still Just Works (defaults below), but you can
-      # override per-machine by dropping a ``.env`` in the repo root:
-      #
-      #     POSTGRES_USER=my_user
-      #     POSTGRES_PASSWORD=long-random-pass
-      #     POSTGRES_DB=my_db
-      #
-      # ``backend/.env`` is separate (loaded via env_file by the
-      # backend service for the app's runtime settings); keep the
-      # same values in both so the backend can connect to the DB
-      # the postgres service just created.
-      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_password}
-      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
+    # Single source of truth for DB credentials: ``backend/.env``.
+    # Postgres reads ``POSTGRES_USER`` / ``POSTGRES_PASSWORD`` /
+    # ``POSTGRES_DB`` from its container env at first boot to run
+    # initdb, so loading the backend's env file here gives the
+    # postgres service exactly the same creds the backend will
+    # later try to connect with. Copy ``backend/.env.example`` to
+    # ``backend/.env`` before the first ``docker compose up``.
+    env_file:
+      - path: ./backend/.env
+        required: false
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       # ``$$VAR`` escapes a single ``$`` so the variable is resolved
-      # INSIDE the container at runtime — against the values the
-      # ``environment`` block above just set — rather than at
+      # INSIDE the container at runtime — against the values
+      # ``env_file`` just loaded from backend/.env — rather than at
       # compose-interpolation time. Without the double-dollar the
       # healthcheck would hard-code whatever user/db was active when
       # ``docker compose up`` ran, and break on any later override.
@@ -90,26 +86,20 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-    # The operator's per-machine secrets (SMTP, AI keys, etc.) live
-    # in backend/.env. We override host-specific values via the
-    # ``environment`` block below so they point at the compose
-    # network regardless of what .env says. ``required: false`` so a
-    # fresh checkout boots even before the operator copies
-    # .env.example.
+    # The operator's per-machine secrets (SMTP, AI keys, DB creds,
+    # etc.) live in backend/.env — the same file the postgres
+    # service loads above, so initdb and the app agree on
+    # user/password/db by construction. We only override
+    # host-specific values via ``environment`` below so they point
+    # at the compose network regardless of what .env says.
     env_file:
       - path: ./backend/.env
         required: false
     environment:
+      # Compose-network coordinates always win over backend/.env
+      # (which typically says ``localhost`` for host-mode dev).
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      # Mirror the postgres service's interpolation so the backend
-      # connects with the SAME credentials the DB was just created
-      # with — overriding any stale value in backend/.env. Anything
-      # in your shell env or root ``.env`` flows through to both
-      # services from one place.
-      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_password}
-      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       REDIS_URL: redis://redis:6379/0
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
@@ -147,15 +137,12 @@ services:
       - path: ./backend/.env
         required: false
     environment:
+      # Same approach as the backend service: DB creds come from
+      # backend/.env (loaded above), only the compose-internal
+      # coordinates are forced here so the worker still finds
+      # postgres/redis on the network.
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      # Same rationale as the backend service — keep all three DB
-      # vars driven by the shared compose-level interpolation so the
-      # worker connects with the credentials the postgres service
-      # actually created.
-      POSTGRES_USER: ${POSTGRES_USER:-pug_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_password}
-      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       SECRET_KEY: "compose-dev-secret-do-not-use-in-production"
