@@ -457,6 +457,32 @@ def cancel_invite(
 
 
 @router.get(
+    "/invites",
+    response_model=List[AssessmentInviteRead],
+)
+def list_invites(
+    candidate_id: Optional[int] = Query(default=None, ge=1),
+    assessment_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(PERM_HR_ASSESSMENTS_VIEW)),
+) -> List[AssessmentInviteRead]:
+    """List invites filtered by candidate and/or assessment.
+
+    Used by the HR candidate-detail drawer to show every assessment
+    that's been sent to a candidate across all their applications,
+    plus by the per-template list view (filter by ``assessment_id``).
+    """
+    from sqlalchemy import select as _sel
+
+    stmt = _sel(AssessmentInvite).order_by(AssessmentInvite.created_at.desc())
+    if candidate_id is not None:
+        stmt = stmt.where(AssessmentInvite.candidate_id == candidate_id)
+    if assessment_id is not None:
+        stmt = stmt.where(AssessmentInvite.assessment_id == assessment_id)
+    return list(db.execute(stmt).scalars().all())
+
+
+@router.get(
     "/invites/{invite_id}",
     response_model=AssessmentInviteRead,
 )

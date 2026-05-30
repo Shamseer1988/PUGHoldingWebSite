@@ -135,6 +135,129 @@ export async function submitCandidateApplication(
 }
 
 // ---------------------------------------------------------------------------
+// HR Phase 2 — candidate assessment (verify / fetch / submit)
+// ---------------------------------------------------------------------------
+
+export interface AssessmentVerifyResponse {
+  session_token: string;
+  matched_field: "dob" | "email" | "mobile";
+  opened_at: string;
+  submit_deadline: string | null;
+}
+
+export interface AssessmentChoice {
+  id: number;
+  text: string;
+  order_index: number;
+}
+
+export interface AssessmentQuestion {
+  id: number;
+  text: string;
+  order_index: number;
+  points: number;
+  choices: AssessmentChoice[];
+}
+
+export interface PublicAssessment {
+  title: string;
+  instructions: string | null;
+  time_limit_minutes: number | null;
+  questions: AssessmentQuestion[];
+  candidate_name: string;
+  candidate_email: string | null;
+  submit_deadline: string | null;
+}
+
+export interface AssessmentAnswerSubmit {
+  question_id: number;
+  selected_choice_ids: number[];
+}
+
+export interface AssessmentSubmissionAck {
+  score: number;
+  max_score: number;
+  passed: boolean | null;
+  submitted_at: string;
+}
+
+export async function verifyAssessment(
+  token: string,
+  identityValue: string,
+): Promise<AssessmentVerifyResponse> {
+  return post<AssessmentVerifyResponse>(
+    `/assessments/${encodeURIComponent(token)}/verify`,
+    { identity_value: identityValue },
+  );
+}
+
+async function getWithBearer<T>(path: string, bearer: string): Promise<T> {
+  const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const r = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${bearer}` },
+    cache: "no-store",
+  });
+  if (!r.ok) {
+    let detail = `Request failed with status ${r.status}`;
+    try {
+      const p = await r.json();
+      if (typeof p?.detail === "string") detail = p.detail;
+    } catch {
+      /* swallow */
+    }
+    throw new PublicApiError(detail, r.status);
+  }
+  return (await r.json()) as T;
+}
+
+async function postWithBearer<T>(
+  path: string,
+  bearer: string,
+  body: unknown,
+): Promise<T> {
+  const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearer}`,
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!r.ok) {
+    let detail = `Request failed with status ${r.status}`;
+    try {
+      const p = await r.json();
+      if (typeof p?.detail === "string") detail = p.detail;
+    } catch {
+      /* swallow */
+    }
+    throw new PublicApiError(detail, r.status);
+  }
+  return (await r.json()) as T;
+}
+
+export async function fetchAssessment(
+  sessionToken: string,
+): Promise<PublicAssessment> {
+  return getWithBearer<PublicAssessment>("/assessments/me", sessionToken);
+}
+
+export async function submitAssessment(
+  sessionToken: string,
+  answers: AssessmentAnswerSubmit[],
+): Promise<AssessmentSubmissionAck> {
+  return postWithBearer<AssessmentSubmissionAck>(
+    "/assessments/me/submit",
+    sessionToken,
+    { answers },
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // Public CV parse-preview (advanced module — phase 7)
 // ---------------------------------------------------------------------------
 

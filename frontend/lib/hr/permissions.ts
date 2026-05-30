@@ -49,6 +49,10 @@ export const PERM_HR_OFFERS_CREATE = "hr:offers:create";
 export const PERM_HR_OFFERS_APPROVE = "hr:offers:approve";
 export const PERM_HR_OFFERS_DELETE = "hr:offers:delete";
 
+// Assessments (Phase 2)
+export const PERM_HR_ASSESSMENTS_MANAGE = "hr:assessments:manage";
+export const PERM_HR_ASSESSMENTS_VIEW = "hr:assessments:view";
+
 // Reports + exports
 export const PERM_HR_REPORTS_VIEW_ALL = "hr:reports:view_all";
 export const PERM_HR_REPORTS_VIEW_DEPT = "hr:reports:view_dept";

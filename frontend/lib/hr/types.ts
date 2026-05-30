@@ -615,6 +615,98 @@ export interface CandidateApplicationSummary {
   next_interview_at: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// HR Phase 2 — assessment workflow
+// ---------------------------------------------------------------------------
+
+export type AssessmentInviteStatus =
+  | "pending"
+  | "sent"
+  | "opened"
+  | "submitted"
+  | "expired"
+  | "cancelled";
+
+export interface AssessmentChoice {
+  id: number;
+  text: string;
+  order_index: number;
+  is_correct: boolean;
+}
+
+export interface AssessmentQuestion {
+  id: number;
+  text: string;
+  order_index: number;
+  points: number;
+  choices: AssessmentChoice[];
+}
+
+export interface AssessmentSummary {
+  id: number;
+  job_opening_id: number;
+  title: string;
+  is_active: boolean;
+  time_limit_minutes: number | null;
+  passing_score: number | null;
+  created_at: string;
+  updated_at: string;
+  question_count: number;
+  invite_count: number;
+  submission_count: number;
+}
+
+export interface Assessment {
+  id: number;
+  job_opening_id: number;
+  title: string;
+  instructions: string | null;
+  time_limit_minutes: number | null;
+  passing_score: number | null;
+  is_active: boolean;
+  created_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+  questions: AssessmentQuestion[];
+  total_points: number;
+  invite_count: number;
+  submission_count: number;
+}
+
+export interface AssessmentInvite {
+  id: number;
+  assessment_id: number;
+  candidate_id: number;
+  application_id: number | null;
+  token: string;
+  status: AssessmentInviteStatus;
+  sent_at: string | null;
+  opened_at: string | null;
+  submitted_at: string | null;
+  expires_at: string | null;
+  verified_identity_field: string | null;
+  sent_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssessmentSubmission {
+  id: number;
+  invite_id: number;
+  started_at: string;
+  submitted_at: string | null;
+  score: number | null;
+  max_score: number | null;
+  passed: boolean | null;
+  answers: Array<{
+    id: number;
+    question_id: number;
+    selected_choice_ids: number[];
+    is_correct: boolean | null;
+  }>;
+}
+
+
 export interface CandidateStatusHistoryEntry {
   id: number;
   application_id: number;
