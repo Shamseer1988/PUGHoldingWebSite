@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 # Four services wired for a one-command dev environment:
 #
-#   postgres — Pinned to 16-alpine. Credentials match the backend's
+#   postgres — Pinned to 17-alpine. Credentials match the backend's
 #              Settings defaults so a fresh ``docker compose up`` Just
 #              Works without touching ``.env`` first.
 #   redis    — 7-alpine with AOF persistence; used by Phase B-2
@@ -26,7 +26,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       # Each ``${VAR:-default}`` reads from your shell env first, then
