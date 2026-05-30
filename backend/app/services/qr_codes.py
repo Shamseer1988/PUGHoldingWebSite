@@ -12,7 +12,6 @@ flyer, in-store signage, or social posts.
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 from typing import Optional
 
 from PIL import Image
@@ -32,7 +31,7 @@ BRAND_ACCENT = "#b89c5c"  # gold
 def build_catalogue_qr(
     public_url: str,
     *,
-    logo_path: Optional[Path] = None,
+    logo_bytes: Optional[bytes] = None,
     size_px: int = 720,
     background: str = BRAND_BG,
     foreground: str = BRAND_FG,
@@ -43,6 +42,13 @@ def build_catalogue_qr(
     region so we can punch a logo into the centre without the code
     becoming unscannable. Rounded module drawer + brand foreground
     keep the share asset on-brand.
+
+    ``logo_bytes`` is the raw image bytes for the centre badge. The
+    caller is responsible for sourcing those bytes — typically from
+    the storage backend via :func:`download_sync` so the QR works
+    against R2 just as well as against the local-disk install. When
+    no logo bytes are supplied (or decoding them fails) the badge
+    falls back to a plain "PUG" monogram disc.
     """
     if not public_url:
         raise ValueError("public_url is required")
@@ -69,9 +75,9 @@ def build_catalogue_qr(
     img = img.resize((size_px, size_px), Image.LANCZOS)
 
     # Centre-stamp a small brand badge so the share code is visibly
-    # ours. Logo path is optional — if missing or unreadable we
+    # ours. Logo bytes are optional — if missing or undecodable we
     # fall back to a plain monogram disc.
-    badge = _build_badge(size_px // 5, logo_path=logo_path)
+    badge = _build_badge(size_px // 5, logo_bytes=logo_bytes)
     if badge is not None:
         bx = (img.width - badge.width) // 2
         by = (img.height - badge.height) // 2
@@ -82,7 +88,7 @@ def build_catalogue_qr(
     return out.getvalue()
 
 
-def _build_badge(side: int, *, logo_path: Optional[Path]) -> Optional[Image.Image]:
+def _build_badge(side: int, *, logo_bytes: Optional[bytes]) -> Optional[Image.Image]:
     """Build a circular brand badge to stamp over the QR centre."""
     # Solid background disc in the brand off-white with a thin
     # gold border so the badge stands out against the dark QR
@@ -100,9 +106,9 @@ def _build_badge(side: int, *, logo_path: Optional[Path]) -> Optional[Image.Imag
     )
 
     inner_side = side - border * 4
-    if logo_path and logo_path.exists():
+    if logo_bytes:
         try:
-            logo = Image.open(logo_path).convert("RGBA")
+            logo = Image.open(BytesIO(logo_bytes)).convert("RGBA")
             # Fit the logo into a square inside the badge while
             # preserving aspect.
             logo.thumbnail((inner_side, inner_side), Image.LANCZOS)
