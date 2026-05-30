@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -26,7 +25,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
-import { resolveAssetUrl } from "@/lib/public-api";
 import type {
   Candidate,
   CandidateExtractedData,
@@ -107,6 +105,7 @@ export function CandidateDetailDrawer({
   const [savingCandidate, setSavingCandidate] = React.useState(false);
   const [savingExtracted, setSavingExtracted] = React.useState(false);
   const [reparsing, setReparsing] = React.useState(false);
+  const [openingCv, setOpeningCv] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
 
@@ -240,6 +239,24 @@ export function CandidateDetailDrawer({
     }
   }
 
+  async function openCv() {
+    if (candidateId == null) return;
+    setOpeningCv(true);
+    setError(null);
+    try {
+      const { url } = await hrApi.get<{ url: string; expires_in: number }>(
+        `/hr/candidates/${candidateId}/cv-url`,
+      );
+      // ``noopener,noreferrer`` matches the previous <a> link semantics
+      // and keeps the signed URL out of the new tab's ``window.opener``.
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError((err as HrApiError).message);
+    } finally {
+      setOpeningCv(false);
+    }
+  }
+
   async function reparse() {
     if (candidateId == null) return;
     if (
@@ -332,25 +349,26 @@ export function CandidateDetailDrawer({
         {/* Quick-action toolbar */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-5 py-2">
           {cvDoc && candidate && (
-            <Button asChild variant="outline" size="sm">
-              {/* CV bytes live on R2 (post-storage refactor) under a
-                  private key. The new HR-only endpoint resolves the
-                  key from the DB and 302s to a short-lived pre-
-                  signed URL — no need to know the storage path on
-                  the frontend, and the link survives R2 rotation
-                  because it goes through us. */}
-              <Link
-                href={
-                  resolveAssetUrl(`/api/v1/hr/candidates/${candidate.id}/cv`) ??
-                  `/api/v1/hr/candidates/${candidate.id}/cv`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+            // CV bytes live on R2 under a private key. We fetch a
+            // fresh signed URL from ``/cv-url`` through the
+            // authenticated HR API client, then ``window.open`` it —
+            // an ``<a href>`` to the 302 endpoint can't carry the
+            // Bearer JWT into the new tab (it lives in localStorage,
+            // not a cookie) so the redirect 401s before reaching R2.
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openCv}
+              disabled={openingCv}
+            >
+              {openingCv ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
                 <FileText className="h-3.5 w-3.5" />
-                Open CV
-                <ExternalLink className="h-3 w-3" />
-              </Link>
+              )}
+              Open CV
+              <ExternalLink className="h-3 w-3" />
             </Button>
           )}
           <Button

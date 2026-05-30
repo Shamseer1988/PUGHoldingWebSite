@@ -2086,6 +2086,43 @@ def download_candidate_cv(
 
     404s for unknown candidate, candidate with no documents, or
     storage objects that no longer exist (e.g. mid-migration).
+
+    Kept around for server-side consumers / curl. The HR SPA opens
+    CVs via :func:`candidate_cv_url` instead because a plain
+    ``<a href>`` click can't carry the Bearer JWT into the new tab.
+    """
+    url, _ = _resolve_candidate_cv_url(db, candidate_id)
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/{candidate_id}/cv-url")
+def candidate_cv_url(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_HR_CV_DOWNLOAD)),  # noqa: ARG001 — guard
+) -> dict[str, object]:
+    """JSON sibling of :func:`download_candidate_cv` for the HR SPA.
+
+    Returns ``{"url": <signed URL>, "expires_in": <seconds>}``.
+    The HR frontend calls this via its authenticated API client
+    (which carries the Bearer JWT in headers), then
+    ``window.open``s the returned URL — opening the 302 endpoint
+    directly via ``<a href target="_blank">`` would lose the
+    JWT (it lives in localStorage, not a cookie) and the backend
+    would 401 before it ever reached storage.
+    """
+    url, expires_in = _resolve_candidate_cv_url(db, candidate_id)
+    return {"url": url, "expires_in": expires_in}
+
+
+def _resolve_candidate_cv_url(
+    db: Session, candidate_id: int, *, expires_in: int = 600
+) -> tuple[str, int]:
+    """Locate the candidate's primary CV and return a fresh signed URL.
+
+    Shared by ``/cv`` (302 redirect) and ``/cv-url`` (JSON). 404s
+    for unknown candidate, no CV on file, missing ``file_path``,
+    or storage objects that no longer exist.
     """
     from app.services.cv_storage import cv_download_url
 
@@ -2100,8 +2137,7 @@ def download_candidate_cv(
         raise HTTPException(status_code=404, detail="CV file_path missing on document")
 
     try:
-        url = cv_download_url(primary.file_path, expires_in=600)
+        url = cv_download_url(primary.file_path, expires_in=expires_in)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="CV not available") from exc
-
-    return RedirectResponse(url=url, status_code=302)
+    return url, expires_in
