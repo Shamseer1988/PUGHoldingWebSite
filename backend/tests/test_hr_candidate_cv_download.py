@@ -176,6 +176,54 @@ def test_download_requires_auth(
 
 
 # ---------------------------------------------------------------------------
+# JSON sibling: ``/cv-url`` — used by the HR SPA where a 302 redirect
+# from an ``<a href>`` click would drop the Bearer JWT and 401.
+# ---------------------------------------------------------------------------
+
+
+def test_cv_url_returns_signed_url_as_json(
+    client: TestClient, seed_auth, db_session: Session, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    candidate = _seed_candidate_with_cv(db_session)
+    headers = _login_super(client, seed_auth["password"])
+
+    r = client.get(
+        f"/api/v1/hr/candidates/{candidate.id}/cv-url", headers=headers
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "career/cv/abc.pdf" in body["url"]
+    assert body["expires_in"] == 600
+
+
+def test_cv_url_404_when_no_docs(
+    client: TestClient, seed_auth, db_session: Session
+):
+    candidate = Candidate(full_name="No CV JSON", email="nocvjson@test.example")
+    db_session.add(candidate)
+    db_session.commit()
+    headers = _login_super(client, seed_auth["password"])
+    r = client.get(
+        f"/api/v1/hr/candidates/{candidate.id}/cv-url", headers=headers
+    )
+    assert r.status_code == 404
+
+
+def test_cv_url_requires_auth(
+    client: TestClient, db_session: Session
+):
+    candidate = Candidate(full_name="No Auth JSON", email="xjson@test.example")
+    db_session.add(candidate)
+    db_session.commit()
+    r = client.get(f"/api/v1/hr/candidates/{candidate.id}/cv-url")
+    assert r.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
 # cv_storage helpers
 # ---------------------------------------------------------------------------
 
