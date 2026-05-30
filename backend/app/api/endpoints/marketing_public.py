@@ -16,15 +16,12 @@ from __future__ import annotations
 
 import hashlib
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.marketing import (
     CATALOGUE_READY,
@@ -41,6 +38,8 @@ from app.schemas.marketing import (
     OffersIndexCampaign,
     OffersIndexCatalogue,
 )
+from app.services.catalogue_processor import source_pdf_key
+from app.services.storage import get_storage
 
 
 router = APIRouter(prefix="/offers", tags=["Public - Offers & Catalogues"])
@@ -337,8 +336,16 @@ def log_catalogue_view(
 def download_catalogue_pdf(
     catalogue_id: int,
     db: Session = Depends(get_db),
-) -> FileResponse:
-    """Stream the original PDF. Increments download_count."""
+) -> Response:
+    """Serve the original PDF and increment ``download_count``.
+
+    Fetches the bytes via the storage backend under the same
+    deterministic key the catalogue processor wrote to, so the
+    endpoint works against R2 just as well as a local-disk install.
+    Pre-R2 this did ``catalogue.pdf_url.split('/api/v1/uploads/')``
+    + ``Path.read_bytes`` — which 404s as soon as ``pdf_url`` is an
+    R2 ``https://…`` URL.
+    """
     catalogue = db.get(Catalogue, catalogue_id)
     if catalogue is None or not catalogue.is_active:
         raise HTTPException(status_code=404, detail="Catalogue not found")
@@ -347,25 +354,35 @@ def download_catalogue_pdf(
             status_code=404, detail="PDF not available for this catalogue."
         )
 
-    # The pdf_url is a public URL like /api/v1/uploads/catalogues/<id>/source.pdf
-    # — resolve it back to the on-disk path. The uploads mount is rooted
-    # at settings.upload_dir.
-    settings = get_settings()
-    relative = catalogue.pdf_url.split("/api/v1/uploads/", 1)[-1]
-    path = Path(settings.upload_dir) / relative
-    if not path.exists():
+    try:
+        pdf_bytes = get_storage().download_sync(source_pdf_key(catalogue.id))
+    except FileNotFoundError as exc:
         raise HTTPException(
-            status_code=404, detail="PDF file missing on disk."
-        )
+            status_code=404, detail="PDF file missing from storage."
+        ) from exc
 
     catalogue.download_count += 1
     db.commit()
 
-    filename = catalogue.pdf_original_filename or f"{catalogue.slug}.pdf"
-    return FileResponse(
-        path=str(path),
+    # ``pdf_original_filename`` is the upload-time name, which the
+    # admin chose; fall back to ``{slug}.pdf`` so the user-facing
+    # save-as dialog always has something meaningful.
+    raw_filename = catalogue.pdf_original_filename or f"{catalogue.slug}.pdf"
+    # Strip control characters + double-quotes that would break the
+    # ``Content-Disposition`` quoted-string. Replace anything outside
+    # ASCII with an underscore so we never emit an invalid header
+    # value — browsers tolerate the substitution and the user can
+    # rename on save.
+    safe_filename = "".join(
+        ch if 32 <= ord(ch) < 127 and ch != '"' else "_"
+        for ch in raw_filename
+    )
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
-        filename=filename,
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+        },
     )
 
 

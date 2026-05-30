@@ -106,6 +106,19 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       APP_ENV: production
+      # Pin UPLOAD_DIR to the same absolute path the ``uploads_data``
+      # volume is mounted at below. ``Settings.upload_dir`` defaults
+      # to the relative ``app/uploads`` (intended for ``cd backend &&
+      # uvicorn …`` setups), which under Docker resolves to
+      # ``/app/app/uploads`` — a directory INSIDE the container that
+      # isn't covered by any volume. The previous default silently
+      # wiped every local-disk write on each ``docker compose up
+      # --build``: catalogue source PDFs, DB safety backups, CV
+      # files, contact attachments. R2-backed uploads escaped this
+      # because they wrote to the bucket; everything else was lost
+      # on every rebuild. Setting it explicitly here lines the app's
+      # writes up with the persistent volume.
+      UPLOAD_DIR: /app/uploads
     # Override the Dockerfile CMD to use gunicorn with multiple
     # uvicorn workers (production-grade) instead of single-process
     # uvicorn. Workers count = (2 * cores) + 1 is the classic rule;
@@ -152,6 +165,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       APP_ENV: production
       ARQ_ENABLED: "true"
+      # Same rationale as the backend service — keep the worker's
+      # filesystem writes on the persistent ``uploads_data`` volume.
+      UPLOAD_DIR: /app/uploads
     command: ["python", "worker_runner.py"]
     volumes:
       - uploads_data:/app/uploads
