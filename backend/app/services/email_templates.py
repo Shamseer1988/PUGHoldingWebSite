@@ -44,6 +44,9 @@ TPL_OFFER_JOINED = "offer_joined"
 # Contact-inbox ticket reply (Phase B of the Contact-Us upgrade).
 TPL_CONTACT_REPLY = "contact_reply_branded"
 
+# Phase 2 — candidate assessment workflow
+TPL_ASSESSMENT_INVITE = "candidate_assessment_invite"
+
 
 @dataclass(frozen=True)
 class RenderedEmail:
@@ -882,6 +885,84 @@ def _r_contact_reply(ctx: Dict[str, Any]) -> RenderedEmail:
     return RenderedEmail(subject=subject, html=html, text=text)
 
 
+def _r_assessment_invite(ctx: Dict[str, Any]) -> RenderedEmail:
+    """Phase 2 — invitation to take an MCQ assessment.
+
+    Expected ctx:
+      * ``candidate_name``      — required, falls back to "there"
+      * ``job_title``           — required, falls back to "this role"
+      * ``assessment_title``    — required, falls back to "an assessment"
+      * ``assessment_url``      — the ``/assessment/{token}`` link
+      * ``time_limit_minutes``  — optional, surfaces clock copy
+      * ``expires_at``          — optional ISO/strftime'd string
+    """
+    candidate_name = ctx.get("candidate_name", "there")
+    job_title = ctx.get("job_title", "this role")
+    assessment_title = ctx.get("assessment_title", "an assessment")
+    assessment_url = ctx.get("assessment_url")
+    time_limit_minutes = ctx.get("time_limit_minutes")
+    expires_at = ctx.get("expires_at")
+
+    subject = f"[PUG] Assessment for your application — {job_title}"
+
+    clock_html = ""
+    if time_limit_minutes:
+        clock_html = (
+            f"<p><strong>Time limit:</strong> "
+            f"{int(time_limit_minutes)} minutes once you start.</p>"
+        )
+    expiry_html = ""
+    if expires_at:
+        expiry_html = (
+            f"<p><strong>Available until:</strong> {_esc(str(expires_at))}.</p>"
+        )
+
+    body = (
+        f"<p>Hi {_esc(candidate_name)},</p>"
+        f"<p>As the next step in your application for the "
+        f"<strong>{_esc(job_title)}</strong> role at Paris United Group "
+        f"Holding, we'd like you to complete a short assessment: "
+        f"<strong>{_esc(assessment_title)}</strong>.</p>"
+        f"{clock_html}"
+        f"{expiry_html}"
+        f"<p>Open the assessment using the button below. You'll be asked "
+        f"to confirm your identity (date of birth, email, or mobile) "
+        f"before you begin.</p>"
+        f"{_btn('Open assessment', assessment_url)}"
+        f"<p>If the button doesn't work, copy and paste this link into "
+        f"your browser:<br/><code>{_esc(assessment_url or '')}</code></p>"
+        f"<p>Good luck!<br/>The PUG HR Team</p>"
+    )
+    html = _wrap(
+        title="Your assessment is ready",
+        body_html=body,
+        **_ctx(TPL_ASSESSMENT_INVITE, ctx),
+    )
+    text_lines = [
+        f"Hi {candidate_name},",
+        "",
+        (
+            f"As the next step in your application for {job_title}, "
+            f"please complete this assessment: {assessment_title}."
+        ),
+    ]
+    if time_limit_minutes:
+        text_lines.append(f"Time limit: {int(time_limit_minutes)} minutes once you start.")
+    if expires_at:
+        text_lines.append(f"Available until: {expires_at}.")
+    text_lines.extend([
+        "",
+        "Open the assessment:",
+        assessment_url or "(link missing — please contact HR)",
+        "",
+        "You'll confirm your identity (date of birth, email, or mobile) before starting.",
+        "",
+        "— The PUG HR Team",
+    ])
+    text = "\n".join(text_lines)
+    return RenderedEmail(subject=subject, html=html, text=text)
+
+
 _RENDERERS = {
     TPL_JOB_SUBMITTED: _r_job_submitted,
     TPL_JOB_APPROVED: _r_job_approved,
@@ -905,6 +986,8 @@ _RENDERERS = {
     TPL_OFFER_JOINED: _r_offer_joined,
     # Contact ticket
     TPL_CONTACT_REPLY: _r_contact_reply,
+    # Phase 2 — assessment invitation
+    TPL_ASSESSMENT_INVITE: _r_assessment_invite,
 }
 
 

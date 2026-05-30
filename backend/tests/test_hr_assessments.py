@@ -518,3 +518,51 @@ class TestRBAC:
     def test_unauthenticated_rejected(self, client: TestClient):
         r = client.get(BASE)
         assert r.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Email template
+# ---------------------------------------------------------------------------
+
+
+class TestAssessmentInviteEmail:
+    def test_renders_subject_link_and_clock(self):
+        from app.services.email_templates import (
+            render,
+            TPL_ASSESSMENT_INVITE,
+        )
+
+        out = render(
+            TPL_ASSESSMENT_INVITE,
+            {
+                "candidate_name": "Jane Doe",
+                "job_title": "Senior Engineer",
+                "assessment_title": "Coding MCQ",
+                "assessment_url": "http://localhost:3000/assessment/tok-abc",
+                "time_limit_minutes": 30,
+            },
+        )
+        assert "Senior Engineer" in out.subject
+        assert "Coding MCQ" in out.html
+        assert "/assessment/tok-abc" in out.html
+        assert "30 minutes" in out.html
+        # Plain-text fallback carries the same essentials.
+        assert "tok-abc" in out.text
+        assert "Coding MCQ" in out.text
+
+    def test_renders_without_optional_fields(self):
+        from app.services.email_templates import (
+            render,
+            TPL_ASSESSMENT_INVITE,
+        )
+
+        # Bare minimum — clock + expiry omitted.
+        out = render(
+            TPL_ASSESSMENT_INVITE,
+            {
+                "candidate_name": "Anon",
+                "assessment_url": "http://example/assessment/t",
+            },
+        )
+        assert "Anon" in out.html
+        assert "this role" in out.html  # fallback when job_title missing

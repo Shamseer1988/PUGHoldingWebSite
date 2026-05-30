@@ -28,6 +28,7 @@ from app.api.endpoints import (
     hr_scheduled_reports,
     hr_scorecards,
     public,
+    public_assessments,
     public_short_urls,
     websocket,
 )
@@ -47,6 +48,7 @@ api_router.include_router(admin_marketing.router)
 api_router.include_router(admin_short_urls.router)
 api_router.include_router(marketing_public.router)
 api_router.include_router(public_short_urls.router)
+api_router.include_router(public_assessments.router)
 api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)
 api_router.include_router(hr_jobs.router)

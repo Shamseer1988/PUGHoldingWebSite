@@ -40,6 +40,7 @@ from app.models.hr_ats import (
 from app.services.email import EmailResult, EmailService
 from app.services.email_templates import (
     RenderedEmail,
+    TPL_ASSESSMENT_INVITE,
     TPL_CANDIDATE_APPLICATION_RECEIVED,
     TPL_CANDIDATE_REJECTED,
     TPL_INTERVIEW_FEEDBACK_SUBMITTED,
@@ -535,6 +536,56 @@ def notify_candidate_selected(
         template_key=TPL_CANDIDATE_SELECTED,
         actor_id=actor_id,
     )
+
+
+def notify_assessment_invite_sent(*, invite_id: int) -> None:
+    """Email the candidate the tokenised assessment link (Phase 2)."""
+    from app.models.hr_assessment import Assessment, AssessmentInvite
+
+    def _build(db: Session) -> Optional[dict]:
+        invite = db.get(AssessmentInvite, invite_id)
+        if invite is None:
+            return None
+        candidate = db.get(Candidate, invite.candidate_id)
+        if candidate is None or not candidate.email:
+            return None
+        template = db.get(Assessment, invite.assessment_id)
+        if template is None:
+            return None
+
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        base = settings.public_site_url.rstrip("/")
+        # Candidate-facing route — see the Next.js page in
+        # ``frontend/app/(public)/assessment/[token]/page.tsx``.
+        assessment_url = f"{base}/assessment/{invite.token}"
+
+        ctx = _candidate_ctx(candidate)
+        ctx["assessment_title"] = template.title
+        ctx["assessment_url"] = assessment_url
+        ctx["time_limit_minutes"] = template.time_limit_minutes
+        if invite.expires_at is not None:
+            # Wire format is the operator's locale-friendly string;
+            # the renderer escapes it. ``isoformat`` keeps timezone
+            # info, which is what an HR Manager wants to see.
+            ctx["expires_at"] = invite.expires_at.isoformat()
+
+        if template.job_opening_id is not None:
+            job = db.get(JobOpening, template.job_opening_id)
+            if job is not None:
+                ctx.update(_job_ctx(job))
+
+        return {
+            "template_key": TPL_ASSESSMENT_INVITE,
+            "to_emails": [candidate.email],
+            "context": ctx,
+            "related_type": "assessment_invite",
+            "related_id": str(invite_id),
+            "check_feature_flag": "candidate_email_enabled",
+        }
+
+    _dispatch(_build)
 
 
 def _candidate_status_email(

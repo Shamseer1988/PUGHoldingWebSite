@@ -55,6 +55,7 @@ from app.schemas.hr_assessment import (
 )
 from app.services import assessment_service as svc
 from app.services.audit_log import record_audit
+from app.services.hr_notifications import notify_assessment_invite_sent
 
 
 logger = logging.getLogger(__name__)
@@ -413,6 +414,17 @@ def send_invite(
     )
     db.commit()
     db.refresh(invite)
+
+    # Email dispatch happens *after* commit — ``_dispatch`` opens
+    # its own session and swallows errors, so a flaky SMTP can't
+    # roll back the invite the operator already requested.
+    try:
+        notify_assessment_invite_sent(invite_id=invite.id)
+    except Exception:  # pragma: no cover — notifier must never raise
+        logger.exception(
+            "Failed to dispatch assessment-invite email for invite %s",
+            invite.id,
+        )
     return invite
 
 

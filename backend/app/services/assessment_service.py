@@ -452,6 +452,20 @@ def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def as_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Force a datetime to be tz-aware (assume UTC for naive).
+
+    SQLite (test backend) drops tzinfo on round-trip, so an
+    ``expires_at`` written as tz-aware comes back naive. Postgres
+    keeps the tz. Coercing here means service-level comparisons
+    work uniformly on both backends without each call site having
+    to deal with it.
+    """
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # Token lookup + identity verification (public surface helpers)
 # ---------------------------------------------------------------------------
@@ -543,7 +557,8 @@ def open_submission(
     so the clock isn't reset.
     """
     now = datetime.now(timezone.utc)
-    if invite.expires_at is not None and now > invite.expires_at:
+    expires = as_aware_utc(invite.expires_at)
+    if expires is not None and now > expires:
         raise InviteExpired("This assessment link has expired.")
     if invite.status == "submitted":
         raise InviteAlreadyOpen("This assessment has already been submitted.")
@@ -576,7 +591,8 @@ def finalise_submission(
 
     if invite.status == "submitted":
         raise AssessmentLocked("Already submitted.")
-    if invite.expires_at is not None and datetime.now(timezone.utc) > invite.expires_at:
+    expires = as_aware_utc(invite.expires_at)
+    if expires is not None and datetime.now(timezone.utc) > expires:
         raise InviteExpired("Submission window has closed.")
 
     # Load the canonical question/choice graph once so we don't
