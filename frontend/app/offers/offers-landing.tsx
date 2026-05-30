@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
-  BookOpen,
   Flame,
   MapPin,
   Search,
@@ -14,13 +13,21 @@ import {
   Zap,
 } from "lucide-react";
 
+import { PageHero } from "@/components/site/page-hero";
 import type {
   OfferIndexCampaign,
   OffersIndex,
-  OffersIndexCatalogue,
 } from "@/lib/public-offers";
 import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
+
+
+// Banner image for the offers landing hero. CSP allows ``https:``
+// img-src (see ``frontend/next.config.mjs``) so a CDN URL works
+// out of the box; swap with a CMS-managed value once the
+// ``site_settings`` table grows an ``offers_banner_image_url`` key.
+const OFFERS_BANNER_IMAGE =
+  "https://images.unsplash.com/photo-1607082352121-fa243f3dde32?auto=format&fit=crop&w=1920&q=80";
 
 
 interface Props {
@@ -57,62 +64,53 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
 
   return (
     <main className="min-h-screen bg-background">
-      {/* ----- Compact banner ----- */}
-      <section className="border-b border-border/60 bg-card/40">
-        <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                Paris United Group · Offers
-              </p>
-              <h1 className="mt-0.5 text-xl font-semibold leading-tight sm:text-2xl">
-                Catalogues, killer offers & flash sales.
-              </h1>
-            </div>
+      {/* ----- Hero banner with search + branch facets ----- */}
+      <PageHero
+        eyebrow="Paris United Group"
+        title="Live offers across every branch."
+        description="Browse the latest campaigns from our retail partners — flash sales, killer deals and the seasonal catalogues that go with them. Tap a campaign to open its catalogue collection."
+        imageUrl={OFFERS_BANNER_IMAGE}
+      >
+        <form
+          onSubmit={onSubmitSearch}
+          className="flex w-full max-w-xl items-center gap-1 rounded-full border border-white/30 bg-white/95 p-1 shadow-lg backdrop-blur"
+          role="search"
+        >
+          <Search className="ml-2 h-4 w-4 shrink-0 text-pug-green-800" />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search campaigns…"
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm text-pug-green-900 outline-none placeholder:text-pug-green-900/50"
+            aria-label="Search offers"
+          />
+          <button
+            type="submit"
+            className="rounded-full bg-pug-gold-500 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-pug-green-900 transition-colors hover:bg-pug-gold-400"
+          >
+            Search
+          </button>
+        </form>
 
-            <form
-              onSubmit={onSubmitSearch}
-              className="flex w-full items-center gap-1 rounded-full border border-border/70 bg-background p-1 sm:w-80"
-              role="search"
-            >
-              <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-              <input
-                type="search"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search catalogues…"
-                className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-                aria-label="Search offers"
-              />
-              <button
-                type="submit"
-                className="rounded-full bg-pug-gold-400 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-pug-green-800 transition-colors hover:bg-pug-gold-300"
-              >
-                Search
-              </button>
-            </form>
-          </div>
-
-          {/* Branch facet — inline below the row */}
-          {index.branches.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
+        {index.branches.length > 0 && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            <BranchChip
+              label="All branches"
+              active={!currentBranch}
+              onClick={() => onPickBranch(null)}
+            />
+            {index.branches.map((b) => (
               <BranchChip
-                label="All branches"
-                active={!currentBranch}
-                onClick={() => onPickBranch(null)}
+                key={b}
+                label={b}
+                active={currentBranch === b}
+                onClick={() => onPickBranch(b)}
               />
-              {index.branches.map((b) => (
-                <BranchChip
-                  key={b}
-                  label={b}
-                  active={currentBranch === b}
-                  onClick={() => onPickBranch(b)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+            ))}
+          </div>
+        )}
+      </PageHero>
 
       {/* ----- Killer offers carousel ----- */}
       {index.killer_offers.length > 0 && (
@@ -169,50 +167,32 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
         </SectionBlock>
       )}
 
-      {/* ----- Catalogues (every active+ready catalogue) ----- */}
-      {index.all_catalogues.length > 0 && (
+      {/* ----- Global empty state ----- */}
+      {index.all_campaigns.length === 0 && (
         <SectionBlock
-          eyebrow="Catalogues"
-          icon={BookOpen}
-          title="Browse the full library."
-          subtitle="Every active flyer — tap to open the page-flip viewer."
+          eyebrow="Nothing yet"
+          icon={Tag}
+          title="No active campaigns."
         >
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {index.all_catalogues.map((c) => (
-              <CatalogueCard key={c.slug} catalogue={c} />
-            ))}
+          <div className="rounded-2xl border border-dashed border-border/60 bg-background p-12 text-center text-sm text-muted-foreground">
+            {currentBranch || searchInput ? (
+              <>
+                No campaigns match your{" "}
+                {[currentBranch && "branch", searchInput && "search"]
+                  .filter(Boolean)
+                  .join(" + ")}{" "}
+                filter. Try clearing it to see everything.
+              </>
+            ) : (
+              <>
+                Check back soon — new campaigns go up every week. If
+                you&apos;re an admin, create a campaign and attach
+                at least one catalogue to see it here.
+              </>
+            )}
           </div>
         </SectionBlock>
       )}
-
-      {/* ----- Global empty state ----- */}
-      {index.all_campaigns.length === 0 &&
-        index.all_catalogues.length === 0 && (
-          <SectionBlock
-            eyebrow="Nothing yet"
-            icon={Tag}
-            title="No active offers."
-          >
-            <div className="rounded-2xl border border-dashed border-border/60 bg-background p-12 text-center text-sm text-muted-foreground">
-              {currentBranch || searchInput ? (
-                <>
-                  No offers match your{" "}
-                  {[currentBranch && "branch", searchInput && "search"]
-                    .filter(Boolean)
-                    .join(" + ")}{" "}
-                  filter. Try clearing it to see everything.
-                </>
-              ) : (
-                <>
-                  Check back soon — new flyers go up every week. If
-                  you&apos;re an admin, upload a catalogue and toggle
-                  the parent campaign to <strong>Active</strong> to see
-                  it here.
-                </>
-              )}
-            </div>
-          </SectionBlock>
-        )}
     </main>
   );
 }
@@ -236,10 +216,10 @@ function BranchChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium backdrop-blur transition-colors",
         active
-          ? "border-pug-gold-400 bg-pug-gold-400 text-pug-green-800"
-          : "border-border/70 bg-background text-foreground/80 hover:border-pug-gold-400/60 hover:text-foreground"
+          ? "border-pug-gold-500 bg-pug-gold-500 text-pug-green-900"
+          : "border-white/40 bg-white/10 text-white hover:border-pug-gold-300 hover:bg-white/20"
       )}
     >
       <MapPin className="h-3 w-3" />
@@ -419,46 +399,3 @@ function CampaignCard({
 }
 
 
-function CatalogueCard({ catalogue }: { catalogue: OffersIndexCatalogue }) {
-  // Standalone catalogue card — links straight into the viewer.
-  return (
-    <Link
-      href={`/offers/catalogues/${catalogue.slug}`}
-      className="group block overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all hover:shadow-lg"
-    >
-      <div className="relative aspect-[3/4] overflow-hidden bg-muted">
-        {catalogue.cover_image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={resolveAssetUrl(catalogue.cover_image_url) ?? ""}
-            alt={catalogue.title}
-            loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-            <BookOpen className="h-10 w-10 opacity-40" />
-          </div>
-        )}
-      </div>
-      <div className="space-y-1 p-4">
-        <h3 className="line-clamp-2 text-base font-semibold leading-snug">
-          {catalogue.title}
-        </h3>
-        {catalogue.description && (
-          <p className="line-clamp-2 text-xs text-muted-foreground">
-            {catalogue.description}
-          </p>
-        )}
-        <p className="pt-1 text-xs text-muted-foreground">
-          {catalogue.page_count} page
-          {catalogue.page_count === 1 ? "" : "s"} ·
-          <span className="ml-1 inline-flex items-center gap-1 font-medium text-primary">
-            Open viewer
-            <ArrowRight className="h-3 w-3" />
-          </span>
-        </p>
-      </div>
-    </Link>
-  );
-}
