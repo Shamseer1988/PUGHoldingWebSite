@@ -330,6 +330,17 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
     existing_tables = set(inspector.get_table_names())
 
+    # --- Extend Candidate with DOB (identity-check fallback) ----------------
+    # Used by the assessment workflow's verify step. Nullable so
+    # existing rows + the apply form (which doesn't ask for it yet)
+    # stay valid.
+    candidate_cols = {c["name"] for c in inspector.get_columns("hr_candidates")}
+    if "date_of_birth" not in candidate_cols:
+        op.add_column(
+            "hr_candidates",
+            sa.Column("date_of_birth", sa.Date(), nullable=True),
+        )
+
     # Create in dependency order: parent → child. Each guarded by an
     # existence check so a partially-applied prior run can be re-run
     # without errors.
@@ -426,3 +437,11 @@ def downgrade() -> None:
     op.drop_table("hr_assessment_choices")
     op.drop_table("hr_assessment_questions")
     op.drop_table("hr_assessments")
+
+    # Drop the candidate.date_of_birth column too — symmetry with the
+    # upgrade. Inspector guard so a downgrade against a DB that's
+    # been further evolved doesn't fight us.
+    inspector = sa.inspect(bind)
+    candidate_cols = {c["name"] for c in inspector.get_columns("hr_candidates")}
+    if "date_of_birth" in candidate_cols:
+        op.drop_column("hr_candidates", "date_of_birth")
