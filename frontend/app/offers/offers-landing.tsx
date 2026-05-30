@@ -137,8 +137,16 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
 
   return (
     <main className="min-h-screen bg-background">
-      {/* ----- Hero banner ----- */}
+      {/* ----- Hero banner -----
+          ``size="compact"`` is the offers-specific variant — the
+          filter bar + results grid below the hero are the page's
+          working surface, so the operator wants the hero to occupy
+          less of the first scroll-fold than it does on
+          companies / careers / news / about / contact / etc. The
+          default ``size`` matches the existing 16/20/24 padding so
+          other consumers of ``<PageHero>`` are unaffected. */}
       <PageHero
+        size="compact"
         eyebrow="Paris United Group"
         title="Live offers across every branch."
         description="Browse the latest campaigns from our retail partners — flash sales, killer deals and the seasonal catalogues that go with them. Tap a campaign to open its catalogue collection."
