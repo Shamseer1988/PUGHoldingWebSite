@@ -98,6 +98,13 @@ class _FakeIMAPForPoll:
         self.copies: List[Tuple[bytes, str]] = []
         self._login_ok = True
         self._select_ok = True
+        # imaplib.IMAP4 populates this dict on every untagged response
+        # the server sends — most notably ``* OK [UIDVALIDITY n]`` after
+        # SELECT. The poller's ``_get_uidvalidity()`` helper reads it
+        # directly, so the fake has to expose at least an empty dict
+        # (= "server didn't advertise UIDVALIDITY", which the helper
+        # documents as the graceful-degradation path).
+        self.untagged_responses: dict[str, list[bytes]] = {}
 
     # ---- imaplib API used by our code --------------------------------------
 

@@ -11,6 +11,7 @@ from app.api.endpoints import (
     admin_email_settings,
     admin_marketing,
     admin_seo,
+    admin_short_urls,
     admin_storage,
     admin_users,
     health,
@@ -26,6 +27,7 @@ from app.api.endpoints import (
     hr_scheduled_reports,
     hr_scorecards,
     public,
+    public_short_urls,
     websocket,
 )
 
@@ -41,7 +43,9 @@ api_router.include_router(admin_users.router)
 api_router.include_router(admin_backup.router)
 api_router.include_router(admin_storage.router)
 api_router.include_router(admin_marketing.router)
+api_router.include_router(admin_short_urls.router)
 api_router.include_router(marketing_public.router)
+api_router.include_router(public_short_urls.router)
 api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)
 api_router.include_router(hr_jobs.router)

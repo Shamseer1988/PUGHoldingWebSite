@@ -55,6 +55,7 @@ from app.models.seo import (
     SeoVerification,
     TrackingIntegration,
 )
+from app.models.short_url import ShortUrl
 
 __all__ = [
     "TimestampMixin",
@@ -104,4 +105,6 @@ __all__ = [
     "SeoSetting",
     "SeoVerification",
     "TrackingIntegration",
+    # Marketing — Tools
+    "ShortUrl",
 ]
