@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
-import { env } from "@/lib/env";
+import { resolveAssetUrl } from "@/lib/public-api";
 import type {
   Candidate,
   CandidateExtractedData,
@@ -331,10 +331,19 @@ export function CandidateDetailDrawer({
 
         {/* Quick-action toolbar */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-5 py-2">
-          {cvDoc && (
+          {cvDoc && candidate && (
             <Button asChild variant="outline" size="sm">
+              {/* CV bytes live on R2 (post-storage refactor) under a
+                  private key. The new HR-only endpoint resolves the
+                  key from the DB and 302s to a short-lived pre-
+                  signed URL — no need to know the storage path on
+                  the frontend, and the link survives R2 rotation
+                  because it goes through us. */}
               <Link
-                href={resolveCvUrl(cvDoc.file_path)}
+                href={
+                  resolveAssetUrl(`/api/v1/hr/candidates/${candidate.id}/cv`) ??
+                  `/api/v1/hr/candidates/${candidate.id}/cv`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -736,14 +745,3 @@ function parseInt2(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function resolveCvUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path;
-  if (path.startsWith("/api/")) {
-    try {
-      return `${new URL(env.apiBaseUrl).origin}${path}`;
-    } catch {
-      return path;
-    }
-  }
-  return path;
-}
