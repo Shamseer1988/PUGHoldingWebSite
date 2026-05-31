@@ -643,9 +643,22 @@ export interface AssessmentChoice {
   is_correct: boolean;
 }
 
+export type AssessmentQuestionType =
+  | "short_text"
+  | "long_text"
+  | "date"
+  | "checkbox"
+  | "single_choice"
+  | "multi_choice"
+  | "attachment";
+
 export interface AssessmentQuestion {
   id: number;
   text: string;
+  type: AssessmentQuestionType | string;
+  help_text: string | null;
+  is_required: boolean;
+  config: Record<string, unknown>;
   order_index: number;
   points: number;
   choices: AssessmentChoice[];

@@ -24,9 +24,16 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import { AlertTriangle, CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
 
+import { AssessmentField } from "@/components/assessment/assessment-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  emptyAnswer,
+  toSubmitAnswer,
+  validateAll,
+  type FieldAnswer,
+} from "@/lib/assessment-validation";
 import { cn } from "@/lib/utils";
 import {
   AssessmentSubmissionAck,
@@ -177,7 +184,7 @@ function VerifyForm({
 // ---------------------------------------------------------------------------
 
 
-type AnswerMap = Record<number, Set<number>>;
+type AnswerMap = Record<number, FieldAnswer>;
 
 
 function AssessmentForm({
@@ -189,6 +196,9 @@ function AssessmentForm({
 }) {
   const [bundle, setBundle] = React.useState<PublicAssessment | null>(null);
   const [answers, setAnswers] = React.useState<AnswerMap>({});
+  const [fieldErrors, setFieldErrors] = React.useState<Record<number, string>>(
+    {},
+  );
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
@@ -247,36 +257,37 @@ function AssessmentForm({
   const remainingSec =
     deadlineMs !== null ? Math.max(0, Math.floor((deadlineMs - now) / 1000)) : null;
 
-  function toggle(questionId: number, choiceId: number) {
-    setAnswers((prev) => {
-      const next = { ...prev };
-      const cur = new Set(next[questionId] ?? []);
-      if (cur.has(choiceId)) cur.delete(choiceId);
-      else cur.add(choiceId);
-      next[questionId] = cur;
-      return next;
+  function setAnswer(questionId: number, next: FieldAnswer) {
+    setAnswers((prev) => ({ ...prev, [questionId]: next }));
+    // Clear a field's error as soon as the candidate edits it.
+    setFieldErrors((prev) => {
+      if (!prev[questionId]) return prev;
+      const rest = { ...prev };
+      delete rest[questionId];
+      return rest;
     });
   }
 
   async function submit() {
     if (!bundle) return;
     const questions = bundle.questions;
+
+    // Client-side required + format validation (mirrors the backend).
+    const errors = validateAll(questions, answers);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setSubmitError("Please fix the highlighted questions before submitting.");
+      return;
+    }
+
     setBusy(true);
     setSubmitError(null);
     try {
-      const payload = Object.entries(answers).map(([qid, cids]) => ({
-        question_id: Number(qid),
-        selected_choice_ids: Array.from(cids),
-      }));
-      // Also include questions with no answers, so the backend records
-      // an empty selection (counts as "wrong" under all-or-nothing
-      // scoring) — otherwise the gap is indistinguishable from "didn't
-      // load the question at all".
-      for (const q of questions) {
-        if (!(q.id in answers)) {
-          payload.push({ question_id: q.id, selected_choice_ids: [] });
-        }
-      }
+      // Submit every question (unanswered → empty), so the backend
+      // records the full set rather than guessing at gaps.
+      const payload = questions.map((q) =>
+        toSubmitAnswer(q, answers[q.id] ?? emptyAnswer()),
+      );
       const ack = await submitAssessment(sessionToken, payload);
       onSubmitted(ack);
     } catch (err) {
@@ -321,37 +332,16 @@ function AssessmentForm({
             key={q.id}
             className="rounded-xl border border-border/40 bg-card/95 p-5 shadow-md backdrop-blur"
           >
-            <h2 className="mb-3 text-base font-medium">
-              <span className="text-muted-foreground">
-                Q{idx + 1} · {q.points} pt{q.points === 1 ? "" : "s"}
-              </span>
-              <span className="ml-2 whitespace-pre-wrap">{q.text}</span>
-            </h2>
-            <ul className="space-y-2">
-              {q.choices.map((c) => {
-                const checked = (answers[q.id]?.has(c.id)) ?? false;
-                return (
-                  <li key={c.id}>
-                    <label
-                      className={cn(
-                        "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition",
-                        checked
-                          ? "border-primary/60 bg-primary/5"
-                          : "border-border/50 hover:bg-muted/50",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggle(q.id, c.id)}
-                        className="mt-1 h-4 w-4 accent-primary"
-                      />
-                      <span className="text-sm">{c.text}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <p className="mb-3 text-xs text-muted-foreground">
+              {q.points} pt{q.points === 1 ? "" : "s"}
+            </p>
+            <AssessmentField
+              question={q}
+              index={idx}
+              answer={answers[q.id] ?? emptyAnswer()}
+              error={fieldErrors[q.id]}
+              onChange={(next) => setAnswer(q.id, next)}
+            />
           </section>
         ))}
 
