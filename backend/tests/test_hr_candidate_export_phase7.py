@@ -14,18 +14,23 @@ Pins:
 from __future__ import annotations
 
 import io
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.auth import User
 from app.models.hr_ats import (
     JOB_STATUS_OPEN,
     STATUS_CV_RECEIVED,
+    STATUS_FIRST_INTERVIEW,
     STATUS_REJECTED,
     STATUS_SHORTLISTED,
     Candidate,
     CandidateJobApplication,
+    Interview,
     JobOpening,
 )
 
@@ -113,6 +118,56 @@ def test_report_rows_match_candidates(client, seed_auth, db_session: Session):
     assert len(rows) == 3
     names = {r[3] for r in rows}  # column index 3 = Candidate Name
     assert {"Alice Apex", "Bob Builder", "Carla Crew"} <= names
+
+
+def test_report_fills_interviewer_column(
+    client, seed_auth, db_session: Session
+):
+    """A candidate with an interview assigned to a known user surfaces
+    that interviewer's display name in the Interviewer column."""
+    interviewer = db_session.execute(
+        select(User).where(User.email == "interviewer@pug.example.com")
+    ).scalar_one()
+
+    job = JobOpening(
+        slug="p7-iv-job",
+        title="Lead Engineer",
+        department="Engineering",
+        company="PUG",
+        location="Doha",
+        status=JOB_STATUS_OPEN,
+        approval_status="approved",
+        publish_status="published",
+    )
+    db_session.add(job)
+    db_session.flush()
+    cand = Candidate(full_name="Dana Drive", email="dana@example.com")
+    db_session.add(cand)
+    db_session.flush()
+    application = CandidateJobApplication(
+        candidate_id=cand.id,
+        job_opening_id=job.id,
+        status=STATUS_FIRST_INTERVIEW,
+    )
+    db_session.add(application)
+    db_session.flush()
+    db_session.add(
+        Interview(
+            application_id=application.id,
+            round_name="First Interview",
+            scheduled_at=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            interviewer_id=interviewer.id,
+        )
+    )
+    db_session.commit()
+
+    headers = _login(client, "hr@pug.example.com", seed_auth["password"])
+    response = client.get(JSON_REPORT, headers=headers)
+    assert response.status_code == 200, response.text
+    rows = response.json()["rows"]
+    # Column index 20 = Interviewer (see the master-plan column order).
+    dana_row = next(r for r in rows if r[3] == "Dana Drive")
+    assert dana_row[20] == interviewer.full_name
 
 
 def test_report_respects_status_filter(
