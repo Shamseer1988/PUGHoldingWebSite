@@ -74,6 +74,59 @@ INVITE_STATUSES = (
 )
 
 
+# Question types (multi-field assessment engine). ``multi_choice`` is the
+# original MCQ-multi; every legacy question backfills to it. ``attachment``
+# is reserved (the candidate file-upload UI ships in a follow-up) but kept
+# in the enum so the type is already valid.
+QUESTION_SHORT_TEXT = "short_text"
+QUESTION_LONG_TEXT = "long_text"
+QUESTION_DATE = "date"
+QUESTION_CHECKBOX = "checkbox"
+QUESTION_SINGLE_CHOICE = "single_choice"
+QUESTION_MULTI_CHOICE = "multi_choice"
+QUESTION_ATTACHMENT = "attachment"
+QUESTION_TYPES = (
+    QUESTION_SHORT_TEXT,
+    QUESTION_LONG_TEXT,
+    QUESTION_DATE,
+    QUESTION_CHECKBOX,
+    QUESTION_SINGLE_CHOICE,
+    QUESTION_MULTI_CHOICE,
+    QUESTION_ATTACHMENT,
+)
+# Types scored automatically (choice set-equality). Everything else is
+# manual review — objective score 0 until HR sets an override.
+CHOICE_QUESTION_TYPES = (QUESTION_SINGLE_CHOICE, QUESTION_MULTI_CHOICE)
+
+# HR review lifecycle on a submission.
+REVIEW_PENDING = "pending"
+REVIEW_IN_REVIEW = "in_review"
+REVIEW_APPROVED = "approved"
+REVIEW_REJECTED = "rejected"
+REVIEW_REQUIRES_REVISION = "requires_revision"
+REVIEW_STATUSES = (
+    REVIEW_PENDING,
+    REVIEW_IN_REVIEW,
+    REVIEW_APPROVED,
+    REVIEW_REJECTED,
+    REVIEW_REQUIRES_REVISION,
+)
+
+# Audit actions written to ``hr_assessment_review_events``.
+REVIEW_ACTION_DRAFT_SAVED = "draft_saved"
+REVIEW_ACTION_APPROVED_ADVANCED = "approved_advanced"
+REVIEW_ACTION_REJECTED = "rejected"
+REVIEW_ACTION_CHANGES_REQUESTED = "changes_requested"
+REVIEW_ACTION_SCORE_OVERRIDDEN = "score_overridden"
+REVIEW_ACTIONS = (
+    REVIEW_ACTION_DRAFT_SAVED,
+    REVIEW_ACTION_APPROVED_ADVANCED,
+    REVIEW_ACTION_REJECTED,
+    REVIEW_ACTION_CHANGES_REQUESTED,
+    REVIEW_ACTION_SCORE_OVERRIDDEN,
+)
+
+
 def _enum_in_clause(column: str, allowed: tuple[str, ...]) -> str:
     """Build a portable ``column IN (...)`` CHECK clause.
 
@@ -146,6 +199,25 @@ class AssessmentQuestion(Base, TimestampMixin):
     )
 
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # One of QUESTION_TYPES. Defaults to multi_choice so every legacy row
+    # (and any insert that predates the builder's type selector) stays a
+    # valid MCQ-multi.
+    type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=QUESTION_MULTI_CHOICE,
+        server_default=QUESTION_MULTI_CHOICE,
+    )
+    help_text: Mapped[Optional[str]] = mapped_column(Text)
+    is_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    # Type-specific options: min_length/max_length (text), min_date/max_date
+    # (date), placeholder, accepted_mime_types/max_file_size_mb (attachment).
+    # Choices live in their own table, not here.
+    config: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict, server_default="{}"
+    )
     order_index: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -159,6 +231,13 @@ class AssessmentQuestion(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="AssessmentChoice.order_index",
         lazy="selectin",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("type", QUESTION_TYPES),
+            name="ck_hr_assessment_questions_type",
+        ),
     )
 
 
@@ -301,10 +380,35 @@ class AssessmentSubmission(Base, TimestampMixin):
     # fail without a join. NULL until ``submitted_at`` is set.
     passed: Mapped[Optional[bool]] = mapped_column(Boolean)
 
+    # HR review lifecycle (one of REVIEW_STATUSES). ``pending`` until an
+    # executive opens the review screen.
+    review_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=REVIEW_PENDING,
+        server_default=REVIEW_PENDING,
+        index=True,
+    )
+    reviewed_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    reviewer_overall_comment: Mapped[Optional[str]] = mapped_column(Text)
+    # When set, overrides the objective auto-score as the final score.
+    reviewer_score_override: Mapped[Optional[int]] = mapped_column(Integer)
+
     invite: Mapped[AssessmentInvite] = relationship(back_populates="submission")
     answers: Mapped[List["AssessmentAnswer"]] = relationship(
         back_populates="submission",
         cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    review_events: Mapped[List["AssessmentReviewEvent"]] = relationship(
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="AssessmentReviewEvent.created_at",
         lazy="selectin",
     )
 
@@ -335,6 +439,16 @@ class AssessmentAnswer(Base):
         JSON, nullable=False, default=list, server_default="[]"
     )
 
+    # Typed answer payload for non-MCQ questions. Exactly one of
+    # selected_choice_ids (non-empty) or value (non-null) is populated,
+    # enforced in the service layer. Shapes by question type:
+    #   short_text/long_text -> {"text": "..."}
+    #   date                 -> {"date": "2026-05-31"}
+    #   checkbox             -> {"checked": true}
+    #   single_choice        -> {"choice_id": 42}
+    #   attachment           -> {"attachment_id": 17}  (reserved)
+    value: Mapped[Optional[dict]] = mapped_column(JSON)
+
     # Set by the auto-scorer at submit time. NULL means "not scored
     # yet" — relevant during the brief window between insert and the
     # scoring pass running.
@@ -353,12 +467,75 @@ class AssessmentAnswer(Base):
     )
 
 
+class AssessmentReviewEvent(Base):
+    """Audit trail of HR review actions on a submission.
+
+    One row per draft-save / approve+advance / reject / changes-requested
+    / score-override, surfaced in both the submission's history panel and
+    the candidate's unified Activity tab.
+    """
+
+    __tablename__ = "hr_assessment_review_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_assessment_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    # Application status either side of an approve+advance / reject, for a
+    # readable audit ("advanced from technical_interview to final_interview").
+    from_status: Mapped[Optional[str]] = mapped_column(String(40))
+    to_status: Mapped[Optional[str]] = mapped_column(String(40))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    submission: Mapped[AssessmentSubmission] = relationship(
+        back_populates="review_events"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("action", REVIEW_ACTIONS),
+            name="ck_hr_assessment_review_events_action",
+        ),
+    )
+
+
 __all__ = [
     "INVITE_STATUSES",
+    "QUESTION_TYPES",
+    "CHOICE_QUESTION_TYPES",
+    "QUESTION_SHORT_TEXT",
+    "QUESTION_LONG_TEXT",
+    "QUESTION_DATE",
+    "QUESTION_CHECKBOX",
+    "QUESTION_SINGLE_CHOICE",
+    "QUESTION_MULTI_CHOICE",
+    "QUESTION_ATTACHMENT",
+    "REVIEW_STATUSES",
+    "REVIEW_PENDING",
+    "REVIEW_IN_REVIEW",
+    "REVIEW_APPROVED",
+    "REVIEW_REJECTED",
+    "REVIEW_REQUIRES_REVISION",
+    "REVIEW_ACTIONS",
+    "REVIEW_ACTION_DRAFT_SAVED",
+    "REVIEW_ACTION_APPROVED_ADVANCED",
+    "REVIEW_ACTION_REJECTED",
+    "REVIEW_ACTION_CHANGES_REQUESTED",
+    "REVIEW_ACTION_SCORE_OVERRIDDEN",
     "Assessment",
     "AssessmentQuestion",
     "AssessmentChoice",
     "AssessmentInvite",
     "AssessmentSubmission",
     "AssessmentAnswer",
+    "AssessmentReviewEvent",
 ]
