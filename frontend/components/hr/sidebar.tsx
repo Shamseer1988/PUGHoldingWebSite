@@ -22,6 +22,7 @@ import {
   UserCheck,
   Users,
   UsersRound,
+  Workflow,
   X,
 } from "lucide-react";
 
@@ -70,6 +71,12 @@ const NAV: NavGroup[] = [
   {
     label: "Recruitment",
     items: [
+      {
+        label: "Pipeline",
+        href: "/hr/pipeline",
+        icon: Workflow,
+        anyOf: ANY_CANDIDATE_VIEW,
+      },
       {
         label: "Job openings",
         href: "/hr/jobs",
