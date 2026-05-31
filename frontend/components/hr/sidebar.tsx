@@ -9,6 +9,7 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   ClipboardList,
   ExternalLink,
   FileBarChart,
@@ -99,6 +100,12 @@ const NAV: NavGroup[] = [
         anyOf: [PERM_HR_ASSESSMENTS_VIEW],
       },
       {
+        label: "Submissions",
+        href: "/hr/assessments/submissions",
+        icon: ClipboardCheck,
+        anyOf: [PERM_HR_ASSESSMENTS_VIEW],
+      },
+      {
         label: "Talent pool",
         href: "/hr/talent-pool",
         icon: Bookmark,
@@ -184,6 +191,19 @@ export function HrSidebar({
       items: group.items.filter((item) => perms.hasAny(item.anyOf)),
     })).filter((group) => group.items.length > 0);
   }, [perms]);
+
+  // Longest matching href wins, so a parent ("/hr/assessments") doesn't
+  // light up on a child route ("/hr/assessments/submissions").
+  const activeHref = React.useMemo<string | null>(() => {
+    const hrefs = visibleNav.flatMap((group) => group.items.map((i) => i.href));
+    const matches = hrefs.filter(
+      (h) =>
+        pathname === h ||
+        (h !== "/hr" && pathname != null && pathname.startsWith(`${h}/`)),
+    );
+    if (matches.length === 0) return pathname === "/hr" ? "/hr" : null;
+    return matches.reduce((a, b) => (b.length > a.length ? b : a));
+  }, [visibleNav, pathname]);
 
   React.useEffect(() => {
     if (open) onClose();
@@ -279,9 +299,7 @@ export function HrSidebar({
               >
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const active =
-                    pathname === item.href ||
-                    (item.href !== "/hr" && pathname?.startsWith(item.href));
+                  const active = item.href === activeHref;
                   return (
                     <li key={item.href}>
                       <Link

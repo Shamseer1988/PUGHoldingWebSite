@@ -716,6 +716,32 @@ export interface AssessmentSubmission {
 }
 
 
+export interface AssessmentSubmissionListItem {
+  invite_id: number;
+  submission_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  candidate_email: string | null;
+  application_id: number | null;
+  assessment_id: number;
+  assessment_title: string;
+  job_opening_id: number | null;
+  job_title: string | null;
+  invite_status: string;
+  submitted_at: string | null;
+  score: number | null;
+  max_score: number | null;
+  passed: boolean | null;
+}
+
+export interface AssessmentSubmissionListResponse {
+  items: AssessmentSubmissionListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+
 export interface CandidateStatusHistoryEntry {
   id: number;
   application_id: number;

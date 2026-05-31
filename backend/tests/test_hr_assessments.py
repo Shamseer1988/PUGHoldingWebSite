@@ -566,3 +566,124 @@ class TestAssessmentInviteEmail:
         )
         assert "Anon" in out.html
         assert "this role" in out.html  # fallback when job_title missing
+
+
+# ---------------------------------------------------------------------------
+# Cross-template submissions list (HR restructure criterion 6)
+# ---------------------------------------------------------------------------
+
+SUBMISSIONS = f"{BASE}/submissions"
+
+
+def _seed_submitted(
+    db: Session,
+    *,
+    assessment_id: int,
+    candidate: Candidate,
+    token: str,
+    score: int,
+    max_score: int = 10,
+):
+    from datetime import datetime, timezone
+
+    invite = AssessmentInvite(
+        assessment_id=assessment_id,
+        candidate_id=candidate.id,
+        token=token,
+        status="submitted",
+    )
+    db.add(invite)
+    db.commit()
+    db.add(
+        AssessmentSubmission(
+            invite_id=invite.id,
+            score=score,
+            max_score=max_score,
+            passed=score >= max_score,
+            submitted_at=datetime.now(timezone.utc),
+        )
+    )
+    db.commit()
+    return invite
+
+
+def test_submissions_requires_hr_scope(client, seed_auth):
+    r = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": "webadmin@pug.example.com", "password": seed_auth["password"]},
+    )
+    admin_token = r.json()["access_token"]
+    rejected = client.get(
+        SUBMISSIONS, headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert rejected.status_code == 403
+
+
+def test_submissions_empty(client, seed_auth):
+    headers = _login_manager(client, seed_auth["password"])
+    r = client.get(SUBMISSIONS, headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body == {"items": [], "total": 0, "page": 1, "page_size": 25}
+
+
+def test_submissions_filter_paginate_and_sort(client, seed_auth, db_session: Session):
+    headers = _login_manager(client, seed_auth["password"])
+
+    job_a = _seed_job(db_session, slug="sub-job-a")
+    job_b = _seed_job(db_session, slug="sub-job-b")
+    tmpl_a = Assessment(job_opening_id=job_a.id, title="Template A")
+    tmpl_b = Assessment(job_opening_id=job_b.id, title="Template B")
+    db_session.add_all([tmpl_a, tmpl_b])
+    db_session.commit()
+
+    low = _seed_candidate(db_session, email="low@sub.test", mobile="+97400000001")
+    mid = _seed_candidate(db_session, email="mid@sub.test", mobile="+97400000002")
+    high = _seed_candidate(db_session, email="high@sub.test", mobile="+97400000003")
+
+    _seed_submitted(db_session, assessment_id=tmpl_a.id, candidate=low, token="s-1", score=2)
+    _seed_submitted(db_session, assessment_id=tmpl_a.id, candidate=mid, token="s-2", score=5)
+    _seed_submitted(db_session, assessment_id=tmpl_b.id, candidate=high, token="s-3", score=9)
+
+    # Unfiltered → all three.
+    body = client.get(SUBMISSIONS, headers=headers).json()
+    assert body["total"] == 3
+    assert {i["candidate_email"] for i in body["items"]} == {
+        "low@sub.test",
+        "mid@sub.test",
+        "high@sub.test",
+    }
+    # Joined fields are present.
+    a_row = next(i for i in body["items"] if i["assessment_id"] == tmpl_a.id)
+    assert a_row["assessment_title"] == "Template A"
+    assert a_row["job_title"] == "Job sub-job-a"
+
+    # Filter by template.
+    only_a = client.get(SUBMISSIONS, headers=headers, params={"template_id": tmpl_a.id}).json()
+    assert only_a["total"] == 2
+
+    # Filter by job.
+    only_b = client.get(SUBMISSIONS, headers=headers, params={"job_id": job_b.id}).json()
+    assert only_b["total"] == 1 and only_b["items"][0]["candidate_email"] == "high@sub.test"
+
+    # Score range.
+    mid_band = client.get(
+        SUBMISSIONS, headers=headers, params={"min_score": 4, "max_score": 8}
+    ).json()
+    assert mid_band["total"] == 1 and mid_band["items"][0]["score"] == 5
+
+    # Candidate search.
+    searched = client.get(
+        SUBMISSIONS, headers=headers, params={"candidate_query": "high@sub"}
+    ).json()
+    assert searched["total"] == 1
+
+    # Sort by score ascending.
+    asc = client.get(
+        SUBMISSIONS, headers=headers, params={"sort_by": "score", "sort_dir": "asc"}
+    ).json()
+    assert [i["score"] for i in asc["items"]] == [2, 5, 9]
+
+    # Pagination.
+    paged = client.get(SUBMISSIONS, headers=headers, params={"page_size": 2}).json()
+    assert paged["total"] == 3 and len(paged["items"]) == 2

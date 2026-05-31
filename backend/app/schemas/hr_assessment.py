@@ -210,6 +210,37 @@ class AssessmentSubmissionRead(BaseModel):
     answers: List[AssessmentAnswerRead]
 
 
+class AssessmentSubmissionListItem(BaseModel):
+    """One row in the cross-template submissions list (criterion 6).
+
+    Flattens invite + submission + candidate + assessment + job so the
+    HR submissions index renders without N+1 round-trips.
+    """
+
+    invite_id: int
+    submission_id: int
+    candidate_id: int
+    candidate_name: str
+    candidate_email: Optional[str] = None
+    application_id: Optional[int] = None
+    assessment_id: int
+    assessment_title: str
+    job_opening_id: Optional[int] = None
+    job_title: Optional[str] = None
+    invite_status: str
+    submitted_at: Optional[datetime] = None
+    score: Optional[int] = None
+    max_score: Optional[int] = None
+    passed: Optional[bool] = None
+
+
+class AssessmentSubmissionListResponse(BaseModel):
+    items: List[AssessmentSubmissionListItem]
+    total: int
+    page: int
+    page_size: int
+
+
 # ---------------------------------------------------------------------------
 # Public-facing models — answer key MUST NOT leak
 # ---------------------------------------------------------------------------
@@ -314,6 +345,8 @@ __all__ = [
     "AssessmentInviteSend",
     "AssessmentAnswerRead",
     "AssessmentSubmissionRead",
+    "AssessmentSubmissionListItem",
+    "AssessmentSubmissionListResponse",
     # Public
     "PublicChoiceRead",
     "PublicQuestionRead",
