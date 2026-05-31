@@ -29,6 +29,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.models.auth import User
 from app.models.hr_ats import (
     STATUS_FINAL_INTERVIEW,
     STATUS_FIRST_INTERVIEW,
@@ -1189,6 +1190,17 @@ def candidate_full_export_report(
     rows: List[List[object]] = []
     summary_total = 0
 
+    # Pre-load interviewer display names in a single query so the
+    # per-row lookup below stays cheap (no N+1 user join). The users
+    # table is small (HR staff only), so loading it whole is fast and
+    # keeps the export fast even on large candidate sets.
+    interviewer_names: Dict[int, str] = {
+        user_id: (full_name or email)
+        for user_id, full_name, email in db.execute(
+            select(User.id, User.full_name, User.email)
+        ).all()
+    }
+
     for row in search_candidates(db, filters):
         candidate = row.candidate
         # If this candidate has no applications (rare — bulk-uploaded
@@ -1215,6 +1227,10 @@ def candidate_full_export_report(
                     if latest_interview.scheduled_at
                     else ""
                 )
+                if latest_interview.interviewer_id is not None:
+                    interviewer = interviewer_names.get(
+                        latest_interview.interviewer_id, ""
+                    )
                 if latest_interview.feedback:
                     recommendation = (
                         latest_interview.feedback[0].recommendation or ""
@@ -1294,9 +1310,9 @@ def candidate_full_export_report(
                     interview_status,
                     offer_status,
                     interview_date,
-                    interviewer,  # Empty for now; interviewer email lookup
-                                  # would require a per-row user join — keep
-                                  # the export fast.
+                    interviewer,  # Resolved from a single up-front user
+                                  # lookup (interviewer_names) — no per-row
+                                  # join, so the export stays fast.
                     recommendation,
                     cv_link,
                     "",  # Remarks — application-level remarks live in the
