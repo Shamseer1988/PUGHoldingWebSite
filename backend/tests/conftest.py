@@ -394,10 +394,15 @@ def seed_auth(db_session: Session) -> dict[str, object]:
 
     # Marketing-only roles — let the test suite log in as a marketing
     # admin / viewer that has zero HR exposure.
+    # Scope is ``website`` so these users can log into the admin
+    # portal but DON'T inherit the system-scope shortcut that auto-
+    # passes every ``require_scope(...)`` check (see
+    # ``User.has_scope``). The fix here mirrors the production
+    # migration ``20260531_0026_marketing_scope_fix``.
     for spec in MARKETING_ROLES:
         role = Role(
             name=spec.name,
-            scope=SCOPE_SYSTEM,
+            scope=SCOPE_WEBSITE,
             description=spec.description,
             permissions=[
                 marketing_perms[k] for k in spec.permissions if k in marketing_perms

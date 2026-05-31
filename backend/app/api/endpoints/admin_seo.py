@@ -27,7 +27,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_request_context, require_website_admin
+from app.auth.dependencies import (
+    get_request_context,
+    require_any_permission,
+    require_website_admin,
+)
+
+
+# See admin_cms.py for the rationale — gate on the explicit
+# ``website.settings.*`` permission keys so a scope-only role
+# (Marketing) can't reach SEO settings.
+_require_seo = require_any_permission(
+    "website.settings.read", "website.settings.write"
+)
 from app.core.database import get_db
 from app.models.auth import SCOPE_WEBSITE, User
 from app.models.seo import (
@@ -66,7 +78,7 @@ from app.services.seo import (
 router = APIRouter(
     prefix="/admin/seo",
     tags=["Website Admin - SEO"],
-    dependencies=[Depends(require_website_admin)],
+    dependencies=[Depends(_require_seo)],
 )
 
 

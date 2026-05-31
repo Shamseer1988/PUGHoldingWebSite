@@ -408,8 +408,18 @@ HR_ROLES_BY_NAME = {spec.name: spec for spec in HR_ROLES}
 
 
 # Marketing — two role tiers. Manager has the full read+manage set;
-# Viewer is read + dashboard analytics, no CRUD. Both are website-
-# scoped so they don't accidentally bleed into the HR portal.
+# Viewer is read + dashboard analytics, no CRUD.
+#
+# Scope is ``website`` (not ``system``). The original seed migration
+# (20260528_0019) used ``system`` so the role would show up in the
+# admin role picker without scope filtering, but ``system`` scope
+# auto-passes every ``require_scope(...)`` check — including
+# ``SCOPE_WEBSITE`` (CMS), ``SCOPE_HR``, and ``SCOPE_SYSTEM`` itself
+# — which silently gave Marketing users admin-level reach.
+# Migration 20260531_0026 flips the scope to ``website``; the
+# matching CMS / SEO endpoints additionally gate on
+# ``website.content.*`` / ``website.settings.*`` perm keys that
+# Marketing roles don't carry.
 ROLE_MARKETING_MANAGER = "Marketing Manager"
 ROLE_MARKETING_VIEWER = "Marketing Viewer"
 
