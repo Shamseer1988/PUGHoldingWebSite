@@ -17,7 +17,10 @@ import {
 
 import { usePermission } from "@/components/auth/permission";
 import { BulkStatusModal } from "@/components/hr/bulk-status-modal";
-import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
+import {
+  CandidateDetailDrawer,
+  type CandidateDrawerTab,
+} from "@/components/hr/candidate-detail-drawer";
 import {
   CandidateFilterPanel,
   filtersToQueryParams,
@@ -81,6 +84,8 @@ export default function HrCandidatesPage() {
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [jobs, setJobs] = React.useState<JobOpening[]>([]);
   const [detailId, setDetailId] = React.useState<number | null>(null);
+  const [detailTab, setDetailTab] =
+    React.useState<CandidateDrawerTab>("overview");
   const [selectedAppIds, setSelectedAppIds] = React.useState<Set<number>>(
     new Set(),
   );
@@ -466,7 +471,10 @@ export default function HrCandidatesPage() {
                 <CandidateRow
                   key={c.id}
                   c={c}
-                  onOpenDetail={() => setDetailId(c.id)}
+                  onOpenDetail={(tab) => {
+                    setDetailTab(tab ?? "overview");
+                    setDetailId(c.id);
+                  }}
                   isSelected={
                     c.latest_application_id != null &&
                     selectedAppIds.has(c.latest_application_id)
@@ -520,6 +528,7 @@ export default function HrCandidatesPage() {
 
       <CandidateDetailDrawer
         candidateId={detailId}
+        initialTab={detailTab}
         onClose={() => setDetailId(null)}
         onSaved={() => {
           void refresh();
@@ -593,7 +602,7 @@ function CandidateRow({
   onIssueOffer,
 }: {
   c: CandidateListItem;
-  onOpenDetail: () => void;
+  onOpenDetail: (tab?: CandidateDrawerTab) => void;
   isSelected: boolean;
   onToggleSelect: (checked: boolean) => void;
   transitions: Record<string, string[]>;
@@ -602,7 +611,7 @@ function CandidateRow({
 }) {
   return (
     <TableRow
-      onClick={onOpenDetail}
+      onClick={() => onOpenDetail()}
       className="cursor-pointer transition-colors hover:bg-muted/40"
     >
       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -669,13 +678,13 @@ function CandidateRow({
             if (c.latest_application_id != null)
               onUpdateStatus(c.id, c.latest_application_id, target);
           }}
-          onScheduleInterview={onOpenDetail}
-          onSendAssessment={onOpenDetail}
+          onScheduleInterview={() => onOpenDetail("interviews")}
+          onSendAssessment={() => onOpenDetail("assessments")}
           onIssueOffer={() => {
             if (c.latest_application_id != null)
               onIssueOffer(c.latest_application_id);
           }}
-          onOpen360={onOpenDetail}
+          onOpen360={() => onOpenDetail("overview")}
         />
       </TableCell>
     </TableRow>
