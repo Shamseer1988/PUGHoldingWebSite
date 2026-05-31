@@ -340,13 +340,28 @@ def seed_auth(db_session: Session) -> dict[str, object]:
     password = "TestPass!123"
     password_hash = hash_password(password)
 
-    # 1. Permissions — both website (legacy two) and the full HR set
-    p_website = Permission(
-        key="website.dashboard.read",
-        scope=SCOPE_WEBSITE,
-        description="Read website dashboard",
+    # 1. Permissions — both website (full catalogue mirroring
+    # production ``seed_users.WEBSITE_PERMISSIONS``) and the HR set.
+    # The Website Admin role below holds every key here so any test
+    # that exercises ``/admin/cms/*`` (gated on ``website.content.*``)
+    # or ``/admin/seo/*`` (``website.settings.*``) authenticates
+    # cleanly.
+    WEBSITE_PERMISSION_KEYS: tuple[tuple[str, str], ...] = (
+        ("website.dashboard.read", "Read website admin dashboard"),
+        ("website.menu.read", "View menus"),
+        ("website.menu.write", "Create / edit menus"),
+        ("website.content.read", "View pages, hero slides, companies, news, media"),
+        ("website.content.write", "Create / edit website content"),
+        ("website.settings.read", "View site / SEO / email / AI settings"),
+        ("website.settings.write", "Change site / SEO / email / AI settings"),
+        ("website.users.manage", "Manage website admin users and roles"),
+        ("website.audit.read", "View website audit log"),
     )
-    db_session.add(p_website)
+    website_perms: dict[str, Permission] = {}
+    for key, description in WEBSITE_PERMISSION_KEYS:
+        perm = Permission(key=key, scope=SCOPE_WEBSITE, description=description)
+        website_perms[key] = perm
+        db_session.add(perm)
 
     hr_perms: dict[str, Permission] = {}
     for key, description in HR_PERMISSIONS:
@@ -368,7 +383,7 @@ def seed_auth(db_session: Session) -> dict[str, object]:
         name="Website Admin",
         scope=SCOPE_WEBSITE,
         description="Website only",
-        permissions=[p_website],
+        permissions=list(website_perms.values()),
     )
     db_session.add(r_web)
 
@@ -381,23 +396,31 @@ def seed_auth(db_session: Session) -> dict[str, object]:
             description=spec.description,
             permissions=[hr_perms[k] for k in spec.permissions if k in hr_perms],
         )
-        # Super Admin should also have website permission so legacy
-        # tests that exercise both portals via this user still work.
-        # Same goes for every marketing permission — superuser bypasses
-        # checks anyway but the explicit grant keeps audit reads clean.
+        # Super Admin should also have every website permission so
+        # legacy tests that exercise both portals via this user still
+        # work. Same goes for every marketing permission — superuser
+        # bypasses checks anyway but the explicit grant keeps audit
+        # reads clean.
         if spec.name == "Super Admin":
-            role.permissions = role.permissions + [p_website] + list(
-                marketing_perms.values()
+            role.permissions = (
+                role.permissions
+                + list(website_perms.values())
+                + list(marketing_perms.values())
             )
         roles[spec.name] = role
         db_session.add(role)
 
     # Marketing-only roles — let the test suite log in as a marketing
     # admin / viewer that has zero HR exposure.
+    # Scope is ``website`` so these users can log into the admin
+    # portal but DON'T inherit the system-scope shortcut that auto-
+    # passes every ``require_scope(...)`` check (see
+    # ``User.has_scope``). The fix here mirrors the production
+    # migration ``20260531_0026_marketing_scope_fix``.
     for spec in MARKETING_ROLES:
         role = Role(
             name=spec.name,
-            scope=SCOPE_SYSTEM,
+            scope=SCOPE_WEBSITE,
             description=spec.description,
             permissions=[
                 marketing_perms[k] for k in spec.permissions if k in marketing_perms

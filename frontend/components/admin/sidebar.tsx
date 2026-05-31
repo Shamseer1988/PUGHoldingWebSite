@@ -33,9 +33,30 @@ import {
   X,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
 import { Logo } from "@/components/site/logo";
 import { useAuth } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
+
+
+// Permission keys — kept inline here rather than imported from
+// permissions.ts (HR-side) because the website-admin perms live in
+// the seed_users catalogue and aren't otherwise re-exported. If the
+// keys ever drift, ``test_marketing_role_isolation.py`` on the
+// backend will fail loudly and point at the right pair.
+const PERM_WEBSITE_DASHBOARD = "website.dashboard.read";
+const PERM_WEBSITE_CONTENT_READ = "website.content.read";
+const PERM_WEBSITE_CONTENT_WRITE = "website.content.write";
+const PERM_WEBSITE_SETTINGS_READ = "website.settings.read";
+const PERM_WEBSITE_USERS_MANAGE = "website.users.manage";
+const PERM_WEBSITE_AUDIT_READ = "website.audit.read";
+const PERM_WEBSITE_MENU_READ = "website.menu.read";
+
+const PERM_MARKETING_DASHBOARD = "marketing:dashboard:view";
+const PERM_MARKETING_CAMPAIGNS_READ = "marketing:campaigns:read";
+const PERM_MARKETING_CATALOGUES_READ = "marketing:catalogues:read";
+const PERM_MARKETING_SHORT_URLS_READ = "marketing:short_urls:read";
+
 
 interface NavGroup {
   label: string;
@@ -53,33 +74,125 @@ interface NavLink {
    *  with ``is_superuser = true`` see it (used for backup / restore,
    *  which can wipe the database). */
   requiresScope?: "system" | "superuser";
+  /** When set, the user must hold at least one of these permission
+   *  keys for the item to render. Superusers always see everything.
+   *  Marketing-only users (no website perms) get the non-marketing
+   *  sections filtered out via this list. */
+  requiresAnyPermission?: readonly string[];
 }
 
+// Every item that ISN'T under /admin/marketing/* requires at least
+// one website.* permission key. Marketing-only roles carry zero
+// website perms so the entire non-marketing sidebar collapses for
+// them. Items that need stricter access (system scope / superuser)
+// keep ``requiresScope`` on top.
 const NAV: NavGroup[] = [
   {
     label: "Overview",
     items: [
-      { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+      {
+        label: "Dashboard",
+        href: "/admin",
+        icon: LayoutDashboard,
+        requiresAnyPermission: [PERM_WEBSITE_DASHBOARD],
+      },
     ],
   },
   {
     label: "Content",
     items: [
-      { label: "Hero slides", href: "/admin/hero-slides", icon: BarChart3 },
-      { label: "Companies", href: "/admin/companies", icon: Building2 },
-      { label: "Leadership", href: "/admin/leadership", icon: MessageSquareQuote },
-      { label: "Trusted brands", href: "/admin/brands", icon: Sparkles },
-      { label: "News & events", href: "/admin/news", icon: Megaphone },
-      { label: "Media gallery", href: "/admin/media", icon: ImageIcon },
-      { label: "Pages", href: "/admin/pages", icon: FileText },
-      { label: "Navigation menu", href: "/admin/menu", icon: ListTree },
+      {
+        label: "Hero slides",
+        href: "/admin/hero-slides",
+        icon: BarChart3,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Companies",
+        href: "/admin/companies",
+        icon: Building2,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Leadership",
+        href: "/admin/leadership",
+        icon: MessageSquareQuote,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Trusted brands",
+        href: "/admin/brands",
+        icon: Sparkles,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "News & events",
+        href: "/admin/news",
+        icon: Megaphone,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Media gallery",
+        href: "/admin/media",
+        icon: ImageIcon,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Pages",
+        href: "/admin/pages",
+        icon: FileText,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Navigation menu",
+        href: "/admin/menu",
+        icon: ListTree,
+        requiresAnyPermission: [PERM_WEBSITE_MENU_READ],
+      },
     ],
   },
   {
     label: "Engagement",
     items: [
-      { label: "Contact inbox", href: "/admin/inbox", icon: Inbox },
-      { label: "Newsletter", href: "/admin/subscribers", icon: Mail },
+      {
+        label: "Contact inbox",
+        href: "/admin/inbox",
+        icon: Inbox,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
+      {
+        label: "Newsletter",
+        href: "/admin/subscribers",
+        icon: Mail,
+        requiresAnyPermission: [
+          PERM_WEBSITE_CONTENT_READ,
+          PERM_WEBSITE_CONTENT_WRITE,
+        ],
+      },
     ],
   },
   {
@@ -89,29 +202,43 @@ const NAV: NavGroup[] = [
         label: "Dashboard",
         href: "/admin/marketing/dashboard",
         icon: LayoutDashboard,
+        requiresAnyPermission: [PERM_MARKETING_DASHBOARD],
       },
       {
         label: "Offer campaigns",
         href: "/admin/marketing/campaigns",
         icon: Tag,
+        requiresAnyPermission: [PERM_MARKETING_CAMPAIGNS_READ],
       },
       {
         label: "Catalogues",
         href: "/admin/marketing/catalogues",
         icon: BookOpen,
+        requiresAnyPermission: [PERM_MARKETING_CATALOGUES_READ],
       },
       {
         label: "Tools",
         href: "/admin/marketing/tools",
         icon: Wrench,
+        requiresAnyPermission: [PERM_MARKETING_SHORT_URLS_READ],
       },
     ],
   },
   {
     label: "System",
     items: [
-      { label: "Site settings", href: "/admin/settings", icon: Settings },
-      { label: "SEO configuration", href: "/admin/seo", icon: Search },
+      {
+        label: "Site settings",
+        href: "/admin/settings",
+        icon: Settings,
+        requiresAnyPermission: [PERM_WEBSITE_SETTINGS_READ],
+      },
+      {
+        label: "SEO configuration",
+        href: "/admin/seo",
+        icon: Search,
+        requiresAnyPermission: [PERM_WEBSITE_SETTINGS_READ],
+      },
       {
         label: "Email configuration",
         href: "/admin/email-settings",
@@ -128,7 +255,7 @@ const NAV: NavGroup[] = [
         label: "Users & roles",
         href: "/admin/users",
         icon: Users,
-        requiresScope: "system",
+        requiresAnyPermission: [PERM_WEBSITE_USERS_MANAGE],
       },
       {
         label: "Permission matrix",
@@ -142,7 +269,12 @@ const NAV: NavGroup[] = [
         icon: DatabaseBackup,
         requiresScope: "superuser",
       },
-      { label: "Audit log", href: "/admin/audit", icon: History },
+      {
+        label: "Audit log",
+        href: "/admin/audit",
+        icon: History,
+        requiresAnyPermission: [PERM_WEBSITE_AUDIT_READ],
+      },
     ],
   },
 ];
@@ -166,6 +298,7 @@ export function AdminSidebar({
 }: AdminSidebarProps) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const perms = usePermission();
   // System scope is granted by the explicit "system" scope or by the
   // superuser flag (which the backend also treats as system access).
   const hasSystem = Boolean(
@@ -182,10 +315,18 @@ export function AdminSidebar({
   // Hide nav items the current user can't actually open, then drop any
   // group that ends up empty.
   const canOpen = (item: NavLink): boolean => {
-    if (!item.requiresScope) return true;
-    if (item.requiresScope === "system") return hasSystem;
-    if (item.requiresScope === "superuser") return isSuperuser;
-    return false;
+    // Scope gate first (cheapest + the strictest deny).
+    if (item.requiresScope === "system" && !hasSystem) return false;
+    if (item.requiresScope === "superuser" && !isSuperuser) return false;
+    // Then permission gate. ``superuser`` short-circuits inside
+    // ``usePermission().hasAny`` so the operator's view is unchanged.
+    if (
+      item.requiresAnyPermission &&
+      !perms.hasAny(item.requiresAnyPermission)
+    ) {
+      return false;
+    }
+    return true;
   };
   const visibleGroups = NAV.map((group) => ({
     ...group,

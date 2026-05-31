@@ -1,3 +1,4 @@
+import { AdminRouteGuard } from "@/components/admin/admin-route-guard";
 import { AuthProvider } from "@/components/auth-provider";
 import { QueryProvider } from "@/components/query-provider";
 
@@ -13,6 +14,9 @@ export const dynamic = "force-dynamic";
  * scope so login state is shared but isolated from the HR portal.
  * The TanStack Query client (Phase B-4) sits inside the AuthProvider
  * so query hooks can gate on the session via ``useAuth().status``.
+ * ``AdminRouteGuard`` adds the per-permission route filter that
+ * redirects Marketing-only users to /admin/marketing/dashboard when
+ * they navigate directly to a CMS / settings URL.
  */
 export default function AdminLayout({
   children,
@@ -26,7 +30,9 @@ export default function AdminLayout({
       logoutRedirect="/admin/login"
     >
       <QueryProvider>
-        <div className="min-h-screen bg-background">{children}</div>
+        <div className="min-h-screen bg-background">
+          <AdminRouteGuard>{children}</AdminRouteGuard>
+        </div>
       </QueryProvider>
     </AuthProvider>
   );

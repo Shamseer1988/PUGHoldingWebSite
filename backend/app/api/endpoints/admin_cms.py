@@ -28,7 +28,22 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_request_context, require_website_admin
+from app.auth.dependencies import (
+    get_request_context,
+    require_any_permission,
+    require_permission,
+    require_website_admin,
+)
+
+
+# Phase: lock CMS endpoints to the explicit ``website.content.*``
+# permission keys instead of relying on scope alone. Scope-only
+# gating let Marketing-scoped users (system scope) silently pass
+# every check.
+_require_cms_read = require_any_permission(
+    "website.content.read", "website.content.write"
+)
+_require_cms_write = require_permission("website.content.write")
 from app.core.cache import clear_cache_prefix
 from app.core.config import get_settings
 from app.core.database import get_db
@@ -110,7 +125,10 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 router = APIRouter(
     prefix="/admin/cms",
     tags=["Website Admin - CMS"],
-    dependencies=[Depends(require_website_admin)],
+    # Top-level gate: any caller hitting any /admin/cms/* must hold
+    # at least the read permission. Writes additionally require the
+    # write key (enforced per-route via ``_require_cms_write``).
+    dependencies=[Depends(_require_cms_read)],
 )
 
 
