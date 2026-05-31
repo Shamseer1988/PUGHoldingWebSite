@@ -481,6 +481,11 @@ class Candidate(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     mobile: Mapped[Optional[str]] = mapped_column(String(40), index=True)
+    # Phase 2 — optional, used by the assessment workflow's identity
+    # verification step (candidate enters any of email / mobile / DOB
+    # to prove they own the invite link). Populated from the public
+    # apply form when present; HR can also add it from the drawer.
+    date_of_birth: Mapped[Optional[date]] = mapped_column(Date)
     nationality: Mapped[Optional[str]] = mapped_column(String(120))
     current_location: Mapped[Optional[str]] = mapped_column(String(255))
     current_designation: Mapped[Optional[str]] = mapped_column(String(255))

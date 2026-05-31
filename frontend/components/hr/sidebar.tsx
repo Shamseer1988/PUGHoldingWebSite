@@ -30,6 +30,7 @@ import {
   ANY_INTERVIEW_VIEW,
   ANY_JOB_VIEW,
   ANY_REPORT_VIEW,
+  PERM_HR_ASSESSMENTS_VIEW,
   PERM_HR_AUDIT_READ,
   PERM_HR_DASHBOARD_VIEW,
   PERM_HR_INTERVIEWS_SCHEDULE,
@@ -90,6 +91,12 @@ const NAV: NavGroup[] = [
         href: "/hr/offers",
         icon: Handshake,
         anyOf: [PERM_HR_OFFERS_VIEW],
+      },
+      {
+        label: "Assessments",
+        href: "/hr/assessments",
+        icon: ClipboardList,
+        anyOf: [PERM_HR_ASSESSMENTS_VIEW],
       },
       {
         label: "Talent pool",

@@ -272,6 +272,87 @@ class TestRestore:
 
 
 # ---------------------------------------------------------------------------
+# _audit — actor-row wipe survival
+# ---------------------------------------------------------------------------
+
+
+class TestAuditAfterActorWipe:
+    """A successful restore can DROP+RECREATE the ``users`` table from
+    the backup file, in which case the actor whose JWT initiated the
+    restore no longer exists. ``_audit`` must still write the success
+    row instead of FK-violating and 500ing the whole request."""
+
+    def test_audit_writes_email_only_row_when_actor_row_gone(
+        self, db_session
+    ):
+        from sqlalchemy import select as sa_select
+
+        from app.api.endpoints.admin_backup import _audit
+        from app.models.auth import AuditLog, User
+
+        # Stand up the actor as a real DB row first so the helper has
+        # something to capture before we wipe it.
+        actor = User(
+            email="ghost-superadmin@test.example",
+            password_hash="x" * 60,
+            full_name="Ghost Superadmin",
+            is_active=True,
+            is_superuser=True,
+        )
+        db_session.add(actor)
+        db_session.commit()
+        db_session.refresh(actor)
+        captured_id = actor.id
+        captured_email = actor.email
+
+        # Simulate the pg_restore wiping the actor row.
+        db_session.delete(actor)
+        db_session.commit()
+
+        # A minimal fake Request — _audit only touches headers/client
+        # via get_request_context, which we feed a stub for.
+        class _FakeReq:
+            headers: dict[str, str] = {}
+            client = None
+
+        from app.api.endpoints import admin_backup as ep
+
+        ep_get_ctx = ep.get_request_context
+        ep.get_request_context = lambda req: {  # type: ignore[assignment]
+            "ip_address": "127.0.0.1",
+            "user_agent": "pytest",
+        }
+        try:
+            # The actor object still has the now-orphaned id; pass a
+            # transient stand-in so _audit sees actor.id == captured_id.
+            ghost = User(
+                email=captured_email,
+                password_hash="x" * 60,
+                full_name="Ghost Superadmin",
+            )
+            ghost.id = captured_id
+            _audit(
+                db_session,
+                ghost,
+                _FakeReq(),  # type: ignore[arg-type]
+                action="admin.database.restore.success",
+                details={"uploaded_filename": "test.dump"},
+            )
+        finally:
+            ep.get_request_context = ep_get_ctx  # type: ignore[assignment]
+
+        row = db_session.execute(
+            sa_select(AuditLog).where(
+                AuditLog.action == "admin.database.restore.success"
+            )
+        ).scalar_one()
+        assert row.actor_id is None  # FK reference dropped, request succeeded
+        assert row.actor_email == captured_email
+        assert row.details["actor_row_wiped_by_restore"] is True
+        assert row.details["uploaded_filename"] == "test.dump"
+
+
+# ---------------------------------------------------------------------------
 # /safety/{filename} — path traversal + 404
 # ---------------------------------------------------------------------------
 

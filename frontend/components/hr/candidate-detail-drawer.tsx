@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { CandidateAIReviewPanel } from "@/components/hr/candidate-ai-review-panel";
+import { CandidateAssessmentsPanel } from "@/components/hr/candidate-assessments-panel";
 import { CandidateInterviewsPanel } from "@/components/hr/candidate-interviews-panel";
 import { CandidateTimeline } from "@/components/hr/candidate-timeline";
 import { CandidateScorePanel } from "@/components/hr/candidate-score-panel";
@@ -575,6 +576,12 @@ export function CandidateDetailDrawer({
 
               {/* --- Interviews --- */}
               <CandidateInterviewsPanel
+                candidate={candidate}
+                onChanged={() => void load(candidate.id)}
+              />
+
+              {/* --- Assessments (Phase 2) --- */}
+              <CandidateAssessmentsPanel
                 candidate={candidate}
                 onChanged={() => void load(candidate.id)}
               />

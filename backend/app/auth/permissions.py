@@ -79,6 +79,10 @@ PERM_HR_OFFERS_CREATE = "hr:offers:create"
 PERM_HR_OFFERS_APPROVE = "hr:offers:approve"
 PERM_HR_OFFERS_DELETE = "hr:offers:delete"
 
+# Assessments (Phase 2) ----------------------------------------------------
+PERM_HR_ASSESSMENTS_MANAGE = "hr:assessments:manage"
+PERM_HR_ASSESSMENTS_VIEW = "hr:assessments:view"
+
 # Reports + exports --------------------------------------------------------
 PERM_HR_REPORTS_VIEW_ALL = "hr:reports:view_all"
 PERM_HR_REPORTS_VIEW_DEPT = "hr:reports:view_dept"
@@ -148,6 +152,15 @@ HR_PERMISSIONS: Tuple[Tuple[str, str], ...] = (
     (PERM_HR_OFFERS_CREATE, "Prepare / edit offer letters"),
     (PERM_HR_OFFERS_APPROVE, "Approve and issue offers to candidates"),
     (PERM_HR_OFFERS_DELETE, "Delete / withdraw offers"),
+    # Assessments (Phase 2)
+    (
+        PERM_HR_ASSESSMENTS_MANAGE,
+        "Create / edit assessment templates, send invites, view submissions",
+    ),
+    (
+        PERM_HR_ASSESSMENTS_VIEW,
+        "Read assessment templates and candidate submissions",
+    ),
     # Reports
     (PERM_HR_REPORTS_VIEW_ALL, "View all HR reports"),
     (PERM_HR_REPORTS_VIEW_DEPT, "View reports scoped to own department"),
@@ -246,6 +259,8 @@ HR_ROLES: Tuple[RoleSpec, ...] = (
             PERM_HR_INTERVIEWS_FEEDBACK,
             PERM_HR_OFFERS_VIEW,
             PERM_HR_OFFERS_CREATE,
+            PERM_HR_ASSESSMENTS_MANAGE,
+            PERM_HR_ASSESSMENTS_VIEW,
             PERM_HR_REPORTS_VIEW_ALL,
             PERM_HR_REPORTS_EXPORT,
             PERM_HR_CV_DOWNLOAD,
@@ -287,6 +302,8 @@ HR_ROLES: Tuple[RoleSpec, ...] = (
             PERM_HR_OFFERS_CREATE,
             PERM_HR_OFFERS_APPROVE,
             PERM_HR_OFFERS_DELETE,
+            PERM_HR_ASSESSMENTS_MANAGE,
+            PERM_HR_ASSESSMENTS_VIEW,
             PERM_HR_REPORTS_VIEW_ALL,
             PERM_HR_REPORTS_EXPORT,
             PERM_HR_CV_DOWNLOAD,
@@ -319,6 +336,8 @@ HR_ROLES: Tuple[RoleSpec, ...] = (
             PERM_HR_INTERVIEWS_RESCHEDULE,
             PERM_HR_INTERVIEWS_FEEDBACK,
             PERM_HR_OFFERS_VIEW,
+            PERM_HR_ASSESSMENTS_MANAGE,
+            PERM_HR_ASSESSMENTS_VIEW,
             PERM_HR_REPORTS_VIEW_ALL,
             PERM_HR_REPORTS_EXPORT,
             PERM_HR_CV_DOWNLOAD,
@@ -339,6 +358,7 @@ HR_ROLES: Tuple[RoleSpec, ...] = (
             PERM_HR_CANDIDATES_VIEW_DEPT,
             PERM_HR_INTERVIEWS_VIEW_ALL,  # filtered to dept rows in endpoint
             PERM_HR_INTERVIEWS_FEEDBACK,
+            PERM_HR_ASSESSMENTS_VIEW,
             PERM_HR_REPORTS_VIEW_DEPT,
             PERM_HR_REPORTS_EXPORT,
             PERM_HR_CV_DOWNLOAD,
@@ -373,6 +393,7 @@ HR_ROLES: Tuple[RoleSpec, ...] = (
             PERM_HR_CANDIDATES_VIEW_FULL,
             PERM_HR_INTERVIEWS_VIEW_ALL,
             PERM_HR_OFFERS_VIEW,
+            PERM_HR_ASSESSMENTS_VIEW,
             PERM_HR_REPORTS_VIEW_ALL,
             PERM_HR_REPORTS_EXPORT,
             PERM_HR_CV_DOWNLOAD,
@@ -458,6 +479,8 @@ __all__ = [
     "PERM_HR_OFFERS_CREATE",
     "PERM_HR_OFFERS_APPROVE",
     "PERM_HR_OFFERS_DELETE",
+    "PERM_HR_ASSESSMENTS_MANAGE",
+    "PERM_HR_ASSESSMENTS_VIEW",
     "PERM_HR_REPORTS_VIEW_ALL",
     "PERM_HR_REPORTS_VIEW_DEPT",
     "PERM_HR_REPORTS_VIEW_MINE",

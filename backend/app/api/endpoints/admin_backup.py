@@ -29,6 +29,7 @@ UX flow (mirrored in the React page at /admin/backup):
 """
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -46,6 +47,8 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_request_context, require_superuser
@@ -77,6 +80,9 @@ router = APIRouter(
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -97,19 +103,69 @@ def _audit(
             target_id = resolve_connection().database
         except BackupError:
             target_id = None
-    record_audit(
-        db,
-        action=action,
-        actor_id=actor.id,
-        actor_email=actor.email,
-        scope=SCOPE_SYSTEM,
-        target_type="database",
-        target_id=target_id,
-        ip_address=ctx["ip_address"],
-        user_agent=ctx["user_agent"],
-        details=details,
-        commit=True,
-    )
+
+    # A successful restore can wipe the actor's own ``users`` row —
+    # the audit insert then violates ``audit_logs.actor_id_fkey`` and
+    # the whole request 500s even though the restore itself committed
+    # via a separate pg_restore process. Probe for the actor row
+    # post-restore and denormalise to email-only if it's gone, so
+    # the operator sees the HTTP 200 they earned and the trace still
+    # makes it into the table.
+    effective_actor_id: Optional[int] = actor.id
+    augmented_details = details
+    actor_present = db.execute(
+        select(User.id).where(User.id == actor.id)
+    ).first()
+    if actor_present is None:
+        effective_actor_id = None
+        augmented_details = {
+            **(details or {}),
+            "actor_row_wiped_by_restore": True,
+        }
+
+    try:
+        record_audit(
+            db,
+            action=action,
+            actor_id=effective_actor_id,
+            actor_email=actor.email,
+            scope=SCOPE_SYSTEM,
+            target_type="database",
+            target_id=target_id,
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details=augmented_details,
+            commit=True,
+        )
+    except IntegrityError:
+        # Belt-and-suspenders: the probe above is racy under
+        # concurrent restores, and other FK constraints could
+        # theoretically fire too. Roll back the failed insert,
+        # warn loudly, and retry with the FK reference dropped so
+        # the audit trail isn't the thing that fails the request.
+        db.rollback()
+        logger.warning(
+            "Audit insert FK-violated for action=%s actor_id=%s — "
+            "retrying with actor_id=None",
+            action,
+            actor.id,
+        )
+        record_audit(
+            db,
+            action=action,
+            actor_id=None,
+            actor_email=actor.email,
+            scope=SCOPE_SYSTEM,
+            target_type="database",
+            target_id=target_id,
+            ip_address=ctx["ip_address"],
+            user_agent=ctx["user_agent"],
+            details={
+                **(details or {}),
+                "actor_fk_violation_recovered": True,
+            },
+            commit=True,
+        )
 
 
 def _require_postgres() -> None:

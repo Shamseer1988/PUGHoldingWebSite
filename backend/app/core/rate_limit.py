@@ -81,6 +81,14 @@ BACKUP_LIMIT: Tuple[int, int] = (2, 60)
 BACKUP_LIMIT_HOURLY: Tuple[int, int] = (10, 3600)
 
 
+# Assessment identity verification — public POST that takes a candidate's
+# DOB / email / mobile. Throttle so an attacker can't brute-force the
+# identity check on a captured token. Verify is meant to happen exactly
+# once per invite — generous ceiling per minute leaves room for typos.
+ASSESSMENT_VERIFY_LIMIT: Tuple[int, int] = (8, 60)
+ASSESSMENT_VERIFY_LIMIT_HOURLY: Tuple[int, int] = (30, 3600)
+
+
 # --------------------------------------------------------------------------- #
 # Lua script — atomic increment + first-hit expiry + TTL read                 #
 # --------------------------------------------------------------------------- #
@@ -212,6 +220,19 @@ async def rate_limit_apply(
     redis: aioredis.Redis = Depends(get_redis),
 ) -> None:
     await _enforce(redis, request, "apply", APPLY_LIMIT, APPLY_LIMIT_HOURLY)
+
+
+async def rate_limit_assessment_verify(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> None:
+    await _enforce(
+        redis,
+        request,
+        "assessment_verify",
+        ASSESSMENT_VERIFY_LIMIT,
+        ASSESSMENT_VERIFY_LIMIT_HOURLY,
+    )
 
 
 async def rate_limit_cv_preview(

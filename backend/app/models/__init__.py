@@ -44,6 +44,14 @@ from app.models.hr_ats import (
     JobRevision,
     OfferTracking,
 )
+from app.models.hr_assessment import (
+    Assessment,
+    AssessmentAnswer,
+    AssessmentChoice,
+    AssessmentInvite,
+    AssessmentQuestion,
+    AssessmentSubmission,
+)
 from app.models.marketing import (
     Catalogue,
     CataloguePage,
@@ -96,6 +104,13 @@ __all__ = [
     "JobOpening",
     "JobRevision",
     "OfferTracking",
+    # HR — Phase 2 assessment workflow
+    "Assessment",
+    "AssessmentAnswer",
+    "AssessmentChoice",
+    "AssessmentInvite",
+    "AssessmentQuestion",
+    "AssessmentSubmission",
     # Marketing — Digital Offers & Catalogues
     "Catalogue",
     "CataloguePage",

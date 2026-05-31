@@ -263,6 +263,7 @@ class CandidateUpdate(BaseModel):
     full_name: Optional[str] = Field(default=None, max_length=255)
     email: Optional[str] = Field(default=None, max_length=255)
     mobile: Optional[str] = Field(default=None, max_length=40)
+    date_of_birth: Optional[date] = None
     nationality: Optional[str] = Field(default=None, max_length=120)
     current_location: Optional[str] = Field(default=None, max_length=255)
     current_designation: Optional[str] = Field(default=None, max_length=255)
@@ -283,6 +284,7 @@ class CandidateRead(BaseModel):
     full_name: str
     email: Optional[str] = None
     mobile: Optional[str] = None
+    date_of_birth: Optional[date] = None
     nationality: Optional[str] = None
     current_location: Optional[str] = None
     current_designation: Optional[str] = None
