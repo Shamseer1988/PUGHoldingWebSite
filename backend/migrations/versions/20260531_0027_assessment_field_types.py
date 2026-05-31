@@ -97,10 +97,18 @@ def upgrade() -> None:
         _in_clause("type", QUESTION_TYPES),
     )
 
-    # --- hr_assessment_answers: typed answer payload --------------------
+    # --- hr_assessment_answers: typed payload + per-question review -----
     op.add_column(
         "hr_assessment_answers",
         sa.Column("value", sa.JSON(), nullable=True),
+    )
+    op.add_column(
+        "hr_assessment_answers",
+        sa.Column("reviewer_passed", sa.Boolean(), nullable=True),
+    )
+    op.add_column(
+        "hr_assessment_answers",
+        sa.Column("reviewer_note", sa.Text(), nullable=True),
     )
 
     # --- hr_assessment_submissions: HR review columns -------------------
@@ -201,6 +209,8 @@ def downgrade() -> None:
     op.drop_column("hr_assessment_submissions", "reviewed_by_user_id")
     op.drop_column("hr_assessment_submissions", "review_status")
 
+    op.drop_column("hr_assessment_answers", "reviewer_note")
+    op.drop_column("hr_assessment_answers", "reviewer_passed")
     op.drop_column("hr_assessment_answers", "value")
 
     op.drop_constraint(

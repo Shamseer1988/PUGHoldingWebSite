@@ -451,8 +451,14 @@ class AssessmentAnswer(Base):
 
     # Set by the auto-scorer at submit time. NULL means "not scored
     # yet" — relevant during the brief window between insert and the
-    # scoring pass running.
+    # scoring pass running. Always NULL for manual-review (non-choice)
+    # question types.
     is_correct: Mapped[Optional[bool]] = mapped_column(Boolean)
+
+    # Per-question HR review (set on the review screen). NULL until an
+    # executive marks the answer pass/fail / leaves a note.
+    reviewer_passed: Mapped[Optional[bool]] = mapped_column(Boolean)
+    reviewer_note: Mapped[Optional[str]] = mapped_column(Text)
 
     submission: Mapped[AssessmentSubmission] = relationship(back_populates="answers")
 

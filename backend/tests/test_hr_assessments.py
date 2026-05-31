@@ -687,3 +687,223 @@ def test_submissions_filter_paginate_and_sort(client, seed_auth, db_session: Ses
     # Pagination.
     paged = client.get(SUBMISSIONS, headers=headers, params={"page_size": 2}).json()
     assert paged["total"] == 3 and len(paged["items"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Multi-field question types (assessment field-types engine)
+# ---------------------------------------------------------------------------
+
+
+def _typed_create_payload(job_id: int) -> dict:
+    return {
+        "job_opening_id": job_id,
+        "title": "Mixed types",
+        "questions": [
+            {
+                "text": "Your full name",
+                "type": "short_text",
+                "is_required": True,
+                "config": {"max_length": 100},
+                "points": 1,
+            },
+            {
+                "text": "Why this role?",
+                "type": "long_text",
+                "is_required": False,
+                "points": 1,
+            },
+            {
+                "text": "Earliest joining date",
+                "type": "date",
+                "config": {"min_date": "2026-01-01"},
+                "points": 1,
+            },
+            {
+                "text": "I confirm the details are accurate",
+                "type": "checkbox",
+                "points": 1,
+            },
+            {
+                "text": "Current notice period",
+                "type": "single_choice",
+                "points": 1,
+                "choices": [
+                    {"text": "1 month", "is_correct": True},
+                    {"text": "2 months", "is_correct": False},
+                ],
+            },
+            {
+                "text": "Skills",
+                "type": "multi_choice",
+                "points": 2,
+                "choices": [
+                    {"text": "MEP", "is_correct": True},
+                    {"text": "HVAC", "is_correct": True},
+                    {"text": "Welding", "is_correct": False},
+                ],
+            },
+        ],
+    }
+
+
+def test_create_assessment_with_all_question_types(client, seed_auth, db_session):
+    job = _seed_job(db_session, slug="qa-types")
+    headers = _login_manager(client, seed_auth["password"])
+    r = client.post(BASE, headers=headers, json=_typed_create_payload(job.id))
+    assert r.status_code == 201, r.text
+    assessment_id = r.json()["id"]
+
+    got = client.get(f"{BASE}/{assessment_id}", headers=headers).json()
+    by_text = {q["text"]: q for q in got["questions"]}
+
+    assert by_text["Your full name"]["type"] == "short_text"
+    assert by_text["Your full name"]["is_required"] is True
+    assert by_text["Your full name"]["config"] == {"max_length": 100}
+    assert by_text["Your full name"]["choices"] == []
+
+    assert by_text["Earliest joining date"]["type"] == "date"
+    assert by_text["Earliest joining date"]["config"] == {"min_date": "2026-01-01"}
+
+    assert by_text["I confirm the details are accurate"]["type"] == "checkbox"
+    assert by_text["Current notice period"]["type"] == "single_choice"
+    assert len(by_text["Current notice period"]["choices"]) == 2
+    assert len(by_text["Skills"]["choices"]) == 3
+
+
+def test_short_text_question_rejects_choices(client, seed_auth, db_session):
+    job = _seed_job(db_session, slug="qa-typed-bad")
+    headers = _login_manager(client, seed_auth["password"])
+    # Adding a non-choice question with choices is a 422 (shape check).
+    r = client.post(
+        BASE,
+        headers=headers,
+        json={
+            "job_opening_id": job.id,
+            "title": "Bad",
+            "questions": [
+                {
+                    "text": "Name",
+                    "type": "short_text",
+                    "choices": [
+                        {"text": "x", "is_correct": True},
+                        {"text": "y", "is_correct": False},
+                    ],
+                }
+            ],
+        },
+    )
+    assert r.status_code == 422
+
+
+def _assessment_with_questions(db_session, job_slug: str):
+    """Build a template directly: multi_choice(2pts) + required short_text
+    + date, returning (assessment, question-objects)."""
+    from app.models.hr_assessment import (
+        Assessment,
+        AssessmentChoice,
+        AssessmentQuestion,
+    )
+
+    job = _seed_job(db_session, slug=job_slug)
+    a = Assessment(job_opening_id=job.id, title="Typed")
+    db_session.add(a)
+    db_session.flush()
+
+    mc = AssessmentQuestion(
+        assessment_id=a.id, text="Skills", type="multi_choice", points=2, order_index=0
+    )
+    db_session.add(mc)
+    db_session.flush()
+    c1 = AssessmentChoice(question_id=mc.id, text="MEP", order_index=0, is_correct=True)
+    c2 = AssessmentChoice(question_id=mc.id, text="HVAC", order_index=1, is_correct=True)
+    c3 = AssessmentChoice(question_id=mc.id, text="Weld", order_index=2, is_correct=False)
+    db_session.add_all([c1, c2, c3])
+
+    txt = AssessmentQuestion(
+        assessment_id=a.id,
+        text="Name",
+        type="short_text",
+        is_required=True,
+        points=1,
+        order_index=1,
+    )
+    dt = AssessmentQuestion(
+        assessment_id=a.id,
+        text="Joining",
+        type="date",
+        is_required=False,
+        points=1,
+        order_index=2,
+    )
+    db_session.add_all([txt, dt])
+    db_session.commit()
+    return a, mc, txt, dt, (c1, c2, c3)
+
+
+def _open_submission(db_session, assessment):
+    from app.models.hr_assessment import AssessmentInvite
+    from app.services import assessment_service as svc
+
+    cand = _seed_candidate(db_session, email=f"typed-{assessment.id}@t.test")
+    invite = AssessmentInvite(
+        assessment_id=assessment.id,
+        candidate_id=cand.id,
+        token=f"tok-{assessment.id}",
+        status="pending",
+    )
+    db_session.add(invite)
+    db_session.commit()
+    return svc.open_submission(db_session, invite=invite, matched_field="email")
+
+
+def test_typed_answers_round_trip_and_scoring(db_session):
+    from app.schemas.hr_assessment import PublicAnswerSubmit
+    from app.services import assessment_service as svc
+
+    a, mc, txt, dt, (c1, c2, _c3) = _assessment_with_questions(db_session, "svc-rt")
+    submission = _open_submission(db_session, a)
+
+    svc.finalise_submission(
+        db_session,
+        submission=submission,
+        answers=[
+            PublicAnswerSubmit(question_id=mc.id, selected_choice_ids=[c1.id, c2.id]),
+            PublicAnswerSubmit(question_id=txt.id, value={"text": "  Asha  "}),
+            PublicAnswerSubmit(question_id=dt.id, value={"date": "2026-06-01"}),
+        ],
+    )
+
+    # Objective score = the choice question only (2 of 2); manual-review
+    # questions are excluded from the objective max.
+    assert submission.score == 2
+    assert submission.max_score == 2
+
+    by_q = {ans.question_id: ans for ans in submission.answers}
+    assert by_q[mc.id].is_correct is True
+    assert by_q[txt.id].value == {"text": "Asha"}  # trimmed
+    assert by_q[txt.id].is_correct is None
+    assert by_q[dt.id].value == {"date": "2026-06-01"}
+    assert by_q[dt.id].is_correct is None
+
+
+def test_required_text_blocks_submit(db_session):
+    from app.schemas.hr_assessment import PublicAnswerSubmit
+    from app.services import assessment_service as svc
+
+    a, mc, txt, _dt, (c1, c2, _c3) = _assessment_with_questions(db_session, "svc-req")
+    submission = _open_submission(db_session, a)
+
+    # Leave the required short_text blank → validation error.
+    try:
+        svc.finalise_submission(
+            db_session,
+            submission=submission,
+            answers=[
+                PublicAnswerSubmit(question_id=mc.id, selected_choice_ids=[c1.id, c2.id]),
+                PublicAnswerSubmit(question_id=txt.id, value={"text": "   "}),
+            ],
+        )
+        raised = False
+    except svc.AssessmentValidationError:
+        raised = True
+    assert raised, "blank required short_text should block submit"
