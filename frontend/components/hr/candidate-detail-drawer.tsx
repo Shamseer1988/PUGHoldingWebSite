@@ -34,10 +34,19 @@ import type {
   ParsedEducationEntry,
 } from "@/lib/hr/types";
 
+export type CandidateDrawerTab =
+  | "overview"
+  | "workflow"
+  | "interviews"
+  | "assessments"
+  | "activity";
+
 interface CandidateDetailDrawerProps {
   candidateId: number | null;
   onClose: () => void;
   onSaved?: (candidate: Candidate) => void;
+  /** Tab to open on first render (defaults to Overview). */
+  initialTab?: CandidateDrawerTab;
 }
 
 interface CandidateForm {
@@ -92,11 +101,21 @@ const EMPTY_EXTRACTED_FORM: ExtractedForm = {
   full_text: "",
 };
 
+const DRAWER_TABS: { key: CandidateDrawerTab; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "workflow", label: "Workflow" },
+  { key: "interviews", label: "Interviews" },
+  { key: "assessments", label: "Assessments" },
+  { key: "activity", label: "Activity" },
+];
+
 export function CandidateDetailDrawer({
   candidateId,
   onClose,
   onSaved,
+  initialTab = "overview",
 }: CandidateDetailDrawerProps) {
+  const [tab, setTab] = React.useState<CandidateDrawerTab>(initialTab);
   const [loading, setLoading] = React.useState(false);
   const [candidate, setCandidate] = React.useState<Candidate | null>(null);
   const [form, setForm] = React.useState<CandidateForm>(EMPTY_CANDIDATE_FORM);
@@ -117,6 +136,7 @@ export function CandidateDetailDrawer({
       setError(null);
       return;
     }
+    setTab(initialTab);
     void load(candidateId);
   }, [candidateId]);
 
@@ -388,6 +408,27 @@ export function CandidateDetailDrawer({
           </Button>
         </div>
 
+        {/* Tabs */}
+        {candidate && !loading && (
+          <div className="flex gap-1 overflow-x-auto border-b border-border/60 px-5">
+            {DRAWER_TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                aria-pressed={tab === t.key}
+                className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+                  tab === t.key
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
@@ -413,7 +454,8 @@ export function CandidateDetailDrawer({
 
               <Toast message={toast} onClose={() => setToast(null)} />
 
-              {/* --- Candidate identity + headline --- */}
+              {/* --- Overview: candidate identity + headline --- */}
+              {tab === "overview" && (
               <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5">
                 <header className="flex items-center justify-between">
                   <div>
@@ -552,55 +594,79 @@ export function CandidateDetailDrawer({
                   </Field>
                 </div>
               </section>
+              )}
 
               {/* --- Workflow / status pipeline --- */}
-              <CandidateWorkflowPanel
-                candidate={candidate}
-                onChanged={() => void load(candidate.id)}
-              />
-
-              {/* --- Unified timeline (recruitment + interview + offer) --- */}
-              <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5">
-                <header>
-                  <h3 className="text-sm font-semibold">Activity timeline</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Every recruitment status change, interview, and offer event
-                    for this candidate, newest first.
-                  </p>
-                </header>
-                <CandidateTimeline
-                  candidateId={candidate.id}
-                  refreshKey={candidate.applications.length}
+              {tab === "workflow" && (
+                <CandidateWorkflowPanel
+                  candidate={candidate}
+                  onChanged={() => void load(candidate.id)}
                 />
-              </section>
+              )}
+
+              {/* --- Activity: unified timeline (recruitment + interview + offer) --- */}
+              {tab === "activity" && (
+                <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5">
+                  <header>
+                    <h3 className="text-sm font-semibold">Activity timeline</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Every recruitment status change, interview, and offer event
+                      for this candidate, newest first.
+                    </p>
+                  </header>
+                  <CandidateTimeline
+                    candidateId={candidate.id}
+                    refreshKey={candidate.applications.length}
+                  />
+                </section>
+              )}
 
               {/* --- Interviews --- */}
-              <CandidateInterviewsPanel
-                candidate={candidate}
-                onChanged={() => void load(candidate.id)}
-              />
+              {tab === "interviews" && (
+                <CandidateInterviewsPanel
+                  candidate={candidate}
+                  onChanged={() => void load(candidate.id)}
+                />
+              )}
 
               {/* --- Assessments (Phase 2) --- */}
-              <CandidateAssessmentsPanel
-                candidate={candidate}
-                onChanged={() => void load(candidate.id)}
-              />
+              {tab === "assessments" && (
+                <CandidateAssessmentsPanel
+                  candidate={candidate}
+                  onChanged={() => void load(candidate.id)}
+                />
+              )}
 
-              {/* --- Scoring --- */}
-              <CandidateScorePanel
-                candidateId={candidate.id}
-                applications={candidate.applications}
-                onChanged={() => void load(candidate.id)}
-              />
+              {/* --- Overview: Scoring (collapsible) --- */}
+              {tab === "overview" && (
+                <details open className="rounded-xl">
+                  <summary className="cursor-pointer list-none pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Scoring
+                  </summary>
+                  <CandidateScorePanel
+                    candidateId={candidate.id}
+                    applications={candidate.applications}
+                    onChanged={() => void load(candidate.id)}
+                  />
+                </details>
+              )}
 
-              {/* --- AI review --- */}
-              <CandidateAIReviewPanel
-                candidateId={candidate.id}
-                applications={candidate.applications}
-                onChanged={() => void load(candidate.id)}
-              />
+              {/* --- Overview: AI review (collapsible) --- */}
+              {tab === "overview" && (
+                <details open className="rounded-xl">
+                  <summary className="cursor-pointer list-none pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    AI review
+                  </summary>
+                  <CandidateAIReviewPanel
+                    candidateId={candidate.id}
+                    applications={candidate.applications}
+                    onChanged={() => void load(candidate.id)}
+                  />
+                </details>
+              )}
 
-              {/* --- Extracted data --- */}
+              {/* --- Overview: Extracted CV data --- */}
+              {tab === "overview" && (
               <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5">
                 <header className="flex items-center justify-between">
                   <div>
@@ -701,6 +767,7 @@ export function CandidateDetailDrawer({
                   </details>
                 )}
               </section>
+              )}
             </div>
           )}
         </div>

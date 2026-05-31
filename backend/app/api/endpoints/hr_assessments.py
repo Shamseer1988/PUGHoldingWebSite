@@ -18,9 +18,11 @@ or cancelled an invite.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import (
@@ -39,7 +41,11 @@ from app.models.hr_assessment import (
     AssessmentInvite,
     AssessmentSubmission,
 )
-from app.models.hr_ats import CandidateJobApplication
+from app.models.hr_ats import (
+    Candidate,
+    CandidateJobApplication,
+    JobOpening,
+)
 from app.schemas.hr_assessment import (
     AssessmentCreate,
     AssessmentInviteRead,
@@ -49,6 +55,8 @@ from app.schemas.hr_assessment import (
     AssessmentQuestionRead,
     AssessmentQuestionUpdate,
     AssessmentRead,
+    AssessmentSubmissionListItem,
+    AssessmentSubmissionListResponse,
     AssessmentSubmissionRead,
     AssessmentSummary,
     AssessmentUpdate,
@@ -147,6 +155,100 @@ def list_assessments(
     )
     items = [_to_summary(db, a) for a in items_models]
     return AssessmentList(items=items, total=len(items))
+
+
+@router.get("/submissions", response_model=AssessmentSubmissionListResponse)
+def list_submissions(
+    template_id: Optional[int] = Query(default=None, ge=1),
+    job_id: Optional[int] = Query(default=None, ge=1),
+    status: Optional[str] = Query(default=None),
+    candidate_query: Optional[str] = Query(default=None, max_length=200),
+    submitted_from: Optional[datetime] = Query(default=None),
+    submitted_to: Optional[datetime] = Query(default=None),
+    min_score: Optional[int] = Query(default=None, ge=0),
+    max_score: Optional[int] = Query(default=None, ge=0),
+    sort_by: str = Query(default="submitted_at", pattern="^(submitted_at|score)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(PERM_HR_ASSESSMENTS_VIEW)),
+) -> AssessmentSubmissionListResponse:
+    """List every candidate-submitted assessment across all templates.
+
+    Joins invite + submission + candidate + assessment (template) + job
+    so the HR submissions index can filter by template, job, invite
+    status, submitted-date window and score range, sort by score or
+    submitted date, and paginate — all server-side.
+    """
+    base = (
+        select(AssessmentSubmission, AssessmentInvite, Candidate, Assessment, JobOpening)
+        .join(AssessmentInvite, AssessmentSubmission.invite_id == AssessmentInvite.id)
+        .join(Candidate, AssessmentInvite.candidate_id == Candidate.id)
+        .join(Assessment, AssessmentInvite.assessment_id == Assessment.id)
+        .outerjoin(JobOpening, Assessment.job_opening_id == JobOpening.id)
+    )
+
+    if template_id is not None:
+        base = base.where(AssessmentInvite.assessment_id == template_id)
+    if job_id is not None:
+        base = base.where(Assessment.job_opening_id == job_id)
+    if status:
+        base = base.where(AssessmentInvite.status == status)
+    if candidate_query:
+        like = f"%{candidate_query.strip()}%"
+        base = base.where(
+            or_(Candidate.full_name.ilike(like), Candidate.email.ilike(like))
+        )
+    if submitted_from is not None:
+        base = base.where(AssessmentSubmission.submitted_at >= submitted_from)
+    if submitted_to is not None:
+        base = base.where(AssessmentSubmission.submitted_at <= submitted_to)
+    if min_score is not None:
+        base = base.where(AssessmentSubmission.score >= min_score)
+    if max_score is not None:
+        base = base.where(AssessmentSubmission.score <= max_score)
+
+    total = db.execute(
+        select(func.count()).select_from(base.subquery())
+    ).scalar_one() or 0
+
+    sort_col = (
+        AssessmentSubmission.score
+        if sort_by == "score"
+        else AssessmentSubmission.submitted_at
+    )
+    sort_col = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+
+    rows = db.execute(
+        base.order_by(sort_col, AssessmentSubmission.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+
+    items = [
+        AssessmentSubmissionListItem(
+            invite_id=invite.id,
+            submission_id=sub.id,
+            candidate_id=cand.id,
+            candidate_name=cand.full_name,
+            candidate_email=cand.email,
+            application_id=invite.application_id,
+            assessment_id=assessment.id,
+            assessment_title=assessment.title,
+            job_opening_id=assessment.job_opening_id,
+            job_title=job.title if job is not None else None,
+            invite_status=invite.status,
+            submitted_at=sub.submitted_at,
+            score=sub.score,
+            max_score=sub.max_score,
+            passed=sub.passed,
+        )
+        for sub, invite, cand, assessment, job in rows
+    ]
+    return AssessmentSubmissionListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
 
 
 @router.get("/{assessment_id}", response_model=AssessmentRead)

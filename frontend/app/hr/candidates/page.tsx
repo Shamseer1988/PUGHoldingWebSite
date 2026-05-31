@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CheckCircle2,
-  ExternalLink,
   FileSpreadsheet,
   FileUp,
   Filter,
@@ -17,14 +17,25 @@ import {
 
 import { usePermission } from "@/components/auth/permission";
 import { BulkStatusModal } from "@/components/hr/bulk-status-modal";
-import { CandidateDetailDrawer } from "@/components/hr/candidate-detail-drawer";
+import {
+  CandidateDetailDrawer,
+  type CandidateDrawerTab,
+} from "@/components/hr/candidate-detail-drawer";
 import {
   CandidateFilterPanel,
   filtersToQueryParams,
 } from "@/components/hr/candidate-filter-panel";
+import { CandidateRowActions } from "@/components/hr/candidate-row-actions";
+import { ConfirmReasonDialog } from "@/components/hr/confirm-reason-dialog";
+import { CreateOfferDialog } from "@/components/hr/create-offer-dialog";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { ScoreBadge } from "@/components/hr/score-badge";
+import {
+  StatusBadge,
+  statusLabel,
+  statusesForKind,
+} from "@/components/hr/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +51,7 @@ import {
 import { loadSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { hrFiltersToQueryString, parseHrFilters } from "@/hooks/use-hr-filters";
 import {
   PERM_HR_CANDIDATES_EDIT,
   PERM_HR_CANDIDATES_STATUS_UPDATE,
@@ -51,6 +63,7 @@ import type {
   CandidateListItem,
   ApplicationSubmissionResponse,
   JobOpening,
+  StatusPipelineMeta,
 } from "@/lib/hr/types";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -71,30 +84,112 @@ export default function HrCandidatesPage() {
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [jobs, setJobs] = React.useState<JobOpening[]>([]);
   const [detailId, setDetailId] = React.useState<number | null>(null);
+  const [detailTab, setDetailTab] =
+    React.useState<CandidateDrawerTab>("overview");
   const [selectedAppIds, setSelectedAppIds] = React.useState<Set<number>>(
     new Set(),
   );
   const [bulkStatusOpen, setBulkStatusOpen] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
+  const [meta, setMeta] = React.useState<StatusPipelineMeta | null>(null);
+  const [offerAppId, setOfferAppId] = React.useState<number | null>(null);
+  const [reasonState, setReasonState] = React.useState<{
+    candidateId: number;
+    appId: number;
+    target: string;
+  } | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   React.useEffect(() => {
-    refresh();
-    // Pre-load open jobs once for the upload drawers.
+    // Seed the shared filters from the URL so clickable dashboard KPIs
+    // and the reports "Open in Candidates" links land here pre-filtered.
+    const shared = parseHrFilters(searchParams);
+    const seeded: CandidateAdvancedFilters = {};
+    if (shared.status) seeded.status = shared.status;
+    if (shared.job) seeded.job_slug = shared.job;
+    if (shared.department) seeded.department = shared.department;
+    if (shared.dateFrom) seeded.uploaded_from = shared.dateFrom;
+    if (shared.dateTo) seeded.uploaded_to = shared.dateTo;
+    if (Object.keys(seeded).length > 0) setFilters(seeded);
+    void refresh(seeded);
+
+    // Pre-load open jobs (upload drawers) + workflow transitions (inline
+    // "Update status" dropdown lists only legal next statuses).
     hrApi
       .get<JobOpening[]>("/hr/jobs?status=open")
       .then(setJobs)
       .catch(() => setJobs([]));
+    hrApi
+      .get<StatusPipelineMeta>("/hr/candidates/workflow/meta")
+      .then(setMeta)
+      .catch(() => setMeta(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function refresh() {
+  function syncUrl(active: CandidateAdvancedFilters) {
+    const qs = hrFiltersToQueryString({
+      status: active.status ?? "",
+      job: active.job_slug ?? "",
+      department: active.department ?? "",
+      company: "",
+      source: "",
+      dateFrom: active.uploaded_from ?? "",
+      dateTo: active.uploaded_to ?? "",
+    });
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  async function refresh(active: CandidateAdvancedFilters = filters) {
     setItems(null);
+    syncUrl(active);
     try {
-      const params = filtersToQueryParams(filters);
+      const params = filtersToQueryParams(active);
       const url = `/hr/candidates${params.toString() ? `?${params}` : ""}`;
       setItems(await hrApi.get<CandidateListItem[]>(url));
     } catch (err) {
       setError((err as HrApiError).message);
     }
+  }
+
+  function applyStatusFilter(status: string) {
+    const next: CandidateAdvancedFilters = { ...filters };
+    if (status) next.status = status;
+    else delete next.status;
+    setFilters(next);
+    void refresh(next);
+  }
+
+  async function doStatusChange(
+    candidateId: number,
+    appId: number,
+    target: string,
+    reason?: string,
+  ) {
+    try {
+      const body: Record<string, unknown> = { new_status: target };
+      if (target === "rejected" && reason) body.rejection_reason = reason;
+      if (target === "blacklisted" && reason) body.blacklist_approval = reason;
+      await hrApi.post(
+        `/hr/candidates/${candidateId}/applications/${appId}/status`,
+        body,
+      );
+      setToast(`Moved to ${statusLabel("application", target)}.`);
+      await refresh();
+    } catch (err) {
+      setError((err as HrApiError).message);
+    }
+  }
+
+  function handleUpdateStatus(candidateId: number, appId: number, target: string) {
+    // rejected / blacklisted require a documented reason — capture it
+    // first, then apply (mirrors the workflow service rules).
+    if (target === "rejected" || target === "blacklisted") {
+      setReasonState({ candidateId, appId, target });
+      return;
+    }
+    void doStatusChange(candidateId, appId, target);
   }
 
   async function exportXlsx() {
@@ -296,6 +391,23 @@ export default function HrCandidatesPage() {
         </div>
       )}
 
+      {/* Status quick-filter chips — full pipeline incl. side lanes. */}
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        <FilterChip
+          label="All"
+          active={!filters.status}
+          onClick={() => applyStatusFilter("")}
+        />
+        {statusesForKind("application").map((s) => (
+          <FilterChip
+            key={s}
+            label={statusLabel("application", s)}
+            active={filters.status === s}
+            onClick={() => applyStatusFilter(s)}
+          />
+        ))}
+      </div>
+
       {items === null ? (
         <p className="text-sm text-muted-foreground">
           <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
@@ -351,7 +463,7 @@ export default function HrCandidatesPage() {
                 <TableHead className="w-16 sm:w-24">Score</TableHead>
                 <TableHead className="hidden md:table-cell w-32">Source</TableHead>
                 <TableHead className="hidden lg:table-cell w-36">Created</TableHead>
-                <TableHead className="w-16 sm:w-24 text-right">CV</TableHead>
+                <TableHead className="w-[12rem] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -359,7 +471,10 @@ export default function HrCandidatesPage() {
                 <CandidateRow
                   key={c.id}
                   c={c}
-                  onOpenDetail={() => setDetailId(c.id)}
+                  onOpenDetail={(tab) => {
+                    setDetailTab(tab ?? "overview");
+                    setDetailId(c.id);
+                  }}
                   isSelected={
                     c.latest_application_id != null &&
                     selectedAppIds.has(c.latest_application_id)
@@ -373,6 +488,9 @@ export default function HrCandidatesPage() {
                       return next;
                     });
                   }}
+                  transitions={meta?.transitions ?? {}}
+                  onUpdateStatus={handleUpdateStatus}
+                  onIssueOffer={(appId) => setOfferAppId(appId)}
                 />
               ))}
             </TableBody>
@@ -410,6 +528,7 @@ export default function HrCandidatesPage() {
 
       <CandidateDetailDrawer
         candidateId={detailId}
+        initialTab={detailTab}
         onClose={() => setDetailId(null)}
         onSaved={() => {
           void refresh();
@@ -428,6 +547,47 @@ export default function HrCandidatesPage() {
           void refresh();
         }}
       />
+
+      {offerAppId != null && (
+        <CreateOfferDialog
+          applicationId={offerAppId}
+          onClose={() => setOfferAppId(null)}
+          onCreated={() => {
+            setOfferAppId(null);
+            setToast("Offer drafted — open Offers to submit for approval.");
+            void refresh();
+          }}
+        />
+      )}
+
+      {reasonState && (
+        <ConfirmReasonDialog
+          title={
+            reasonState.target === "rejected"
+              ? "Reject candidate"
+              : "Blacklist candidate"
+          }
+          description={
+            reasonState.target === "rejected"
+              ? "Records a rejection reason in the audit log."
+              : "Blacklisting needs super-admin rights and a documented approval."
+          }
+          confirmLabel={
+            reasonState.target === "rejected" ? "Reject" : "Blacklist"
+          }
+          tone="danger"
+          onConfirm={async (reason) => {
+            await doStatusChange(
+              reasonState.candidateId,
+              reasonState.appId,
+              reasonState.target,
+              reason,
+            );
+            setReasonState(null);
+          }}
+          onClose={() => setReasonState(null)}
+        />
+      )}
     </HrShell>
   );
 }
@@ -437,15 +597,21 @@ function CandidateRow({
   onOpenDetail,
   isSelected,
   onToggleSelect,
+  transitions,
+  onUpdateStatus,
+  onIssueOffer,
 }: {
   c: CandidateListItem;
-  onOpenDetail: () => void;
+  onOpenDetail: (tab?: CandidateDrawerTab) => void;
   isSelected: boolean;
   onToggleSelect: (checked: boolean) => void;
+  transitions: Record<string, string[]>;
+  onUpdateStatus: (candidateId: number, appId: number, target: string) => void;
+  onIssueOffer: (appId: number) => void;
 }) {
   return (
     <TableRow
-      onClick={onOpenDetail}
+      onClick={() => onOpenDetail()}
       className="cursor-pointer transition-colors hover:bg-muted/40"
     >
       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -482,7 +648,11 @@ function CandidateRow({
           : "—"}
       </TableCell>
       <TableCell>
-        <StatusChip status={c.latest_status} label={c.latest_status_label} />
+        <StatusBadge
+          kind="application"
+          status={c.latest_status}
+          label={c.latest_status_label}
+        />
       </TableCell>
       <TableCell>
         <ScoreBadge total={c.top_score} compact />
@@ -498,19 +668,24 @@ function CandidateRow({
         {new Date(c.created_at).toLocaleDateString()}
       </TableCell>
       <TableCell className="text-right">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenDetail();
+        <CandidateRowActions
+          status={c.latest_status}
+          applicationId={c.latest_application_id}
+          allowedNext={
+            c.latest_status ? transitions[c.latest_status] ?? [] : []
+          }
+          onUpdateStatus={(target) => {
+            if (c.latest_application_id != null)
+              onUpdateStatus(c.id, c.latest_application_id, target);
           }}
-          className="px-2 text-xs"
-          aria-label="Open candidate detail"
-        >
-          <span className="hidden sm:inline">Open</span>
-          <ExternalLink className="h-3 w-3 sm:ml-1" />
-        </Button>
+          onScheduleInterview={() => onOpenDetail("interviews")}
+          onSendAssessment={() => onOpenDetail("assessments")}
+          onIssueOffer={() => {
+            if (c.latest_application_id != null)
+              onIssueOffer(c.latest_application_id);
+          }}
+          onOpen360={() => onOpenDetail("overview")}
+        />
       </TableCell>
     </TableRow>
   );
@@ -991,38 +1166,29 @@ function Toast({
   );
 }
 
-function StatusChip({
-  status,
+// StatusChip was replaced by the shared <StatusBadge kind="application">.
+
+function FilterChip({
   label,
+  active,
+  onClick,
 }: {
-  status: string | null;
-  label: string | null;
+  label: string;
+  active: boolean;
+  onClick: () => void;
 }) {
-  if (!status) return <span className="text-xs text-muted-foreground">—</span>;
-  let tone = "border-border/60 bg-background/60 text-foreground";
-  if (status === "joined") {
-    tone = "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  } else if (status === "rejected") {
-    tone = "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-  } else if (status === "blacklisted") {
-    tone = "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300";
-  } else if (
-    [
-      "shortlisted",
-      "first_interview",
-      "technical_interview",
-      "final_interview",
-      "selected",
-      "offer_sent",
-    ].includes(status)
-  ) {
-    tone = "border-primary/30 bg-primary/10 text-primary";
-  }
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone}`}
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "border-primary bg-primary/10 text-primary"
+          : "border-border/60 bg-background/60 text-muted-foreground hover:text-foreground"
+      }`}
     >
-      {label ?? status}
-    </span>
+      {label}
+    </button>
   );
 }

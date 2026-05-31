@@ -219,6 +219,15 @@ export interface DashboardSummary {
   pending_offers: OfferSummary[];
 }
 
+// Per-status counts powering the clickable dashboard KPI cards.
+export interface StageCounts {
+  application: Record<string, number>;
+  offer_status: Record<string, number>;
+  offer_joining: Record<string, number>;
+  joining_this_month: number;
+  generated_at: string;
+}
+
 // Job openings -----------------------------------------------------------
 
 export type JobStatus = "open" | "on_hold" | "closed";
@@ -704,6 +713,32 @@ export interface AssessmentSubmission {
     selected_choice_ids: number[];
     is_correct: boolean | null;
   }>;
+}
+
+
+export interface AssessmentSubmissionListItem {
+  invite_id: number;
+  submission_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  candidate_email: string | null;
+  application_id: number | null;
+  assessment_id: number;
+  assessment_title: string;
+  job_opening_id: number | null;
+  job_title: string | null;
+  invite_status: string;
+  submitted_at: string | null;
+  score: number | null;
+  max_score: number | null;
+  passed: boolean | null;
+}
+
+export interface AssessmentSubmissionListResponse {
+  items: AssessmentSubmissionListItem[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 

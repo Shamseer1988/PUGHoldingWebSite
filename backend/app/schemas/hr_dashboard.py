@@ -62,6 +62,23 @@ class DashboardSummary(BaseModel):
     pending_offers: List[OfferSummary]
 
 
+class StageCountsResponse(BaseModel):
+    """Per-status counts powering the clickable dashboard KPI cards.
+
+    ``application`` carries every status in the application taxonomy
+    (zero-filled), ``offer_status`` every offer lifecycle status, and
+    ``offer_joining`` the post-acceptance joining rollups. ``joining_this_
+    month`` counts offers whose joining date falls in the current month.
+    Each card deep-links to the matching filtered list using these keys.
+    """
+
+    application: dict[str, int]
+    offer_status: dict[str, int]
+    offer_joining: dict[str, int]
+    joining_this_month: int
+    generated_at: datetime
+
+
 class AuditEntryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

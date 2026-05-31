@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CheckCircle2,
   Clock,
@@ -18,7 +19,7 @@ import { usePermission } from "@/components/auth/permission";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { OfferDetailDrawer } from "@/components/hr/offer-detail-drawer";
-import { HrStatusBadge } from "@/components/hr/status-badge";
+import { StatusBadge, statusesForKind } from "@/components/hr/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,28 +53,32 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function HrOffersPage() {
   const perms = usePermission();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Status + view live in the URL so dashboard KPIs deep-link in
+  // (e.g. /hr/offers?status=pending_approval) and the Table⇄Board choice
+  // is shareable.
+  const statusFilter = searchParams.get("status") ?? "";
+  const view: "table" | "board" =
+    searchParams.get("view") === "board" ? "board" : "table";
+
   const [items, setItems] = React.useState<Offer[] | null>(null);
   const [stats, setStats] = React.useState<OfferStats | null>(null);
-  const [statusFilter, setStatusFilter] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [openId, setOpenId] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, []);
 
   async function refresh() {
     setItems(null);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
       const [list, summary] = await Promise.all([
-        hrApi.get<Offer[]>(
-          `/hr/offers${params.toString() ? `?${params}` : ""}`
-        ),
+        hrApi.get<Offer[]>("/hr/offers?limit=500"),
         hrApi.get<OfferStats>("/hr/offers/stats"),
       ]);
       setItems(list);
@@ -83,7 +88,24 @@ export default function HrOffersPage() {
     }
   }
 
-  const filtered = React.useMemo(() => {
+  function setStatusFilter(status: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (status) params.set("status", status);
+    else params.delete("status");
+    router.replace(params.toString() ? `${pathname}?${params}` : pathname, {
+      scroll: false,
+    });
+  }
+
+  function setView(next: "table" | "board") {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", next);
+    router.replace(`${pathname}?${params}`, { scroll: false });
+  }
+
+  // Search applies to both views; the status filter only narrows the table
+  // (the board's columns already are the statuses).
+  const searched = React.useMemo(() => {
     if (!items) return [];
     const q = query.trim().toLowerCase();
     if (!q) return items;
@@ -100,10 +122,19 @@ export default function HrOffersPage() {
     );
   }, [items, query]);
 
+  const filtered = React.useMemo(
+    () =>
+      statusFilter
+        ? searched.filter((o) => o.status === statusFilter)
+        : searched,
+    [searched, statusFilter],
+  );
+
   return (
     <HrShell
       title="Offers"
       description="Full lifecycle — draft, approval, issue, candidate response, joining."
+      actions={<ViewToggle view={view} onChange={setView} />}
     >
       {/* Dashboard cards */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -221,6 +252,8 @@ export default function HrOffersPage() {
           <Loader2 className="mr-1 inline h-4 w-4 animate-spin" />
           Loading offers…
         </p>
+      ) : view === "board" ? (
+        <OffersBoard offers={searched} onOpen={setOpenId} />
       ) : filtered.length === 0 ? (
         <HrEmptyState
           icon={Handshake}
@@ -277,7 +310,7 @@ export default function HrOffersPage() {
                     {o.joining_date ?? "—"}
                   </TableCell>
                   <TableCell>
-                    <HrStatusBadge kind="offer" value={o.status} />
+                    <StatusBadge kind="offer" status={o.status} />
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-xs">
                     {o.offer_letter_number ?? "—"}
@@ -352,4 +385,115 @@ function StatCard({
 }
 
 
-// StatusBadge moved to the shared <HrStatusBadge> component (Phase 10).
+// Status pills are rendered by the shared <StatusBadge> component.
+
+
+// ---------------------------------------------------------------------------
+// Table ⇄ Board segmented control
+// ---------------------------------------------------------------------------
+
+
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: "table" | "board";
+  onChange: (next: "table" | "board") => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-border/60 p-0.5">
+      {(["table", "board"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          aria-pressed={view === v}
+          className={cn(
+            "rounded px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+            view === v
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {v}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Offer lifecycle board — columns mirror the offer state machine
+// ---------------------------------------------------------------------------
+
+
+function OffersBoard({
+  offers,
+  onOpen,
+}: {
+  offers: Offer[];
+  onOpen: (id: number) => void;
+}) {
+  const columns = statusesForKind("offer");
+  const byStatus: Record<string, Offer[]> = {};
+  columns.forEach((s) => (byStatus[s] = []));
+  offers.forEach((o) => {
+    if (byStatus[o.status]) byStatus[o.status].push(o);
+  });
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-3">
+      {columns.map((status) => (
+        <div
+          key={status}
+          className="flex w-64 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/30"
+        >
+          <header className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+            <StatusBadge kind="offer" status={status} />
+            <span className="rounded-full bg-background px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+              {byStatus[status].length}
+            </span>
+          </header>
+          <div className="flex min-h-[6rem] flex-1 flex-col gap-2 p-2">
+            {byStatus[status].map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => onOpen(o.id)}
+                className="rounded-lg border border-border/60 bg-card p-2.5 text-left shadow-sm transition-colors hover:border-primary/60"
+              >
+                <p className="truncate text-sm font-medium leading-tight">
+                  {o.candidate_name ?? "—"}
+                </p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {o.job_title ?? "—"}
+                </p>
+                <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span className="tabular-nums">
+                    {o.salary_offered != null
+                      ? o.salary_offered.toLocaleString()
+                      : "—"}
+                  </span>
+                  <span>{o.joining_date ?? "—"}</span>
+                </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {ageInStage(o.updated_at)}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+function ageInStage(updatedAt: string): string {
+  const then = new Date(updatedAt).getTime();
+  if (Number.isNaN(then)) return "";
+  const days = Math.floor((Date.now() - then) / 86_400_000);
+  if (days <= 0) return "today";
+  return `${days}d in stage`;
+}

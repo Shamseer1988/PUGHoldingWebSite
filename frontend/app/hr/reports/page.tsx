@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   ArrowLeft,
   BadgeDollarSign,
   Briefcase,
   CalendarClock,
   Download,
+  ExternalLink,
   FileBarChart,
   FileSpreadsheet,
   FileText,
@@ -37,6 +39,7 @@ import {
 import { env } from "@/lib/env";
 import { hrApi, HrApiError } from "@/lib/hr/api";
 import { loadSession } from "@/lib/auth";
+import { buildHrFilterHref } from "@/hooks/use-hr-filters";
 import type {
   CandidateAdvancedFilters,
   ReportResponse,
@@ -217,6 +220,19 @@ function ReportRunner({
     }
   }
 
+  // Shared filter taxonomy (status, job, department, date range) mapped
+  // from the report's filter bundle, so "Open in …" pre-applies the same
+  // filters on the Candidates / Offers views via query string.
+  const sharedFilters = {
+    status: filters.status ?? "",
+    job: filters.job_slug ?? "",
+    department: filters.department ?? "",
+    company: "",
+    source: "",
+    dateFrom: filters.uploaded_from ?? "",
+    dateTo: filters.uploaded_to ?? "",
+  };
+
   return (
     <HrShell
       title={report.title}
@@ -265,6 +281,20 @@ function ReportRunner({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={buildHrFilterHref("/hr/candidates", sharedFilters)}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Open in Candidates</span>
+                <span className="sm:hidden">Candidates</span>
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={buildHrFilterHref("/hr/offers", sharedFilters)}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Open in Offers</span>
+                <span className="sm:hidden">Offers</span>
+              </Link>
+            </Button>
             <ExportButton
               icon={FileText}
               label="CSV"

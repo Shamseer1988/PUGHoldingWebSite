@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Handshake,
   History,
-  Megaphone,
   Sparkles,
   TrendingUp,
   Users,
@@ -25,6 +24,7 @@ import {
 
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
+import { KpiCard } from "@/components/hr/kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,51 +43,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { hrApi, HrApiError } from "@/lib/hr/api";
-import type { DashboardSummary, FunnelStage } from "@/lib/hr/types";
-import { cn } from "@/lib/utils";
-
-const STAT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  open_jobs: Briefcase,
-  total_candidates: Users,
-  applications_total: Megaphone,
-  applications_this_month: TrendingUp,
-  ai_reviewed: Sparkles,
-  highly_recommended: CheckCircle2,
-  hr_review_pending: History,
-  shortlisted: CheckCircle2,
-  rejected: History,
-  selected: CheckCircle2,
-  joined: CheckCircle2,
-  pending_interviews: CalendarClock,
-  pending_offers: Handshake,
-};
-
-const STAT_ACCENTS: Record<string, string> = {
-  open_jobs: "from-pug-green-500 to-pug-green-700",
-  total_candidates: "from-pug-gold-500 to-pug-gold-700",
-  applications_total: "from-pug-green-600 to-pug-gold-500",
-  applications_this_month: "from-pug-gold-400 to-pug-green-500",
-  ai_reviewed: "from-pug-green-500 to-pug-gold-600",
-  highly_recommended: "from-pug-gold-500 to-pug-gold-700",
-  hr_review_pending: "from-amber-500 to-pug-gold-500",
-  shortlisted: "from-pug-green-500 to-pug-green-700",
-  rejected: "from-rose-500 to-pug-gold-700",
-  selected: "from-pug-green-600 to-pug-gold-500",
-  joined: "from-emerald-500 to-pug-green-700",
-  pending_interviews: "from-pug-gold-500 to-pug-green-600",
-  pending_offers: "from-pug-green-500 to-pug-gold-700",
-};
+import type { DashboardSummary, FunnelStage, StageCounts } from "@/lib/hr/types";
 
 export default function HrDashboardPage() {
   const [data, setData] = React.useState<DashboardSummary | null>(null);
+  const [counts, setCounts] = React.useState<StageCounts | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
-    hrApi
-      .get<DashboardSummary>("/hr/dashboard")
-      .then((d) => {
-        if (!cancelled) setData(d);
+    Promise.all([
+      hrApi.get<DashboardSummary>("/hr/dashboard"),
+      hrApi.get<StageCounts>("/hr/dashboard/stage-counts"),
+    ])
+      .then(([summary, stage]) => {
+        if (cancelled) return;
+        setData(summary);
+        setCounts(stage);
       })
       .catch((err: HrApiError) => {
         if (!cancelled) setError(err.message);
@@ -96,6 +68,20 @@ export default function HrDashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  // "Interviews today" for the needs-attention rail.
+  const interviewsToday = React.useMemo(() => {
+    if (!data) return 0;
+    const today = new Date().toDateString();
+    return data.pending_interviews.filter(
+      (iv) => new Date(iv.scheduled_at).toDateString() === today,
+    ).length;
+  }, [data]);
+
+  const stat = React.useCallback(
+    (key: string) => data?.stats.find((s) => s.key === key)?.value ?? 0,
+    [data],
+  );
 
   return (
     <HrShell
@@ -111,43 +97,134 @@ export default function HrDashboardPage() {
         </div>
       )}
 
-      {/* KPI cards */}
+      {/* Today / needs-attention rail */}
+      <section className="mb-6">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Needs attention today
+        </h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <KpiCard
+            label="Interviews today"
+            value={interviewsToday}
+            href="/hr/interviews"
+            icon={CalendarClock}
+            tone="info"
+          />
+          <KpiCard
+            label="Offers awaiting approval"
+            value={counts?.offer_status.pending_approval ?? 0}
+            href="/hr/offers?status=pending_approval"
+            icon={Handshake}
+            tone="warning"
+          />
+          <KpiCard
+            label="Candidates awaiting HR review"
+            value={counts?.application.hr_review_pending ?? 0}
+            href="/hr/candidates?status=hr_review_pending"
+            icon={History}
+            tone="warning"
+          />
+        </div>
+      </section>
+
+      {/* Clickable KPI cards — each deep-links to its filtered list. */}
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {data
-          ? data.stats.map((stat) => {
-              const Icon = STAT_ICONS[stat.key] ?? Sparkles;
-              const accent =
-                STAT_ACCENTS[stat.key] ?? "from-pug-green-500 to-pug-gold-500";
-              return (
-                <Card key={stat.key} className="overflow-hidden">
-                  <CardContent className="p-5">
-                    <div
-                      className={cn(
-                        "inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
-                        accent
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight">
-                      {stat.value.toLocaleString()}
-                    </p>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      {stat.label}
-                    </p>
-                  </CardContent>
-                </Card>
-              );
-            })
-          : Array.from({ length: 12 }).map((_, i) => (
-              <Card key={i} className="animate-pulse">
-                <CardContent className="p-5">
-                  <div className="h-9 w-9 rounded-lg bg-muted" />
-                  <div className="mt-3 h-7 w-16 rounded bg-muted" />
-                  <div className="mt-2 h-3 w-24 rounded bg-muted" />
-                </CardContent>
-              </Card>
-            ))}
+        {counts ? (
+          <>
+            <KpiCard
+              label="Open jobs"
+              value={stat("open_jobs")}
+              href="/hr/jobs"
+              icon={Briefcase}
+              tone="success"
+            />
+            <KpiCard
+              label="Total candidates"
+              value={stat("total_candidates")}
+              href="/hr/candidates"
+              icon={Users}
+              tone="neutral"
+            />
+            <KpiCard
+              label="Awaiting HR review"
+              value={counts.application.hr_review_pending}
+              href="/hr/candidates?status=hr_review_pending"
+              icon={History}
+              tone="warning"
+            />
+            <KpiCard
+              label="Shortlisted"
+              value={counts.application.shortlisted}
+              href="/hr/candidates?status=shortlisted"
+              icon={CheckCircle2}
+              tone="info"
+            />
+            <KpiCard
+              label="In interviews"
+              value={
+                counts.application.first_interview +
+                counts.application.technical_interview +
+                counts.application.final_interview
+              }
+              href="/hr/pipeline"
+              icon={CalendarClock}
+              tone="progress"
+            />
+            <KpiCard
+              label="Recommended"
+              value={counts.application.recommended_for_offer}
+              href="/hr/candidates?status=recommended_for_offer"
+              icon={Sparkles}
+              tone="ready"
+            />
+            <KpiCard
+              label="Selected"
+              value={counts.application.selected}
+              href="/hr/candidates?status=selected"
+              icon={CheckCircle2}
+              tone="ready"
+            />
+            <KpiCard
+              label="Pending offers"
+              value={counts.offer_status.pending_approval}
+              href="/hr/offers?status=pending_approval"
+              icon={Handshake}
+              tone="warning"
+            />
+            <KpiCard
+              label="Offers issued"
+              value={counts.offer_status.sent}
+              href="/hr/offers?status=sent"
+              icon={Handshake}
+              tone="info"
+            />
+            <KpiCard
+              label="Joining this month"
+              value={counts.joining_this_month}
+              href="/hr/onboarding?window=30d"
+              icon={TrendingUp}
+              tone="success"
+            />
+            <KpiCard
+              label="Joined"
+              value={counts.application.joined}
+              href="/hr/candidates?status=joined"
+              icon={CheckCircle2}
+              tone="success"
+            />
+          </>
+        ) : (
+          Array.from({ length: 12 }).map((_, i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-xl border border-border/60 bg-card p-5"
+            >
+              <div className="h-9 w-9 rounded-lg bg-muted" />
+              <div className="mt-3 h-7 w-16 rounded bg-muted" />
+              <div className="mt-2 h-3 w-24 rounded bg-muted" />
+            </div>
+          ))
+        )}
       </section>
 
       {/* Pipeline funnel + monthly trend */}

@@ -9,6 +9,7 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   ClipboardList,
   ExternalLink,
   FileBarChart,
@@ -18,8 +19,10 @@ import {
   LineChart,
   Mailbox,
   Menu as MenuIcon,
+  UserCheck,
   Users,
   UsersRound,
+  Workflow,
   X,
 } from "lucide-react";
 
@@ -51,6 +54,8 @@ interface NavLink {
   icon: React.ComponentType<{ className?: string }>;
   /** Permission gates — link is hidden when the user has none of them. */
   anyOf: readonly string[];
+  /** Render as a nested sub-item (indented under the item above). */
+  indent?: boolean;
 }
 
 const NAV: NavGroup[] = [
@@ -68,11 +73,12 @@ const NAV: NavGroup[] = [
   {
     label: "Recruitment",
     items: [
+      // Order mirrors docs/hr-architecture.md §1: sourcing → joining.
       {
-        label: "Job openings",
-        href: "/hr/jobs",
-        icon: Briefcase,
-        anyOf: ANY_JOB_VIEW,
+        label: "Pipeline",
+        href: "/hr/pipeline",
+        icon: Workflow,
+        anyOf: ANY_CANDIDATE_VIEW,
       },
       {
         label: "Candidates",
@@ -81,10 +87,31 @@ const NAV: NavGroup[] = [
         anyOf: ANY_CANDIDATE_VIEW,
       },
       {
+        label: "Job openings",
+        href: "/hr/jobs",
+        icon: Briefcase,
+        anyOf: ANY_JOB_VIEW,
+      },
+      {
         label: "Interviews",
         href: "/hr/interviews",
         icon: CalendarClock,
         anyOf: ANY_INTERVIEW_VIEW,
+      },
+      {
+        label: "Assessments",
+        href: "/hr/assessments",
+        icon: ClipboardList,
+        anyOf: [PERM_HR_ASSESSMENTS_VIEW],
+      },
+      {
+        // Submissions sits under Assessments (Templates ⇄ Submissions);
+        // indented to read as a sub-item of the Assessments section.
+        label: "Submissions",
+        href: "/hr/assessments/submissions",
+        icon: ClipboardCheck,
+        anyOf: [PERM_HR_ASSESSMENTS_VIEW],
+        indent: true,
       },
       {
         label: "Offers",
@@ -93,10 +120,10 @@ const NAV: NavGroup[] = [
         anyOf: [PERM_HR_OFFERS_VIEW],
       },
       {
-        label: "Assessments",
-        href: "/hr/assessments",
-        icon: ClipboardList,
-        anyOf: [PERM_HR_ASSESSMENTS_VIEW],
+        label: "Onboarding",
+        href: "/hr/onboarding",
+        icon: UserCheck,
+        anyOf: [PERM_HR_OFFERS_VIEW],
       },
       {
         label: "Talent pool",
@@ -184,6 +211,19 @@ export function HrSidebar({
       items: group.items.filter((item) => perms.hasAny(item.anyOf)),
     })).filter((group) => group.items.length > 0);
   }, [perms]);
+
+  // Longest matching href wins, so a parent ("/hr/assessments") doesn't
+  // light up on a child route ("/hr/assessments/submissions").
+  const activeHref = React.useMemo<string | null>(() => {
+    const hrefs = visibleNav.flatMap((group) => group.items.map((i) => i.href));
+    const matches = hrefs.filter(
+      (h) =>
+        pathname === h ||
+        (h !== "/hr" && pathname != null && pathname.startsWith(`${h}/`)),
+    );
+    if (matches.length === 0) return pathname === "/hr" ? "/hr" : null;
+    return matches.reduce((a, b) => (b.length > a.length ? b : a));
+  }, [visibleNav, pathname]);
 
   React.useEffect(() => {
     if (open) onClose();
@@ -279,9 +319,7 @@ export function HrSidebar({
               >
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const active =
-                    pathname === item.href ||
-                    (item.href !== "/hr" && pathname?.startsWith(item.href));
+                  const active = item.href === activeHref;
                   return (
                     <li key={item.href}>
                       <Link
@@ -292,6 +330,7 @@ export function HrSidebar({
                           active
                             ? "bg-primary/10 text-primary"
                             : "text-foreground/80 hover:bg-muted hover:text-foreground",
+                          item.indent && !collapsed && "ml-3 pl-5",
                           collapsed && "lg:justify-center lg:px-2"
                         )}
                       >
