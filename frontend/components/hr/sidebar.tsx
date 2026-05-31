@@ -19,6 +19,7 @@ import {
   LineChart,
   Mailbox,
   Menu as MenuIcon,
+  UserCheck,
   Users,
   UsersRound,
   X,
@@ -91,6 +92,12 @@ const NAV: NavGroup[] = [
         label: "Offers",
         href: "/hr/offers",
         icon: Handshake,
+        anyOf: [PERM_HR_OFFERS_VIEW],
+      },
+      {
+        label: "Onboarding",
+        href: "/hr/onboarding",
+        icon: UserCheck,
         anyOf: [PERM_HR_OFFERS_VIEW],
       },
       {
