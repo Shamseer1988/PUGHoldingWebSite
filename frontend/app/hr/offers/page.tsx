@@ -18,7 +18,7 @@ import { usePermission } from "@/components/auth/permission";
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { OfferDetailDrawer } from "@/components/hr/offer-detail-drawer";
-import { HrStatusBadge } from "@/components/hr/status-badge";
+import { StatusBadge } from "@/components/hr/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -277,7 +277,7 @@ export default function HrOffersPage() {
                     {o.joining_date ?? "—"}
                   </TableCell>
                   <TableCell>
-                    <HrStatusBadge kind="offer" value={o.status} />
+                    <StatusBadge kind="offer" status={o.status} />
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-xs">
                     {o.offer_letter_number ?? "—"}
@@ -352,4 +352,4 @@ function StatCard({
 }
 
 
-// StatusBadge moved to the shared <HrStatusBadge> component (Phase 10).
+// Status pills are rendered by the shared <StatusBadge> component.

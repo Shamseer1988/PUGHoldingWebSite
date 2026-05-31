@@ -25,6 +25,7 @@ import {
 import { HrEmptyState } from "@/components/hr/empty-state";
 import { HrShell } from "@/components/hr/hr-shell";
 import { ScoreBadge } from "@/components/hr/score-badge";
+import { StatusBadge } from "@/components/hr/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -482,7 +483,11 @@ function CandidateRow({
           : "—"}
       </TableCell>
       <TableCell>
-        <StatusChip status={c.latest_status} label={c.latest_status_label} />
+        <StatusBadge
+          kind="application"
+          status={c.latest_status}
+          label={c.latest_status_label}
+        />
       </TableCell>
       <TableCell>
         <ScoreBadge total={c.top_score} compact />
@@ -991,38 +996,4 @@ function Toast({
   );
 }
 
-function StatusChip({
-  status,
-  label,
-}: {
-  status: string | null;
-  label: string | null;
-}) {
-  if (!status) return <span className="text-xs text-muted-foreground">—</span>;
-  let tone = "border-border/60 bg-background/60 text-foreground";
-  if (status === "joined") {
-    tone = "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  } else if (status === "rejected") {
-    tone = "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-  } else if (status === "blacklisted") {
-    tone = "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300";
-  } else if (
-    [
-      "shortlisted",
-      "first_interview",
-      "technical_interview",
-      "final_interview",
-      "selected",
-      "offer_sent",
-    ].includes(status)
-  ) {
-    tone = "border-primary/30 bg-primary/10 text-primary";
-  }
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone}`}
-    >
-      {label ?? status}
-    </span>
-  );
-}
+// StatusChip was replaced by the shared <StatusBadge kind="application">.
