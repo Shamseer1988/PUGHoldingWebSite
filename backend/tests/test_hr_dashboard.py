@@ -277,3 +277,98 @@ def test_pending_interviews_excludes_past_and_other_statuses(
     body = client.get(DASHBOARD, headers=headers).json()
     rounds = [i["round_name"] for i in body["pending_interviews"]]
     assert rounds == ["Future"]
+
+
+# ---------------------------------------------------------------------------
+# Stage counts — clickable KPI cards (HR restructure Phase 4)
+# ---------------------------------------------------------------------------
+
+STAGE_COUNTS = "/api/v1/hr/dashboard/stage-counts"
+
+
+def test_stage_counts_requires_hr_scope(client, seed_auth):
+    response = client.post(
+        ADMIN_LOGIN,
+        json={"email": "webadmin@pug.example.com", "password": seed_auth["password"]},
+    )
+    admin_token = response.json()["access_token"]
+    rejected = client.get(
+        STAGE_COUNTS, headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert rejected.status_code == 403
+
+
+def test_stage_counts_requires_authentication(client, seed_auth):
+    assert client.get(STAGE_COUNTS).status_code == 401
+
+
+def test_stage_counts_zero_filled_on_empty_db(client, seed_auth):
+    from app.models.hr_ats import APPLICATION_STATUSES, OFFER_STATUSES
+
+    headers = _hr_auth(client, seed_auth["password"])
+    body = client.get(STAGE_COUNTS, headers=headers).json()
+
+    # Every taxonomy key is present and zero — the cards stay stable.
+    assert set(body["application"]) == set(APPLICATION_STATUSES)
+    assert all(v == 0 for v in body["application"].values())
+    assert set(body["offer_status"]) == set(OFFER_STATUSES)
+    assert all(v == 0 for v in body["offer_status"].values())
+    assert body["offer_joining"] == {
+        "pending": 0,
+        "joined": 0,
+        "not_joined": 0,
+    }
+    assert body["joining_this_month"] == 0
+
+
+def test_stage_counts_aggregates_applications_and_offers(
+    client, seed_auth, db_session: Session
+):
+    from datetime import date
+
+    from app.models.hr_ats import (
+        OFFER_ACCEPTED,
+        OFFER_JOINING_PENDING,
+        STATUS_SELECTED,
+    )
+
+    job = JobOpening(
+        slug="ops-lead",
+        title="Operations Lead",
+        department="Operations",
+        company="PUG",
+        location="Doha",
+        status=JOB_STATUS_OPEN,
+    )
+    candidate = Candidate(full_name="Selected One", email="sel@example.com")
+    db_session.add_all([job, candidate])
+    db_session.flush()
+
+    app = CandidateJobApplication(
+        candidate_id=candidate.id,
+        job_opening_id=job.id,
+        status=STATUS_SELECTED,
+    )
+    db_session.add(app)
+    db_session.flush()
+
+    # Accepted offer joining this month → counts in offer_status,
+    # offer_joining and joining_this_month.
+    db_session.add(
+        OfferTracking(
+            application_id=app.id,
+            status=OFFER_ACCEPTED,
+            joining_status=OFFER_JOINING_PENDING,
+            joining_date=date.today(),
+        )
+    )
+    db_session.commit()
+
+    headers = _hr_auth(client, seed_auth["password"])
+    body = client.get(STAGE_COUNTS, headers=headers).json()
+
+    assert body["application"]["selected"] == 1
+    assert body["application"]["cv_received"] == 0
+    assert body["offer_status"]["accepted"] == 1
+    assert body["offer_joining"]["pending"] == 1
+    assert body["joining_this_month"] == 1

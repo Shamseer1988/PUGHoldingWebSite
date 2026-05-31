@@ -219,6 +219,15 @@ export interface DashboardSummary {
   pending_offers: OfferSummary[];
 }
 
+// Per-status counts powering the clickable dashboard KPI cards.
+export interface StageCounts {
+  application: Record<string, number>;
+  offer_status: Record<string, number>;
+  offer_joining: Record<string, number>;
+  joining_this_month: number;
+  generated_at: string;
+}
+
 // Job openings -----------------------------------------------------------
 
 export type JobStatus = "open" | "on_hold" | "closed";

@@ -7,7 +7,7 @@ All routes require an HR-scoped bearer token.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -24,14 +24,21 @@ from app.models.auth import AuditLog, User
 from app.models.hr_ats import (
     AI_HIGHLY_RECOMMENDED,
     AI_RECOMMENDED,
+    APPLICATION_STATUSES,
     APPROVAL_STATUS_APPROVED,
     APPROVAL_STATUS_PENDING,
     INTERVIEW_COMPLETED,
     INTERVIEW_SCHEDULED,
     JOB_STATUS_OPEN,
+    OFFER_ACCEPTED,
     OFFER_DRAFT,
+    OFFER_JOINED,
+    OFFER_JOINING_JOINED,
+    OFFER_JOINING_NOT_JOINED,
+    OFFER_JOINING_PENDING,
     OFFER_PENDING_APPROVAL,
     OFFER_SENT,
+    OFFER_STATUSES,
     PUBLISH_STATUS_PUBLISHED,
     SOURCE_BULK_UPLOAD,
     SOURCE_MANUAL_UPLOAD,
@@ -66,6 +73,7 @@ from app.schemas.hr_dashboard import (
     OfferSummary,
     RecruitmentAnalytics,
     SourceMetric,
+    StageCountsResponse,
     StatItem,
     TimeToHireBySource,
     TimeToHireSummary,
@@ -92,6 +100,79 @@ FUNNEL_STAGES: List[tuple[str, str]] = [
     (STATUS_OFFER_SENT, "Offer sent"),
     (STATUS_JOINED, "Joined"),
 ]
+
+
+@router.get("/dashboard/stage-counts", response_model=StageCountsResponse)
+def stage_counts(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission(PERM_HR_DASHBOARD_VIEW)),
+) -> StageCountsResponse:
+    """Per-status counts that drive the clickable dashboard KPI cards.
+
+    Every application + offer status is zero-filled so the frontend can
+    render a stable set of cards (and deep-link each to its filtered
+    list) even on a fresh database.
+    """
+    now = datetime.now(timezone.utc)
+    month_start = date(now.year, now.month, 1)
+    next_month = (
+        date(now.year + 1, 1, 1)
+        if now.month == 12
+        else date(now.year, now.month + 1, 1)
+    )
+
+    application = {status: 0 for status in APPLICATION_STATUSES}
+    for status, total in db.execute(
+        select(CandidateJobApplication.status, func.count()).group_by(
+            CandidateJobApplication.status
+        )
+    ).all():
+        if status in application:
+            application[status] = total
+
+    offer_status = {status: 0 for status in OFFER_STATUSES}
+    for status, total in db.execute(
+        select(OfferTracking.status, func.count()).group_by(OfferTracking.status)
+    ).all():
+        if status in offer_status:
+            offer_status[status] = total
+
+    offer_joining = {
+        OFFER_JOINING_PENDING: 0,
+        OFFER_JOINING_JOINED: 0,
+        OFFER_JOINING_NOT_JOINED: 0,
+    }
+    for status, total in db.execute(
+        select(OfferTracking.joining_status, func.count())
+        .where(OfferTracking.joining_status.is_not(None))
+        .group_by(OfferTracking.joining_status)
+    ).all():
+        if status in offer_joining:
+            offer_joining[status] = total
+
+    # Offers whose joining date lands in the current calendar month and
+    # are still on track (accepted/awaiting-join or already joined).
+    joining_this_month = (
+        db.execute(
+            select(func.count())
+            .select_from(OfferTracking)
+            .where(
+                OfferTracking.joining_date.is_not(None),
+                OfferTracking.joining_date >= month_start,
+                OfferTracking.joining_date < next_month,
+                OfferTracking.status.in_([OFFER_ACCEPTED, OFFER_JOINED]),
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    return StageCountsResponse(
+        application=application,
+        offer_status=offer_status,
+        offer_joining=offer_joining,
+        joining_this_month=joining_this_month,
+        generated_at=now,
+    )
 
 
 @router.get("/dashboard", response_model=DashboardSummary)
