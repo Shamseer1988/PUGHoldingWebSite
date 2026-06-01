@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
-import { env } from "@/lib/env";
+import { shortUrlFor } from "@/lib/short-url";
 import { cn } from "@/lib/utils";
 
 interface ShortUrlRead {
@@ -49,17 +49,6 @@ interface ShortUrlListResponse {
 }
 
 const BASE = "/admin/marketing/short-urls";
-
-function shortUrlFor(slug: string): string {
-  // Browser-side: use the current origin so the URL works on any
-  // domain the admin happens to be logged into. Falls back to
-  // ``env.siteUrl`` during SSR (which doesn't actually render this
-  // client component, but keeps the helper safe to call anywhere).
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/go/${slug}`;
-  }
-  return `${env.siteUrl}/go/${slug}`;
-}
 
 export default function UrlShortenerPage() {
   const [rows, setRows] = React.useState<ShortUrlRead[] | null>(null);
@@ -132,7 +121,7 @@ export default function UrlShortenerPage() {
   return (
     <AdminShell
       title="URL Shortener"
-      description="Branded short links served from /go/{slug}. Click counts update live; disable a link to break it without losing history."
+      description="Branded short links served from pug.qa/go/{slug}. Click counts update live; disable a link to break it without losing history."
       actions={
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="h-4 w-4" />

@@ -20,7 +20,7 @@ The endpoint:
 Nginx routes everything outside ``/api/`` to the Next.js frontend,
 and ``next.config.mjs`` has a rewrite that proxies ``/go/{slug}`` to
 this endpoint, so the public-facing URL is the bare
-``https://parisunitedgroup.com/go/{slug}`` — no ``/api/v1/`` prefix
+``https://pug.qa/go/{slug}`` — no ``/api/v1/`` prefix
 leaking through.
 """
 from __future__ import annotations
