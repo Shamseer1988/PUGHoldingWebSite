@@ -1145,6 +1145,21 @@ AI_MODE_MOCK = "mock"
 AI_MODE_LIVE = "live"
 AI_MODES = (AI_MODE_DISABLED, AI_MODE_MOCK, AI_MODE_LIVE)
 
+# Provider values: which backend serves "live" chat. "azure" → Azure
+# OpenAI (the historic default); "openai_compatible" → any server that
+# speaks the OpenAI REST API (vLLM, LM Studio, Together, OpenAI direct);
+# "ollama" → a local Ollama daemon (also OpenAI-compatible, just with a
+# sensible default base URL). When the column is NULL the resolver
+# falls back to the ``AI_PROVIDER`` env var and finally to ``azure``.
+AI_PROVIDER_AZURE = "azure"
+AI_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
+AI_PROVIDER_OLLAMA = "ollama"
+AI_PROVIDERS = (
+    AI_PROVIDER_AZURE,
+    AI_PROVIDER_OPENAI_COMPATIBLE,
+    AI_PROVIDER_OLLAMA,
+)
+
 
 class AISetting(Base, TimestampMixin):
     """Runtime-tunable AI settings.
@@ -1164,9 +1179,19 @@ class AISetting(Base, TimestampMixin):
         default=AI_MODE_DISABLED,
         server_default=AI_MODE_DISABLED,
     )
+    # Which provider serves "live" chat. NULL → fall back to the
+    # ``AI_PROVIDER`` env var, then ``azure``. See the AI_PROVIDER_*
+    # constants above.
+    provider: Mapped[Optional[str]] = mapped_column(String(32))
     azure_endpoint: Mapped[Optional[str]] = mapped_column(String(500))
     azure_deployment: Mapped[Optional[str]] = mapped_column(String(120))
     azure_api_version: Mapped[Optional[str]] = mapped_column(String(40))
+    # Base URL for OpenAI-compatible / Ollama providers (ignored for
+    # Azure, which uses ``azure_endpoint`` + ``azure_deployment``).
+    # NULL → fall back to the ``AI_BASE_URL`` env var (and a localhost
+    # default for Ollama). The API key for these providers always
+    # lives in ``AI_API_KEY`` in .env — never in the database.
+    base_url: Mapped[Optional[str]] = mapped_column(String(500))
     # Free-form model name written to the audit record / displayed in the
     # UI. For Azure this is usually the deployment name; we keep it
     # separate so it stays human-readable even when deployments change.

@@ -1,7 +1,7 @@
 """Tests for the Phase 17 public Ask-PUG-AI assistant."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +17,7 @@ from app.models.hr_ats import (
     JobOpening,
     PublicAIQuery,
 )
+from app.models.marketing import OfferCampaign
 
 
 ASK = "/api/v1/public/ai-assistant/ask"
@@ -198,6 +199,102 @@ def test_mock_leadership_question(client, db_session):
 
 
 # ---------------------------------------------------------------------------
+# Offers awareness — the assistant answers marketing/offers questions
+# ---------------------------------------------------------------------------
+
+
+def _seed_offer(
+    db: Session,
+    *,
+    slug: str = "eid-mega",
+    title: str = "Eid Mega Sale",
+    branch: str = "Lusail",
+    is_active: bool = True,
+    is_killer_offer: bool = True,
+    is_featured: bool = False,
+    is_flash_sale: bool = False,
+    start_date=None,
+    end_date=None,
+) -> OfferCampaign:
+    camp = OfferCampaign(
+        slug=slug,
+        title=title,
+        branch=branch,
+        description="Up to 50% off across groceries.",
+        is_active=is_active,
+        is_killer_offer=is_killer_offer,
+        is_featured=is_featured,
+        is_flash_sale=is_flash_sale,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    db.add(camp)
+    db.commit()
+    return camp
+
+
+def test_mock_killer_offers_question(client, db_session):
+    _seed_public_content(db_session)
+    _seed_offer(
+        db_session, title="Eid Mega Sale", branch="Lusail", is_killer_offer=True
+    )
+    _set_mode(db_session, mode=AI_MODE_MOCK)
+    body = client.post(
+        ASK, json={"question": "Any killer offers running?"}
+    ).json()
+    assert body["mode"] == AI_MODE_MOCK
+    assert body["was_fallback"] is False
+    assert "Eid Mega Sale" in body["answer"]
+    assert "Killer offer" in body["answer"]
+    assert "Lusail" in body["answer"]
+
+
+def test_mock_offers_question_when_none(client, db_session):
+    _seed_public_content(db_session)
+    _set_mode(db_session, mode=AI_MODE_MOCK)
+    body = client.post(
+        ASK, json={"question": "Any offers or deals on right now?"}
+    ).json()
+    assert "no offers running" in body["answer"].lower()
+
+
+def test_public_context_includes_only_running_offers(db_session):
+    """``load_public_context`` exposes active, started, non-expired
+    campaigns only — drafts (inactive), expired, and not-yet-started
+    promos stay out so the assistant never advertises a dead offer."""
+    from app.ai.public_assistant import load_public_context
+
+    today = date.today()
+    _seed_offer(db_session, slug="running", title="Running Now", is_active=True)
+    _seed_offer(db_session, slug="hidden", title="Hidden Promo", is_active=False)
+    _seed_offer(
+        db_session,
+        slug="expired",
+        title="Old Promo",
+        is_active=True,
+        end_date=today - timedelta(days=1),
+    )
+    _seed_offer(
+        db_session,
+        slug="future",
+        title="Future Promo",
+        is_active=True,
+        start_date=today + timedelta(days=5),
+    )
+
+    ctx = load_public_context(db_session)
+    titles = [o["title"] for o in ctx.offers]
+    assert "Running Now" in titles
+    assert "Hidden Promo" not in titles
+    assert "Old Promo" not in titles
+    assert "Future Promo" not in titles
+    # The running offer carries the marketing flags + a public URL.
+    running = next(o for o in ctx.offers if o["title"] == "Running Now")
+    assert running["url"] == "/offers/running"
+    assert running["is_killer_offer"] is True
+
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
@@ -318,6 +415,36 @@ def test_admin_can_disable_public_ai(client, db_session, seed_auth):
     body = response.json()
     assert body["public_enabled"] is False
     assert "2026 promotions" in body["public_extra_system_prompt"]
+
+
+def test_admin_can_set_openai_compatible_provider(client, db_session, seed_auth):
+    _set_mode(db_session, mode=AI_MODE_MOCK)
+    headers = _admin_auth(client, seed_auth["password"])
+    response = client.patch(
+        AI_SETTINGS,
+        headers=headers,
+        json={
+            "provider": "openai_compatible",
+            "base_url": "http://localhost:8001/v1",
+            "model_name": "llama3.1",
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["provider"] == "openai_compatible"
+    assert body["base_url"] == "http://localhost:8001/v1"
+    assert body["effective_provider"] == "openai_compatible"
+    # openai_compatible servers often run keyless → info, not a hard fail.
+    assert body["requires_api_key"] is False
+
+
+def test_admin_rejects_unknown_provider(client, db_session, seed_auth):
+    _set_mode(db_session, mode=AI_MODE_MOCK)
+    headers = _admin_auth(client, seed_auth["password"])
+    response = client.patch(
+        AI_SETTINGS, headers=headers, json={"provider": "anthropic"}
+    )
+    assert response.status_code == 422
 
 
 def test_admin_public_logs_returns_recent(client, db_session, seed_auth):

@@ -86,6 +86,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    # Reach host-run AI servers from inside the container: a local
+    # Ollama or OpenAI-compatible server (vLLM / LM Studio) listening
+    # on the host is addressable as ``host.docker.internal``. Point
+    # AI_BASE_URL / AI_EMBEDDING_BASE_URL at e.g.
+    # ``http://host.docker.internal:11434/v1`` (Ollama).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # The operator's per-machine secrets (SMTP, AI keys, DB creds,
     # etc.) live in backend/.env — the same file the postgres
     # service loads above, so initdb and the app agree on
@@ -133,6 +140,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    # Same as the backend service — reach a host-run Ollama / local
+    # OpenAI-compatible server for embeddings via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - path: ./backend/.env
         required: false

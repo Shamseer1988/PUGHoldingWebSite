@@ -19,7 +19,14 @@ from app.auth.dependencies import get_request_context, require_scope
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.auth import SCOPE_SYSTEM, User
-from app.models.hr_ats import AI_MODES, AISetting, PublicAIQuery
+from app.models.hr_ats import (
+    AI_MODES,
+    AI_PROVIDER_AZURE,
+    AI_PROVIDER_OPENAI_COMPATIBLE,
+    AI_PROVIDERS,
+    AISetting,
+    PublicAIQuery,
+)
 from app.schemas.hr_ats import (
     AISettingsRead,
     AISettingsUpdate,
@@ -44,15 +51,33 @@ def _get_or_create_settings(db: Session) -> AISetting:
     return setting
 
 
+def _provider_key_state(provider: str, env) -> tuple[bool, bool]:
+    """Return ``(has_api_key, requires_api_key)`` for the effective
+    provider so the UI can warn precisely. Azure requires its key;
+    openai_compatible / ollama commonly run keyless, so a missing key
+    is informational, not an error."""
+    if provider == AI_PROVIDER_AZURE:
+        return bool(env.azure_openai_api_key), True
+    if provider == AI_PROVIDER_OPENAI_COMPATIBLE:
+        # A key may be needed (cloud) or not (local) — surface presence
+        # but don't hard-require it.
+        return bool(env.ai_api_key), False
+    # ollama — no key needed.
+    return True, False
+
+
 def _to_read(setting: AISetting) -> AISettingsRead:
     env = get_settings()
     resolved = resolve_config(setting)
+    has_api_key, requires_api_key = _provider_key_state(resolved.provider, env)
     return AISettingsRead(
         id=setting.id,
         mode=setting.mode,
+        provider=setting.provider,
         azure_endpoint=setting.azure_endpoint,
         azure_deployment=setting.azure_deployment,
         azure_api_version=setting.azure_api_version,
+        base_url=setting.base_url,
         model_name=setting.model_name,
         temperature=setting.temperature,
         max_output_tokens=setting.max_output_tokens,
@@ -62,6 +87,9 @@ def _to_read(setting: AISetting) -> AISettingsRead:
         updated_at=setting.updated_at,
         has_azure_api_key=bool(env.azure_openai_api_key),
         effective_mode=resolved.mode,
+        effective_provider=resolved.provider,
+        has_api_key=has_api_key,
+        requires_api_key=requires_api_key,
         public_enabled=setting.public_enabled,
         public_extra_system_prompt=setting.public_extra_system_prompt,
     )
@@ -94,6 +122,16 @@ def update_ai_settings(
 
     if "mode" in updates and updates["mode"] not in AI_MODES:
         raise HTTPException(status_code=422, detail=f"Unknown AI mode: {updates['mode']!r}")
+
+    if (
+        "provider" in updates
+        and updates["provider"] is not None
+        and updates["provider"] not in AI_PROVIDERS
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown AI provider: {updates['provider']!r}",
+        )
 
     if changed:
         setting.updated_by_id = user.id

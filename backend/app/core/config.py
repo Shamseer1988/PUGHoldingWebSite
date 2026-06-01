@@ -142,6 +142,31 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = Field(default="2024-08-01-preview")
     ai_enabled: bool = Field(default=False)
 
+    # --- AI provider selection (multi-provider chat) ---
+    # Fallbacks used when the DB ``AISetting`` row leaves provider /
+    # base_url / model blank. They let an operator point chat at a
+    # local OpenAI-compatible server (vLLM, LM Studio) or Ollama
+    # without a DB write. The chat API key for non-Azure providers
+    # lives here — never in the DB — mirroring how the Azure key is
+    # handled. ``ai_provider`` is one of: azure | openai_compatible |
+    # ollama. When unset, chat resolves to ``azure`` so existing
+    # installs are unchanged.
+    ai_provider: Optional[str] = Field(default=None)
+    ai_base_url: Optional[str] = Field(default=None)
+    ai_api_key: Optional[str] = Field(default=None)
+    ai_model: Optional[str] = Field(default=None)
+
+    # --- AI embeddings (independent of chat) ---
+    # Semantic search runs from worker contexts that never open an
+    # ``AISetting`` row, so its provider is chosen purely from env and
+    # is decoupled from the chat provider above (you can chat on a
+    # cloud model while embedding on a local one, or vice-versa).
+    # Defaults to ``azure`` to preserve the existing behaviour.
+    ai_embedding_provider: str = Field(default="azure")
+    ai_embedding_base_url: Optional[str] = Field(default=None)
+    ai_embedding_api_key: Optional[str] = Field(default=None)
+    ai_embedding_model: Optional[str] = Field(default=None)
+
     # --- Email (placeholders) ---
     smtp_host: Optional[str] = Field(default=None)
     smtp_port: int = Field(default=587)
