@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PUG Holding Website — Operations Runbook</title>
+<style>
+  :root{
+    --navy:#0f2440; --navy-2:#163255; --accent:#3b82f6; --accent-2:#22c55e;
+    --bg:#f5f7fb; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --border:#e5e9f0; --code-bg:#0f1b2d; --code-ink:#e6edf6;
+    --warn-bg:#fff7ed; --warn-bd:#fdba74; --warn-ink:#9a3412;
+    --danger-bg:#fef2f2; --danger-bd:#fca5a5; --danger-ink:#991b1b;
+    --ok-bg:#ecfdf5; --ok-bd:#86efac; --ok-ink:#065f46;
+    --info-bg:#eff6ff; --info-bd:#93c5fd; --info-ink:#1e40af;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace}
+
+  /* layout */
+  .wrap{display:flex; max-width:1280px; margin:0 auto; gap:28px; padding:0 20px}
+  .sidebar{
+    width:264px; flex:none; position:sticky; top:0; align-self:flex-start;
+    height:100vh; overflow:auto; padding:22px 8px 40px 0; border-right:1px solid var(--border);
+  }
+  .content{flex:1; min-width:0; padding:30px 4px 120px}
+  @media (max-width:900px){
+    .wrap{flex-direction:column}
+    .sidebar{position:static; height:auto; width:auto; border-right:none; border-bottom:1px solid var(--border)}
+  }
+
+  /* header */
+  header.hero{
+    background:linear-gradient(135deg,var(--navy),var(--navy-2)); color:#fff;
+    padding:34px 0 30px; margin-bottom:0; border-bottom:4px solid var(--accent);
+  }
+  header.hero .inner{max-width:1280px; margin:0 auto; padding:0 20px}
+  header.hero h1{margin:0 0 6px; font-size:26px; letter-spacing:.2px}
+  header.hero p{margin:0; color:#c8d6ea; font-size:14.5px}
+  .pill{display:inline-block; font-size:11px; font-weight:700; letter-spacing:.6px;
+    background:rgba(255,255,255,.14); color:#dbe7f7; padding:3px 9px; border-radius:999px; margin-right:6px}
+
+  /* sidebar nav */
+  .sidebar h4{margin:18px 0 6px 14px; font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase}
+  .sidebar a{display:block; padding:5px 14px; color:#374151; border-radius:7px; font-size:13.5px}
+  .sidebar a:hover{background:#eef2f8; text-decoration:none}
+  .sidebar a.active{background:var(--navy); color:#fff}
+
+  /* sections */
+  section{margin:0 0 46px; scroll-margin-top:14px}
+  h2{font-size:21px; margin:6px 0 4px; padding-bottom:8px; border-bottom:2px solid var(--border); color:var(--navy)}
+  h3{font-size:16.5px; margin:26px 0 6px; color:var(--navy-2)}
+  h4{font-size:14px; margin:18px 0 4px; color:#334155}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0 8px; padding-left:22px}
+  li{margin:3px 0}
+
+  /* badges */
+  .tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.5px;
+    padding:2px 8px; border-radius:5px; vertical-align:middle; margin-left:8px}
+  .t-local{background:#e0f2fe; color:#075985}
+  .t-prod{background:#fae8ff; color:#86198f}
+  .t-docker{background:#e0e7ff; color:#3730a3}
+  .t-systemd{background:#dcfce7; color:#166534}
+  .t-any{background:#f1f5f9; color:#334155}
+
+  /* code blocks */
+  .cmd{position:relative; margin:10px 0 4px}
+  .cmd pre{
+    background:var(--code-bg); color:var(--code-ink); margin:0; padding:14px 46px 14px 16px;
+    border-radius:10px; overflow:auto; font-size:13px; line-height:1.6;
+    border:1px solid #1e2d44;
+  }
+  .cmd pre code{white-space:pre}
+  .cmd .copy{
+    position:absolute; top:8px; right:8px; background:#22344f; color:#cbd5e1; border:1px solid #34507a;
+    border-radius:7px; font-size:11px; padding:4px 9px; cursor:pointer; transition:.15s;
+  }
+  .cmd .copy:hover{background:#33507c; color:#fff}
+  .cmd .copy.done{background:var(--accent-2); color:#053; border-color:var(--accent-2)}
+  .desc{font-size:13.5px; color:var(--muted); margin:2px 0 0}
+  .desc b{color:#374151}
+
+  /* callouts */
+  .note{border-radius:10px; padding:11px 14px; margin:14px 0; font-size:13.7px; border:1px solid}
+  .note .ico{font-weight:700; margin-right:6px}
+  .note.info{background:var(--info-bg); border-color:var(--info-bd); color:var(--info-ink)}
+  .note.warn{background:var(--warn-bg); border-color:var(--warn-bd); color:var(--warn-ink)}
+  .note.danger{background:var(--danger-bg); border-color:var(--danger-bd); color:var(--danger-ink)}
+  .note.ok{background:var(--ok-bg); border-color:var(--ok-bd); color:var(--ok-ink)}
+  .note code{background:rgba(0,0,0,.06); padding:1px 5px; border-radius:4px}
+
+  /* tables */
+  table{border-collapse:collapse; width:100%; margin:12px 0; font-size:13.5px; background:var(--card)}
+  th,td{border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top}
+  th{background:#eef2f8; color:var(--navy); font-weight:600}
+  td code{background:#f1f5f9; padding:1px 5px; border-radius:4px}
+
+  /* inline cards */
+  .card{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:14px 0}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:12px 0}
+  .grid .card{margin:0}
+  .kbd{background:#f1f5f9; border:1px solid #cbd5e1; border-bottom-width:2px; border-radius:5px; padding:1px 6px; font-size:12px; font-family:monospace}
+  .step{display:inline-block; width:22px; height:22px; line-height:22px; text-align:center; background:var(--navy);
+    color:#fff; border-radius:50%; font-size:12px; font-weight:700; margin-right:8px}
+  footer{max-width:1280px; margin:0 auto; padding:24px 20px 60px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--border)}
+  .toc-top{font-size:12px; color:var(--muted); margin-top:4px}
+  .legend span{margin-right:12px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <div><span class="pill">PARIS UNITED GROUP</span><span class="pill">OPERATIONS RUNBOOK</span></div>
+    <h1>PUG Holding Website — Setup, Run, Backup, Restore &amp; Update</h1>
+    <p>Copy-paste command reference for the Next.js&nbsp;14 + FastAPI monorepo. Covers local development and live production (Docker&nbsp;Compose <em>and</em> bare-metal systemd&nbsp;+&nbsp;Nginx).</p>
+    <p class="legend" style="margin-top:10px">
+      <span class="tag t-local">LOCAL</span>
+      <span class="tag t-prod">PRODUCTION</span>
+      <span class="tag t-docker">DOCKER</span>
+      <span class="tag t-systemd">SYSTEMD</span>
+      <span class="tag t-any">ANY</span>
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="sidebar" id="toc">
+    <h4>Start here</h4>
+    <a href="#overview">Overview &amp; architecture</a>
+    <a href="#ports">Services &amp; ports</a>
+    <a href="#prereqs">Prerequisites</a>
+    <h4>Local development</h4>
+    <a href="#local-docker">Local · Docker (recommended)</a>
+    <a href="#local-manual">Local · Manual (venv + npm)</a>
+    <a href="#local-ops">Local · Common operations</a>
+    <h4>Live production</h4>
+    <a href="#prod-docker">Production · Docker Compose</a>
+    <a href="#prod-systemd">Production · systemd + Nginx</a>
+    <h4>Day-2 operations</h4>
+    <a href="#update">Update after code changes</a>
+    <a href="#backup">Backup</a>
+    <a href="#restore">Restore</a>
+    <a href="#logs">Logs &amp; health</a>
+    <a href="#rollback">Rollback</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </nav>
+
+  <main class="content">
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section id="overview">
+    <h2>Overview &amp; architecture</h2>
+    <p>This repository is a monorepo with three deployable concerns:</p>
+    <ul>
+      <li><b>frontend/</b> — Next.js 14 (App Router), TypeScript, Tailwind. Serves the public website, the Admin console, and the HR ATS portal.</li>
+      <li><b>backend/</b> — FastAPI + SQLAlchemy 2 + PostgreSQL, Alembic migrations, an optional ARQ background worker, Redis for cache/queue.</li>
+      <li><b>deploy/</b> — Nginx, systemd units, logrotate and the daily <code>pg_backup.sh</code> for the bare-metal production host.</li>
+    </ul>
+    <p>There are <b>two supported production shapes</b>; pick one and stick with it:</p>
+    <div class="grid">
+      <div class="card">
+        <h4 style="margin-top:0">A · Docker Compose <span class="tag t-docker">DOCKER</span></h4>
+        <p style="margin:0">One file (<code>docker-compose.prod.yml</code>) brings up Postgres, Redis, the backend (gunicorn), the frontend (<code>next start</code>) and an Nginx container that terminates TLS. Easiest to reproduce.</p>
+      </div>
+      <div class="card">
+        <h4 style="margin-top:0">B · systemd + Nginx <span class="tag t-systemd">SYSTEMD</span></h4>
+        <p style="margin:0">The app runs as native systemd services (<code>pugweb-backend</code>, <code>pugweb-frontend</code>) behind the host's Nginx. This is what <code>deploy/</code> and <code>docs/deployment-guide.md</code> describe for the shared EC2 host (<code>parisunitedgroup.com</code>).</p>
+      </div>
+    </div>
+    <div class="note info"><span class="ico">ℹ︎</span>Throughout this doc, replace <code>pug_user</code> / <code>pug_holding</code> with your actual values from <code>backend/.env</code> if you changed them. Production hostnames assume <code>parisunitedgroup.com</code> — change to match your domain.</div>
+  </section>
+
+  <!-- ===================== PORTS ===================== -->
+  <section id="ports">
+    <h2>Services &amp; ports</h2>
+    <table>
+      <tr><th>Service</th><th>Port</th><th>Local exposed?</th><th>Prod (Docker)</th><th>Prod (systemd)</th></tr>
+      <tr><td>Frontend (Next.js)</td><td><code>3000</code></td><td>Yes — <a href="http://localhost:3000">localhost:3000</a></td><td>Internal only (behind Nginx)</td><td><code>127.0.0.1:3000</code> (behind Nginx)</td></tr>
+      <tr><td>Backend (FastAPI)</td><td><code>8000</code></td><td>Yes — <a href="http://localhost:8000/docs">localhost:8000</a></td><td>Internal only (behind Nginx)</td><td><code>127.0.0.1:8000</code> (behind Nginx)</td></tr>
+      <tr><td>PostgreSQL</td><td><code>5432</code></td><td>Yes (dev convenience)</td><td>Internal only (no host port)</td><td>Host PostgreSQL, localhost</td></tr>
+      <tr><td>Redis</td><td><code>6379</code></td><td>Yes</td><td>Internal only</td><td>Host Redis / internal</td></tr>
+      <tr><td>Nginx (TLS)</td><td><code>80 / 443</code></td><td>—</td><td>Mapped to host</td><td>Host Nginx</td></tr>
+    </table>
+    <p class="desc">In production both apps are reachable <b>only</b> through Nginx; Postgres/Redis are never published to the internet.</p>
+  </section>
+
+  <!-- ===================== PREREQS ===================== -->
+  <section id="prereqs">
+    <h2>Prerequisites</h2>
+    <h3>For the Docker path <span class="tag t-docker">DOCKER</span></h3>
+    <ul>
+      <li>Docker Engine 24+ and the Docker Compose v2 plugin (<code>docker compose</code>, not the old <code>docker-compose</code>).</li>
+    </ul>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker --version
+docker compose version</code></pre></div>
+
+    <h3>For the manual / systemd path <span class="tag t-systemd">SYSTEMD</span></h3>
+    <table>
+      <tr><th>Tool</th><th>Version</th><th>Notes</th></tr>
+      <tr><td>Python</td><td>3.11–3.12</td><td>3.13/3.14 not supported (wheel availability). Docker image pins 3.11.</td></tr>
+      <tr><td>Node.js</td><td>18.18+ (20 LTS recommended)</td><td>Frontend build &amp; <code>next start</code>.</td></tr>
+      <tr><td>npm</td><td>9+</td><td>Use <code>npm ci</code> in CI/prod.</td></tr>
+      <tr><td>PostgreSQL</td><td>14+ (17 in Docker)</td><td><code>pg_dump</code>/<code>pg_restore</code> client must be ≥ server.</td></tr>
+      <tr><td>Redis</td><td>7</td><td>Cache + ARQ queue.</td></tr>
+    </table>
+  </section>
+
+  <!-- ===================== LOCAL DOCKER ===================== -->
+  <section id="local-docker">
+    <h2>Local · Docker (recommended) <span class="tag t-local">LOCAL</span><span class="tag t-docker">DOCKER</span></h2>
+    <p>One command boots the whole stack with hot-reload on both apps. The backend runs <code>alembic upgrade head</code> automatically on every start.</p>
+
+    <h3><span class="step">1</span>One-time: create env files</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local</code></pre></div>
+    <p class="desc"><b>What:</b> seeds the two env files. The compose file supplies sensible dev defaults (DB creds, <code>SECRET_KEY</code>), so you can leave everything blank and it still boots. Fill in <code>AI_*</code>, <code>SMTP_*</code>, <code>R2_*</code> only when you need those features.</p>
+
+    <h3><span class="step">2</span>Build the images (first time / after Dockerfile or dependency changes)</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose build</code></pre></div>
+    <p class="desc"><b>What:</b> builds the backend &amp; frontend images. First build takes a few minutes; later builds reuse cached pip/npm layers.</p>
+
+    <h3><span class="step">3</span>Bring the stack up</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose up -d            # start postgres + redis + backend + frontend
+docker compose ps               # confirm every service is healthy
+docker compose logs -f backend  # tail the backend log (Ctrl-C to stop tailing)</code></pre></div>
+    <p class="desc"><b>When healthy:</b> Frontend → <a href="http://localhost:3000">localhost:3000</a> · API docs → <a href="http://localhost:8000/docs">localhost:8000/docs</a> · Postgres → <code>localhost:5432</code> (<code>pug_user</code> / <code>pug_password</code> / <code>pug_holding</code>).</p>
+
+    <h3><span class="step">4</span>Seed baseline data (first time)</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose exec backend python -m app.scripts.seed_users   # roles, permissions, admin users
+docker compose exec backend python -m app.scripts.seed_cms     # hero slides, companies, news, settings
+docker compose exec backend python -m app.scripts.seed_hr      # HR roles + sample job openings</code></pre></div>
+    <p class="desc"><b>What:</b> idempotent seeders — safe to re-run; they update roles/content but never overwrite a user's password. Default seed login: <code>superadmin@pug.example.com</code> / <code>ChangeMe!123</code> (change immediately outside dev).</p>
+
+    <h3>Optional: background worker (ARQ)</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose --profile worker up -d worker</code></pre></div>
+    <p class="desc"><b>What:</b> the worker is behind a compose <em>profile</em>, so a plain <code>up</code> doesn't start it. Use this when testing queued jobs (embeddings, bulk processing).</p>
+
+    <h3>Stop / tear down</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose down       # stop &amp; remove containers — KEEPS postgres/redis data
+docker compose down -v    # also DELETE the volumes (fresh empty DB next boot)</code></pre></div>
+    <div class="note danger"><span class="ico">⚠</span><b><code>down -v</code> is destructive.</b> It drops the <code>postgres_data</code> and <code>redis_data</code> volumes — every local row is gone. Use plain <code>down</code> for a normal stop.</div>
+  </section>
+
+  <!-- ===================== LOCAL MANUAL ===================== -->
+  <section id="local-manual">
+    <h2>Local · Manual (venv + npm, no Docker) <span class="tag t-local">LOCAL</span></h2>
+    <p>Use this if you'd rather run Postgres natively and the apps directly on your machine.</p>
+
+    <h3><span class="step">1</span>Create the database</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo -u postgres psql -c "CREATE USER pug_user WITH PASSWORD 'pug_password';"
+sudo -u postgres psql -c "CREATE DATABASE pug_holding OWNER pug_user;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE pug_holding TO pug_user;"</code></pre></div>
+    <p class="desc"><b>What:</b> creates the role + database that match <code>backend/.env.example</code>. Adjust the password and keep it in sync with your <code>.env</code>.</p>
+
+    <h3><span class="step">2</span>Backend — venv, install, migrate, seed, run</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cd backend
+python -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                 # then edit DB creds / SECRET_KEY if needed
+
+.venv/bin/alembic upgrade head       # create/upgrade all tables
+python -m app.scripts.seed_users
+python -m app.scripts.seed_cms
+python -m app.scripts.seed_hr
+
+python run.py                        # serves on http://localhost:8000</code></pre></div>
+    <p class="desc"><b>Alternative run command</b> (explicit host/port, e.g. to expose on your LAN):</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload</code></pre></div>
+
+    <h3><span class="step">3</span>Frontend — install &amp; run (separate terminal)</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cd frontend
+npm install
+cp .env.example .env.local           # set NEXT_PUBLIC_API_BASE_URL if backend isn't on :8000
+npm run dev                          # http://localhost:3000  (binds 0.0.0.0)</code></pre></div>
+
+    <h3>Verify</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cd backend &amp;&amp; pytest -q            # backend tests
+cd frontend &amp;&amp; npm run type-check  # TS strict check
+cd frontend &amp;&amp; npm run lint         # eslint</code></pre></div>
+  </section>
+
+  <!-- ===================== LOCAL OPS ===================== -->
+  <section id="local-ops">
+    <h2>Local · Common operations <span class="tag t-local">LOCAL</span><span class="tag t-docker">DOCKER</span></h2>
+
+    <h3>Migrations</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose exec backend alembic upgrade head                       # apply pending migrations
+docker compose exec backend alembic revision --autogenerate -m "describe change"  # create a new one
+docker compose exec backend alembic current                            # show current revision
+docker compose exec backend alembic history                            # full migration history</code></pre></div>
+    <div class="note info"><span class="ico">ℹ︎</span>Migrations run automatically on every <code>docker compose up</code>, so pulling a branch with new migrations and re-running <code>up -d</code> is usually enough.</div>
+
+    <h3>Database &amp; shell access</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose exec postgres psql -U pug_user -d pug_holding   # open a psql session
+docker compose exec backend bash                               # shell inside the backend container</code></pre></div>
+
+    <h3>Tests &amp; checks</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose exec backend pytest -x -q          # backend tests (stop on first failure)
+docker compose exec frontend npm run type-check   # frontend TypeScript
+docker compose exec frontend npm run lint         # frontend lint
+docker compose exec frontend npm test             # frontend Vitest suite</code></pre></div>
+
+    <h3>Production-shaped image build (smoke test locally)</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker build --target runner -t pug-backend:prod  -f backend/Dockerfile .
+docker build --target runner -t pug-frontend:prod -f frontend/Dockerfile .</code></pre></div>
+  </section>
+
+  <!-- ===================== PROD DOCKER ===================== -->
+  <section id="prod-docker">
+    <h2>Production · Docker Compose <span class="tag t-prod">PRODUCTION</span><span class="tag t-docker">DOCKER</span></h2>
+    <p>Uses <code>docker-compose.prod.yml</code> — production Dockerfile targets, gunicorn with workers, no source bind-mounts, Postgres/Redis with no host ports, and an Nginx container terminating TLS.</p>
+
+    <h3><span class="step">1</span>One-time pre-flight on the host</h3>
+    <p><b>a) Generate a strong <code>SECRET_KEY</code></b> and put it in <code>backend/.env</code>:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre></div>
+    <p><b>b) <code>backend/.env</code> must contain at minimum:</b></p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>SECRET_KEY=&lt;the value generated above&gt;
+POSTGRES_USER=pug_user
+POSTGRES_PASSWORD=&lt;strong-random-password&gt;
+POSTGRES_DB=pug_holding
+PUBLIC_SITE_URL=https://parisunitedgroup.com
+CORS_ORIGINS=https://parisunitedgroup.com,https://www.parisunitedgroup.com
+# plus R2_*, AZURE_OPENAI_* / AI_*, SENTRY_DSN_BACKEND as you use them</code></pre></div>
+    <p><b>c) <code>frontend/.env.local</code> must contain:</b></p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>NEXT_PUBLIC_API_BASE_URL=https://parisunitedgroup.com/api/v1</code></pre></div>
+    <p><b>d) Drop the Cloudflare Origin Certificate</b> into <code>deploy/docker/tls/</code> as <code>origin.crt</code> + <code>origin.key</code>, then lock down the key:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>chmod 600 deploy/docker/tls/origin.key</code></pre></div>
+    <div class="note danger"><span class="ico">⚠</span>Never commit <code>backend/.env</code>, <code>frontend/.env.local</code>, or the TLS key. They are host-only secrets.</div>
+
+    <h3><span class="step">2</span>Bring it up</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml up -d --build</code></pre></div>
+    <p class="desc"><b>What:</b> builds the production images and starts Postgres, Redis, backend (gunicorn, 4 workers), frontend (<code>next start</code>) and Nginx (ports 80/443). The backend runs <code>alembic upgrade head</code> before gunicorn boots.</p>
+
+    <h3>Optional: background worker</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml --profile worker up -d</code></pre></div>
+
+    <h3>Logs / stop</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml logs -f          # all services
+docker compose -f docker-compose.prod.yml logs -f backend  # just the API
+docker compose -f docker-compose.prod.yml ps               # status + health
+docker compose -f docker-compose.prod.yml down             # stop (keeps data)</code></pre></div>
+    <div class="note danger"><span class="ico">⚠</span><code>docker compose -f docker-compose.prod.yml down -v</code> deletes the <b>production</b> database, redis and uploads volumes. Do not run it unless you intend to wipe everything.</div>
+  </section>
+
+  <!-- ===================== PROD SYSTEMD ===================== -->
+  <section id="prod-systemd">
+    <h2>Production · systemd + Nginx (bare-metal) <span class="tag t-prod">PRODUCTION</span><span class="tag t-systemd">SYSTEMD</span></h2>
+    <p>This is the shared-EC2 deployment described in <code>docs/deployment-guide.md</code>. App lives at <code>/home/parisgroup/PugWebSite</code> and runs as the <code>parisgroup</code> user. Full step-by-step (PostgreSQL hardening, Cloudflare DNS/Origin cert) is in that guide — below are the operational commands.</p>
+
+    <h3><span class="step">1</span>Backend — venv + install + migrate + seed</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo -iu parisgroup
+cd /home/parisgroup/PugWebSite/backend
+python3.11 -m venv .venv
+.venv/bin/pip install --upgrade pip wheel
+.venv/bin/pip install -r requirements.txt
+.venv/bin/alembic upgrade head
+.venv/bin/python -m app.scripts.seed_users
+.venv/bin/python -m app.scripts.seed_cms
+.venv/bin/python -m app.scripts.seed_hr</code></pre></div>
+
+    <h3><span class="step">2</span>Frontend — install + production build</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cd /home/parisgroup/PugWebSite/frontend
+npm ci
+npm run build</code></pre></div>
+
+    <h3><span class="step">3</span>Install the service units + Nginx site (one-time)</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo cp deploy/systemd/pugweb-backend.service  /etc/systemd/system/
+sudo cp deploy/systemd/pugweb-frontend.service /etc/systemd/system/
+sudo cp deploy/nginx/parisgroup.conf           /etc/nginx/sites-available/parisgroup
+sudo ln -s /etc/nginx/sites-available/parisgroup /etc/nginx/sites-enabled/
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now pugweb-backend pugweb-frontend
+sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code></pre></div>
+    <div class="note warn"><span class="ico">⚠</span>Do <b>not</b> touch the existing <code>pugaccounts.service</code> / <code>sites-available/pugaccounts</code> on the shared host — the PUG Accounts app must stay isolated.</div>
+
+    <h3>Service control &amp; status</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo systemctl status  pugweb-backend pugweb-frontend
+sudo systemctl restart pugweb-backend.service
+sudo systemctl restart pugweb-frontend.service
+sudo systemctl reload  nginx</code></pre></div>
+  </section>
+
+  <!-- ===================== UPDATE ===================== -->
+  <section id="update">
+    <h2>Update after code changes <span class="tag t-any">ALL TARGETS</span></h2>
+    <p>Pick the block that matches where you're updating.</p>
+
+    <h3>Local · Docker <span class="tag t-local">LOCAL</span><span class="tag t-docker">DOCKER</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>git pull
+docker compose up -d --build      # rebuild images + restart; migrations auto-run on boot</code></pre></div>
+    <p class="desc"><b>Only code changed (no deps)?</b> <code>docker compose restart backend frontend</code> is enough thanks to hot-reload bind-mounts. <b>Dependencies/Dockerfile changed?</b> use <code>--build</code> as shown.</p>
+
+    <h3>Local · Manual <span class="tag t-local">LOCAL</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>git pull
+
+# backend
+cd backend
+.venv/bin/pip install -r requirements.txt   # only if requirements.txt changed
+.venv/bin/alembic upgrade head              # apply any new migrations
+# restart: stop run.py / uvicorn (Ctrl-C) and start it again
+
+# frontend
+cd ../frontend
+npm install                                 # only if package.json changed
+# dev server hot-reloads automatically; nothing else to do</code></pre></div>
+
+    <h3>Production · Docker Compose <span class="tag t-prod">PRODUCTION</span><span class="tag t-docker">DOCKER</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cd /path/to/PUGHoldingWebSite
+git pull --ff-only origin main
+docker compose -f docker-compose.prod.yml up -d --build</code></pre></div>
+    <p class="desc"><b>What:</b> rebuilds the production images from the new code and recreates only the changed containers. Migrations run automatically inside the backend container before gunicorn starts. Verify with the smoke tests below.</p>
+    <div class="note ok"><span class="ico">✓</span><b>Tip:</b> take a database backup <em>before</em> deploying (see <a href="#backup">Backup</a>) so you can roll back cleanly if a migration misbehaves.</div>
+
+    <h3>Production · systemd <span class="tag t-prod">PRODUCTION</span><span class="tag t-systemd">SYSTEMD</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo -iu parisgroup
+cd /home/parisgroup/PugWebSite
+git pull --ff-only origin main
+
+# backend
+cd backend
+.venv/bin/pip install -r requirements.txt   # only if requirements.txt changed
+.venv/bin/alembic upgrade head              # idempotent — safe every deploy
+
+# frontend
+cd ../frontend
+npm ci                                       # only if package-lock.json changed
+npm run build
+
+# restart services (exit the parisgroup shell first so sudo works)
+exit
+sudo systemctl restart pugweb-backend.service
+sudo systemctl restart pugweb-frontend.service
+sudo systemctl reload  nginx</code></pre></div>
+
+    <h3>Smoke test after any production deploy</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code># Docker prod: hit Nginx directly
+curl -sk https://localhost/api/v1/health
+curl -Ik https://localhost/
+
+# systemd prod: services bind to loopback
+curl -s  http://127.0.0.1:8000/api/v1/health
+curl -I  http://127.0.0.1:3000
+curl -I  -H 'Host: parisunitedgroup.com' http://127.0.0.1/</code></pre></div>
+  </section>
+
+  <!-- ===================== BACKUP ===================== -->
+  <section id="backup">
+    <h2>Backup <span class="tag t-prod">PRODUCTION</span></h2>
+    <p>Two things need backing up: the <b>PostgreSQL database</b> and the <b>uploads</b> directory (local-disk media; R2-backed installs keep media in the bucket already).</p>
+
+    <h3>A · Database — automated daily dump <span class="tag t-systemd">SYSTEMD</span></h3>
+    <p>The repo ships <code>deploy/scripts/pg_backup.sh</code>: a <code>pg_dump</code> + gzip with 14-day retention and an optional S3 push. Install it as a cron job:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo cp /home/parisgroup/PugWebSite/deploy/scripts/pg_backup.sh /usr/local/bin/pugweb-pg-backup
+sudo chmod +x /usr/local/bin/pugweb-pg-backup
+sudo install -d -o parisgroup -g parisgroup /var/backups/pug</code></pre></div>
+    <p>Add to root's crontab via <code>sudo crontab -e</code>:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code># Daily 02:30 UTC PostgreSQL dump + 14-day rotation
+30 2 * * * /usr/local/bin/pugweb-pg-backup &gt;&gt; /var/log/pugweb/backup.log 2&gt;&amp;1</code></pre></div>
+    <p class="desc"><b>What:</b> writes <code>/var/backups/pug/pug_holding-YYYY-MM-DD.sql.gz</code> each night, pruning dumps older than 14 days. To also ship offsite, uncomment the <code>aws s3 cp</code> block in the script and set <code>S3_BUCKET</code>.</p>
+
+    <h4>Run it on demand</h4>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo /usr/local/bin/pugweb-pg-backup</code></pre></div>
+
+    <h3>B · Database — manual dump <span class="tag t-systemd">SYSTEMD</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>pg_dump --host=localhost --port=5432 --username=pug_user \
+        --no-owner --no-privileges --clean --if-exists \
+        pug_holding | gzip --best &gt; pug_holding-$(date -u +%F).sql.gz</code></pre></div>
+    <p class="desc"><b>What:</b> a self-contained logical backup. <code>--clean --if-exists</code> makes the dump drop &amp; recreate objects on restore, so it restores cleanly into an existing database.</p>
+
+    <h3>C · Database — Docker Compose stack <span class="tag t-docker">DOCKER</span></h3>
+    <p>In production the Postgres container has no host port, so dump <em>through</em> the container. <code>-T</code> disables the pseudo-TTY so the pipe works:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" --no-owner --no-privileges --clean --if-exists "$POSTGRES_DB"' \
+  | gzip &gt; pug_holding-$(date -u +%F).sql.gz</code></pre></div>
+    <p class="desc"><b>What:</b> reads the DB credentials from inside the container's environment, so you never hard-code them. Works the same for local dev — swap <code>-f docker-compose.prod.yml</code> for nothing (local) and the command is identical.</p>
+
+    <h3>D · Uploads (local-disk media)</h3>
+    <p><b>systemd host</b> — rsync the uploads tree to a sibling host:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>rsync -aH --delete /var/www/pug/uploads/ backup-host:/srv/pug-uploads/</code></pre></div>
+    <p><b>Docker stack</b> — copy the uploads volume out of the backend container:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml cp backend:/app/uploads ./uploads-$(date -u +%F)</code></pre></div>
+
+    <h3>E · Physical volume snapshot (advanced) <span class="tag t-docker">DOCKER</span></h3>
+    <p>For a cold, byte-level copy of the Postgres data volume (stop the stack first so the files are consistent):</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code># confirm the exact volume name first (project name = lowercased repo folder):
+docker volume ls | grep postgres_data
+# e.g. pugholdingwebsite_postgres_data
+
+docker compose -f docker-compose.prod.yml down
+docker run --rm \
+  -v pugholdingwebsite_postgres_data:/data:ro \
+  -v "$PWD":/backup alpine \
+  tar czf /backup/postgres_data-$(date -u +%F).tgz -C /data .
+docker compose -f docker-compose.prod.yml up -d</code></pre></div>
+    <div class="note info"><span class="ico">ℹ︎</span>Prefer the logical <code>pg_dump</code> (sections A–C) for routine backups — it's portable across PostgreSQL versions. Use the volume tar only for full-machine snapshots.</div>
+  </section>
+
+  <!-- ===================== RESTORE ===================== -->
+  <section id="restore">
+    <h2>Restore <span class="tag t-prod">PRODUCTION</span></h2>
+    <div class="note danger"><span class="ico">⚠</span><b>Restoring overwrites the current database.</b> Take a fresh dump of the live DB first (in case you need to undo the undo), and always stop the API so nothing writes mid-restore.</div>
+
+    <h3>A · Database — systemd host <span class="tag t-systemd">SYSTEMD</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code># 1. Stop the API to prevent writes during restore.
+sudo systemctl stop pugweb-backend
+
+# 2. Drop &amp; recreate the database.
+sudo -u postgres psql -c "DROP DATABASE pug_holding;"
+sudo -u postgres psql -c "CREATE DATABASE pug_holding OWNER pug_user;"
+
+# 3. Stream the gzipped dump back in.
+gunzip -c /var/backups/pug/pug_holding-&lt;DATE&gt;.sql.gz | sudo -u postgres psql pug_holding
+
+# 4. Bring the API back.
+sudo systemctl start pugweb-backend</code></pre></div>
+    <p class="desc">Replace <code>&lt;DATE&gt;</code> with the dump's date, e.g. <code>2026-06-01</code>.</p>
+
+    <h3>B · Database — Docker Compose stack <span class="tag t-docker">DOCKER</span></h3>
+    <p>Because the dumps use <code>--clean --if-exists</code>, you don't need to drop the database — just stop the app, pipe the dump into the Postgres container, and restart.</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code># 1. Stop the app containers (keep postgres running).
+docker compose -f docker-compose.prod.yml stop backend worker
+
+# 2. Pipe the gzipped dump into psql inside the postgres container.
+gunzip -c pug_holding-&lt;DATE&gt;.sql.gz | \
+  docker compose -f docker-compose.prod.yml exec -T postgres \
+    sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+# 3. Start the app again.
+docker compose -f docker-compose.prod.yml start backend worker</code></pre></div>
+
+    <h3>C · Uploads</h3>
+    <p><b>systemd host:</b></p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>rsync -aH backup-host:/srv/pug-uploads/ /var/www/pug/uploads/</code></pre></div>
+    <p><b>Docker stack</b> — copy a saved uploads folder back into the backend container:</p>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml cp ./uploads-&lt;DATE&gt;/. backend:/app/uploads</code></pre></div>
+
+    <h3>D · Verify the restore</h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code># systemd
+curl -s http://127.0.0.1:8000/api/v1/health
+# docker
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'  # tables should be present</code></pre></div>
+    <div class="note ok"><span class="ico">✓</span>Practise a restore on a staging box at least once before you need it for real — an untested backup is not a backup.</div>
+  </section>
+
+  <!-- ===================== LOGS ===================== -->
+  <section id="logs">
+    <h2>Logs &amp; health <span class="tag t-prod">PRODUCTION</span></h2>
+
+    <h3>Docker Compose <span class="tag t-docker">DOCKER</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>docker compose -f docker-compose.prod.yml logs -f backend
+docker compose -f docker-compose.prod.yml logs -f frontend
+docker compose -f docker-compose.prod.yml logs -f nginx
+docker compose -f docker-compose.prod.yml logs --tail=200 -f   # everything, last 200 lines</code></pre></div>
+
+    <h3>systemd <span class="tag t-systemd">SYSTEMD</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo journalctl -u pugweb-backend.service  -n 200 -f
+sudo journalctl -u pugweb-frontend.service -n 200 -f
+sudo tail -f /var/log/nginx/parisgroup-access.log
+sudo tail -f /var/log/nginx/parisgroup-error.log
+sudo tail -f /var/log/pugweb/backup.log        # nightly backup job</code></pre></div>
+
+    <h3>Health endpoints</h3>
+    <table>
+      <tr><th>Path</th><th>Meaning</th></tr>
+      <tr><td><code>/api/v1/health</code></td><td>Full health (includes DB connectivity).</td></tr>
+      <tr><td><code>/api/v1/health/live</code></td><td>Liveness only (process is up).</td></tr>
+      <tr><td><code>/healthz</code> (Nginx)</td><td>Nginx container healthcheck in the Docker stack.</td></tr>
+    </table>
+  </section>
+
+  <!-- ===================== ROLLBACK ===================== -->
+  <section id="rollback">
+    <h2>Rollback <span class="tag t-prod">PRODUCTION</span></h2>
+
+    <h3>systemd <span class="tag t-systemd">SYSTEMD</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>sudo -iu parisgroup
+cd /home/parisgroup/PugWebSite
+git log --oneline -5          # find the last-known-good commit
+git checkout &lt;good-sha&gt;
+
+# If the bad deploy applied a migration the rollback target lacks:
+cd backend
+.venv/bin/alembic downgrade &lt;previous-revision&gt;
+
+cd ../frontend &amp;&amp; npm run build
+exit
+sudo systemctl restart pugweb-backend.service pugweb-frontend.service</code></pre></div>
+
+    <h3>Docker Compose <span class="tag t-docker">DOCKER</span></h3>
+    <div class="cmd"><button class="copy">Copy</button><pre><code>cd /path/to/PUGHoldingWebSite
+git log --oneline -5
+git checkout &lt;good-sha&gt;
+docker compose -f docker-compose.prod.yml up -d --build
+
+# If a migration must be undone, run it before traffic returns:
+docker compose -f docker-compose.prod.yml exec backend alembic downgrade &lt;previous-revision&gt;</code></pre></div>
+    <div class="note warn"><span class="ico">⚠</span>Migrations in this project are kept <b>additive</b> (nullable columns, no drops), so a code rollback usually works <em>without</em> a DB downgrade. Only downgrade if a new migration is genuinely incompatible with the older code — and restore from backup if a downgrade isn't safe.</div>
+  </section>
+
+  <!-- ===================== TROUBLESHOOTING ===================== -->
+  <section id="troubleshooting">
+    <h2>Troubleshooting</h2>
+    <table>
+      <tr><th>Symptom</th><th>Likely cause / fix</th></tr>
+      <tr><td><code>backend</code> keeps restarting — "connection refused"</td><td>Postgres still warming up. <code>depends_on: service_healthy</code> self-corrects in ~5–10s.</td></tr>
+      <tr><td><code>alembic</code> fails on first boot: "relation already exists"</td><td>Stale volume from a previous run. <code>docker compose down -v</code> then <code>up -d</code> (local only — never on prod data).</td></tr>
+      <tr><td>Frontend loads but API calls fail</td><td><code>frontend/.env.local</code> overrides the compose URL. Set <code>NEXT_PUBLIC_API_BASE_URL</code> to the right origin (local: <code>http://localhost:8000/api/v1</code>).</td></tr>
+      <tr><td><code>psycopg2.errors.UndefinedTable</code></td><td>Migrations not applied: <code>alembic upgrade head</code> (in the container or venv).</td></tr>
+      <tr><td><code>psycopg2</code> wheel build fails (Windows)</td><td>You're on Python 3.13/3.14 — recreate the venv with 3.11 or 3.12.</td></tr>
+      <tr><td><code>ModuleNotFoundError: app</code></td><td>Activate the venv inside <code>backend/</code> before running.</td></tr>
+      <tr><td>Login returns 403</td><td>Account exists but lacks the role scope for that portal (admin vs HR).</td></tr>
+      <tr><td>PUG Accounts app 502s after a deploy</td><td>You edited the wrong Nginx file. Restore <code>/etc/nginx/sites-available/pugaccounts</code> from git/backup and reload Nginx.</td></tr>
+      <tr><td>Uploads disappear after <code>up --build</code></td><td>Ensure <code>UPLOAD_DIR=/app/uploads</code> (set in <code>docker-compose.prod.yml</code>) so writes land on the persistent volume, not an unmounted in-container path.</td></tr>
+      <tr><td>AI features unavailable</td><td>Set <code>AI_ENABLED=true</code> and the provider settings (Azure / OpenAI-compatible / Ollama) in <code>backend/.env</code> or in Admin → AI Settings.</td></tr>
+    </table>
+
+    <div class="note info" style="margin-top:18px"><span class="ico">📚</span><b>Deeper references in this repo:</b>
+      <code>docs/deployment-guide.md</code> (full EC2 runbook),
+      <code>docs/docker-deployment.md</code> (Docker details),
+      <code>docs/setup-guide.md</code> (local manual),
+      <code>deploy/README.md</code> (server file map),
+      <code>backend/.env.example</code> (every backend setting).
+    </div>
+  </section>
+
+  </main>
+</div>
+
+<footer>
+  PUG Holding Website — Operations Runbook · generated for the <code>PUGHoldingWebSite</code> monorepo.
+  Commands are derived from <code>docker-compose.yml</code>, <code>docker-compose.prod.yml</code>, <code>deploy/</code> and <code>docs/</code>.
+  Verify hostnames, usernames and paths against your own environment before running anything destructive.
+</footer>
+
+<script>
+  // ---- copy-to-clipboard for every command block -----------------
+  document.querySelectorAll('.cmd').forEach(function (block) {
+    var btn = block.querySelector('.copy');
+    var code = block.querySelector('code');
+    if (!btn || !code) return;
+    btn.addEventListener('click', function () {
+      var text = code.textContent;
+      navigator.clipboard.writeText(text).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.classList.add('done');
+        setTimeout(function () { btn.textContent = prev; btn.classList.remove('done'); }, 1400);
+      }).catch(function () {
+        // Fallback for non-secure contexts (file://)
+        var r = document.createRange(); r.selectNode(code);
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        try { document.execCommand('copy'); btn.textContent = 'Copied!'; btn.classList.add('done');
+          setTimeout(function(){ btn.textContent='Copy'; btn.classList.remove('done'); },1400); } catch(e){}
+        sel.removeAllRanges();
+      });
+    });
+  });
+
+  // ---- active section highlighting in the sidebar ----------------
+  var links = Array.prototype.slice.call(document.querySelectorAll('#toc a'));
+  var map = {};
+  links.forEach(function (a) {
+    var id = a.getAttribute('href').slice(1);
+    var sec = document.getElementById(id);
+    if (sec) map[id] = a;
+  });
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        links.forEach(function (l) { l.classList.remove('active'); });
+        var a = map[e.target.id];
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+  Object.keys(map).forEach(function (id) { observer.observe(document.getElementById(id)); });
+</script>
+</body>
+</html>
