@@ -24,7 +24,7 @@ const TOOLS: ToolCard[] = [
     href: "/admin/marketing/tools/url-shortener",
     title: "URL Shortener",
     description:
-      "Create branded short links on parisunitedgroup.com/go/… Track clicks and disable links without rebuilding the campaign asset.",
+      "Create branded short links on pug.qa/go/… Track clicks and disable links without rebuilding the campaign asset.",
     icon: Link2,
     accent: "text-emerald-700 dark:text-emerald-300 bg-emerald-500/15",
   },
