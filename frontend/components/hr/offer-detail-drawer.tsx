@@ -19,6 +19,7 @@ import { usePermission } from "@/components/auth/permission";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
 import {
@@ -28,6 +29,7 @@ import {
 } from "@/lib/hr/permissions";
 import type {
   Offer,
+  OfferLetterTemplate,
   OfferStatusHistoryItem,
   OfferUpdatePayload,
 } from "@/lib/hr/types";
@@ -457,6 +459,41 @@ function OfferContent({
   );
   const [benefits, setBenefits] = React.useState(offer.benefits_summary ?? "");
   const [remarks, setRemarks] = React.useState(offer.remarks ?? "");
+  const [letterBody, setLetterBody] = React.useState(offer.letter_body ?? "");
+  const [templates, setTemplates] = React.useState<OfferLetterTemplate[]>([]);
+  const [templateId, setTemplateId] = React.useState("");
+  const [applying, setApplying] = React.useState(false);
+
+  // Load templates the first time the editor mounts (only if editable).
+  React.useEffect(() => {
+    if (!canEdit) return;
+    hrApi
+      .get<OfferLetterTemplate[]>("/hr/offer-templates")
+      .then((rows) => {
+        const active = rows.filter((t) => t.is_active);
+        setTemplates(active);
+        const def = active.find((t) => t.is_default);
+        if (def) setTemplateId(String(def.id));
+      })
+      .catch(() => setTemplates([]));
+  }, [canEdit]);
+
+  async function applyTemplate() {
+    if (!templateId) return;
+    setApplying(true);
+    setError(null);
+    try {
+      const updated = await hrApi.post<Offer>(
+        `/hr/offers/${offer.id}/apply-template`,
+        { template_id: Number(templateId) },
+      );
+      setLetterBody(updated.letter_body ?? "");
+    } catch (err) {
+      setError((err as HrApiError).message);
+    } finally {
+      setApplying(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -472,6 +509,7 @@ function OfferContent({
         work_location: workLocation.trim() || null,
         benefits_summary: benefits.trim() || null,
         remarks: remarks.trim() || null,
+        letter_body: letterBody.trim() || null,
       };
       await hrApi.patch(`/hr/offers/${offer.id}`, payload);
       setEditing(false);
@@ -501,6 +539,7 @@ function OfferContent({
       </header>
 
       {!editing ? (
+        <div className="space-y-3">
         <dl className="grid gap-2 text-xs sm:grid-cols-2">
           <Display label="Position" value={offer.position} />
           <Display
@@ -522,6 +561,15 @@ function OfferContent({
           <Display label="Benefits summary" value={offer.benefits_summary} wide />
           <Display label="Remarks" value={offer.remarks} wide />
         </dl>
+        {offer.letter_body && (
+          <div className="rounded-md border border-border/60 bg-background/40 p-3">
+            <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Letter body
+            </p>
+            <p className="whitespace-pre-wrap text-xs">{offer.letter_body}</p>
+          </div>
+        )}
+        </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Position">
@@ -592,6 +640,47 @@ function OfferContent({
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               disabled={saving}
+            />
+          </Field>
+          <Field label="Offer letter body" wide>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Select
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+                disabled={applying || templates.length === 0}
+                className="h-8 max-w-[16rem] py-0 text-xs"
+                aria-label="Letter template"
+              >
+                <option value="">
+                  {templates.length === 0
+                    ? "No templates — create one"
+                    : "Select a template…"}
+                </option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.is_default ? " (default)" : ""}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={applyTemplate}
+                disabled={!templateId || applying}
+              >
+                {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Apply template
+              </Button>
+            </div>
+            <Textarea
+              rows={8}
+              value={letterBody}
+              onChange={(e) => setLetterBody(e.target.value)}
+              disabled={saving}
+              className="font-mono text-xs"
+              placeholder="Pick a template and Apply (merge fields are filled in), then edit — or write the letter body directly."
             />
           </Field>
           <div className="sm:col-span-2 flex justify-end gap-2">

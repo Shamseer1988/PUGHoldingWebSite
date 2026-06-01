@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CheckCircle2,
@@ -134,7 +135,14 @@ export default function HrOffersPage() {
     <HrShell
       title="Offers"
       description="Full lifecycle — draft, approval, issue, candidate response, joining."
-      actions={<ViewToggle view={view} onChange={setView} />}
+      actions={
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/hr/offers/templates">Letter templates</Link>
+          </Button>
+          <ViewToggle view={view} onChange={setView} />
+        </div>
+      }
     >
       {/* Dashboard cards */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

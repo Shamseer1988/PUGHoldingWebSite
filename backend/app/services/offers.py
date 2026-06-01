@@ -299,6 +299,7 @@ def update_draft(
         "offer_letter_number",
         "attachment_url",
         "remarks",
+        "letter_body",
     }
     touched: list[str] = []
     for k, v in changes.items():

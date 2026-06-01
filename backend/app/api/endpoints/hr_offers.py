@@ -54,11 +54,13 @@ from app.models.hr_ats import (
     OFFER_SENT,
     OFFER_WITHDRAWN,
     CandidateJobApplication,
+    OfferLetterTemplate,
     OfferStatusHistory,
     OfferTracking,
 )
 from app.schemas.hr_ats import (
     OfferActionRequest,
+    OfferApplyTemplateRequest,
     OfferCreate,
     OfferMarkNotJoinedRequest,
     OfferRead,
@@ -68,6 +70,7 @@ from app.schemas.hr_ats import (
     OfferSummaryStats,
     OfferUpdate,
 )
+from app.services import offer_letters
 from app.services import offers as offer_svc
 from app.services.audit_log import record_audit
 
@@ -612,6 +615,45 @@ def mark_not_joined_endpoint(
         action="hr.offer.mark_not_joined",
         offer_id=offer.id,
         details={"reason": payload.reason},
+    )
+    db.commit()
+    db.refresh(offer)
+    return _serialize_offer(offer)
+
+
+@router.post("/{offer_id}/apply-template", response_model=OfferRead)
+def apply_template_endpoint(
+    offer_id: int,
+    payload: OfferApplyTemplateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission(PERM_HR_OFFERS_CREATE)),
+) -> OfferRead:
+    """Render an offer-letter template into this offer's editable body.
+
+    The template's ``{{merge fields}}`` are substituted from the offer /
+    candidate / job context; the rendered text is stored on
+    ``letter_body`` and stays editable via PATCH /hr/offers/{id}.
+    """
+    offer = _get_or_404(db, offer_id)
+    tpl = db.get(OfferLetterTemplate, payload.template_id)
+    if tpl is None or not tpl.is_active:
+        raise HTTPException(
+            status_code=404, detail="Template not found or inactive."
+        )
+    app = offer.application
+    candidate = app.candidate if app else None
+    job = app.job_opening if app else None
+    offer.letter_body = offer_letters.render_template(
+        tpl.body, offer=offer, candidate=candidate, job=job
+    )
+    _audit(
+        db,
+        actor,
+        request,
+        action="hr.offer.apply_template",
+        offer_id=offer.id,
+        details={"template_id": tpl.id},
     )
     db.commit()
     db.refresh(offer)

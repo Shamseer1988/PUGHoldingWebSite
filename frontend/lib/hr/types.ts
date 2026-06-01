@@ -116,6 +116,7 @@ export interface Offer {
   offer_letter_number: string | null;
   attachment_url: string | null;
   remarks: string | null;
+  letter_body: string | null;
 
   // Lifecycle
   status: OfferStatus | string;
@@ -198,6 +199,24 @@ export interface OfferUpdatePayload {
   offer_letter_number?: string | null;
   attachment_url?: string | null;
   remarks?: string | null;
+  letter_body?: string | null;
+}
+
+export interface OfferLetterTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  body: string;
+  is_active: boolean;
+  is_default: boolean;
+  created_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OfferMergeField {
+  token: string;
+  label: string;
 }
 
 export interface OfferSummary {
