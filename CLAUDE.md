@@ -1,5 +1,10 @@
 # PUG Holding Website — Project Context for Claude Code
 
+## Git Workflow (repo owner's standing instruction)
+- **Default working branch is `claude/offer-letter-templates`.** Do all work on this branch — do **not** create new branches.
+- Commit each completed task to `claude/offer-letter-templates` and keep using that same branch for subsequent work.
+- **Only open a pull request when the repo owner explicitly asks.** Never open a PR proactively.
+
 ## Stack
 - Frontend: Next.js 14 (App Router), TypeScript, Tailwind CSS, Framer Motion, GSAP
 - Backend: FastAPI, SQLAlchemy 2.x (sync), PostgreSQL, Alembic, python-jose JWT, bcrypt
