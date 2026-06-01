@@ -119,11 +119,39 @@ def build_candidate_profile_text(
 
 
 def _ai_configured() -> bool:
+    """True when the configured *embedding* provider has the minimum
+    settings to run. Multi-provider aware: Azure needs an endpoint +
+    key; an OpenAI-compatible server needs a base URL; Ollama has a
+    localhost default so it only needs ``AI_ENABLED``."""
     settings = get_settings()
-    return bool(
-        settings.ai_enabled
-        and settings.azure_openai_endpoint
-        and settings.azure_openai_api_key
+    if not settings.ai_enabled:
+        return False
+    provider = (settings.ai_embedding_provider or "azure").strip().lower()
+    if provider == "azure":
+        return bool(
+            settings.azure_openai_endpoint and settings.azure_openai_api_key
+        )
+    if provider == "openai_compatible":
+        return bool(settings.ai_embedding_base_url)
+    if provider == "ollama":
+        # Ollama defaults to localhost:11434 — base URL is optional.
+        return True
+    return False
+
+
+def resolve_embedding_model(settings=None) -> str:
+    """The model/deployment name used for embeddings, regardless of
+    provider. ``AI_EMBEDDING_MODEL`` wins; for Azure we still honour
+    the legacy ``AZURE_OPENAI_EMBEDDING_DEPLOYMENT`` / ``*_DEPLOYMENT``
+    fallbacks; finally the OpenAI-canonical small model."""
+    import os
+
+    s = settings or get_settings()
+    return (
+        s.ai_embedding_model
+        or os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+        or s.azure_openai_deployment
+        or DEFAULT_EMBEDDING_MODEL
     )
 
 
@@ -132,9 +160,9 @@ def compute_query_embedding(text: str) -> Optional[list[float]]:
     if AI is not configured; raises :class:`SemanticSearchError` on
     provider error.
 
-    Phase C-6: routes through ``app.ai.providers.get_embedding_provider``
-    so swapping Azure for OpenAI direct / Anthropic later is one
-    line in the factory rather than a rewrite here.
+    Routes through ``app.ai.providers.get_embedding_provider`` so the
+    embedding backend (Azure / OpenAI-compatible / Ollama) is chosen
+    from the ``AI_EMBEDDING_*`` env — independent of the chat provider.
 
     Mocked from tests — patch this function rather than the
     underlying provider client.
@@ -144,20 +172,14 @@ def compute_query_embedding(text: str) -> Optional[list[float]]:
     if not text.strip():
         return None
 
-    import os
-
     from app.ai.providers import ProviderError, get_embedding_provider
     from app.ai.providers.factory import ProviderConfigError
 
     settings = get_settings()
-    deployment = (
-        os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
-        or settings.azure_openai_deployment
-        or DEFAULT_EMBEDDING_MODEL
-    )
+    model = resolve_embedding_model(settings)
     try:
         provider = get_embedding_provider(
-            settings, deployment_override=deployment
+            settings, deployment_override=model
         )
     except ProviderConfigError as exc:
         raise SemanticSearchError(str(exc)) from exc
@@ -309,7 +331,7 @@ def backfill_candidate_embeddings(
             skipped += 1
             continue
         extracted.embedding = vec
-        extracted.embedding_model = DEFAULT_EMBEDDING_MODEL
+        extracted.embedding_model = resolve_embedding_model()
         extracted.embedding_updated_at = datetime.now(timezone.utc)
         refreshed += 1
     db.commit()
@@ -337,5 +359,6 @@ __all__ = [
     "compute_query_embedding",
     "cosine_similarity",
     "refresh_candidate_embedding",
+    "resolve_embedding_model",
     "semantic_search_candidates",
 ]

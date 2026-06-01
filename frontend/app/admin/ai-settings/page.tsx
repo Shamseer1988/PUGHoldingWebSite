@@ -30,14 +30,25 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
+import {
+  AI_PROVIDERS,
+  baseUrlPlaceholder,
+  providerKeyHint,
+  providerLabel,
+  providerRequiresApiKey,
+  providerUsesAzureFields,
+  providerUsesBaseUrl,
+} from "@/lib/ai/providers";
 import type { AISettings, PublicAIQueryLog } from "@/lib/hr/types";
 
 type Form = Pick<
   AISettings,
   | "mode"
+  | "provider"
   | "azure_endpoint"
   | "azure_deployment"
   | "azure_api_version"
+  | "base_url"
   | "model_name"
   | "temperature"
   | "max_output_tokens"
@@ -85,9 +96,11 @@ function AISettingsBody() {
       setData(fresh);
       setForm({
         mode: fresh.mode,
+        provider: fresh.provider ?? "azure",
         azure_endpoint: fresh.azure_endpoint ?? "",
         azure_deployment: fresh.azure_deployment ?? "",
         azure_api_version: fresh.azure_api_version ?? "",
+        base_url: fresh.base_url ?? "",
         model_name: fresh.model_name ?? "",
         temperature: fresh.temperature,
         max_output_tokens: fresh.max_output_tokens,
@@ -112,6 +125,7 @@ function AISettingsBody() {
     try {
       const body = {
         mode: form.mode,
+        provider: form.provider ?? "azure",
         azure_endpoint:
           typeof form.azure_endpoint === "string" && form.azure_endpoint.trim()
             ? form.azure_endpoint.trim()
@@ -123,6 +137,10 @@ function AISettingsBody() {
         azure_api_version:
           typeof form.azure_api_version === "string" && form.azure_api_version.trim()
             ? form.azure_api_version.trim()
+            : null,
+        base_url:
+          typeof form.base_url === "string" && form.base_url.trim()
+            ? form.base_url.trim()
             : null,
         model_name:
           typeof form.model_name === "string" && form.model_name.trim()
@@ -159,7 +177,7 @@ function AISettingsBody() {
   return (
     <AdminShell
       title="AI settings"
-      description="Configure the Azure OpenAI integration used by HR for advisory candidate reviews."
+      description="Configure the AI provider used by HR for advisory candidate reviews and the public assistant."
       actions={
         <Button
           onClick={save}
@@ -226,7 +244,23 @@ function AISettingsBody() {
                 >
                   <option value="disabled">Disabled — never call AI</option>
                   <option value="mock">Mock — deterministic test reviews</option>
-                  <option value="live">Live — call Azure OpenAI</option>
+                  <option value="live">Live — call the AI provider</option>
+                </Select>
+              </Field>
+
+              <Field label="Provider (live mode)">
+                <Select
+                  value={form.provider ?? "azure"}
+                  onChange={(e) =>
+                    set("provider", e.target.value as Form["provider"])
+                  }
+                  disabled={saving}
+                >
+                  {AI_PROVIDERS.map((p) => (
+                    <option key={p} value={p}>
+                      {providerLabel(p)}
+                    </option>
+                  ))}
                 </Select>
               </Field>
 
@@ -242,17 +276,28 @@ function AISettingsBody() {
                       </span>
                     </li>
                     <li className="flex items-center gap-2">
+                      <Server className="h-3.5 w-3.5" />
+                      Effective provider:{" "}
+                      <span className="font-medium text-foreground">
+                        {providerLabel(data.effective_provider ?? data.provider)}
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-2">
                       <KeyRound className="h-3.5 w-3.5" />
-                      Azure API key in .env:{" "}
-                      {data.has_azure_api_key ? (
+                      API key in .env:{" "}
+                      {data.has_api_key ? (
                         <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300">
                           <CheckCircle2 className="h-3 w-3" />
                           Detected
                         </span>
-                      ) : (
+                      ) : data.requires_api_key ? (
                         <span className="inline-flex items-center gap-1 font-medium text-rose-700 dark:text-rose-300">
                           <AlertTriangle className="h-3 w-3" />
                           Missing — live mode will fail
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 font-medium text-muted-foreground">
+                          Optional for this provider
                         </span>
                       )}
                     </li>
@@ -324,40 +369,69 @@ function AISettingsBody() {
 
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Azure OpenAI</CardTitle>
+              <CardTitle className="text-base">Provider connection</CardTitle>
               <CardDescription>
-                Endpoint and deployment for live mode. Leave blank to fall back
-                to the .env defaults. The API key always lives in .env — never
-                in the database.
+                Connection details for live mode. Leave blank to fall back to
+                the .env defaults. API keys always live in .env — never in the
+                database.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Field label="Azure endpoint URL">
-                <Input
-                  value={form.azure_endpoint ?? ""}
-                  onChange={(e) => set("azure_endpoint", e.target.value)}
-                  placeholder="https://<your-resource>.openai.azure.com"
-                  disabled={saving}
-                />
-              </Field>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Deployment name">
+              {providerUsesAzureFields(form.provider) && (
+                <>
+                  <Field label="Azure endpoint URL">
+                    <Input
+                      value={form.azure_endpoint ?? ""}
+                      onChange={(e) => set("azure_endpoint", e.target.value)}
+                      placeholder="https://<your-resource>.openai.azure.com"
+                      disabled={saving}
+                    />
+                  </Field>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label="Deployment name">
+                      <Input
+                        value={form.azure_deployment ?? ""}
+                        onChange={(e) =>
+                          set("azure_deployment", e.target.value)
+                        }
+                        placeholder="gpt-4o-mini"
+                        disabled={saving}
+                      />
+                    </Field>
+                    <Field label="API version">
+                      <Input
+                        value={form.azure_api_version ?? ""}
+                        onChange={(e) =>
+                          set("azure_api_version", e.target.value)
+                        }
+                        placeholder="2024-08-01-preview"
+                        disabled={saving}
+                      />
+                    </Field>
+                  </div>
+                </>
+              )}
+              {providerUsesBaseUrl(form.provider) && (
+                <Field label="Base URL">
                   <Input
-                    value={form.azure_deployment ?? ""}
-                    onChange={(e) => set("azure_deployment", e.target.value)}
-                    placeholder="gpt-4o-mini"
+                    value={form.base_url ?? ""}
+                    onChange={(e) => set("base_url", e.target.value)}
+                    placeholder={baseUrlPlaceholder(form.provider)}
                     disabled={saving}
                   />
                 </Field>
-                <Field label="API version">
-                  <Input
-                    value={form.azure_api_version ?? ""}
-                    onChange={(e) => set("azure_api_version", e.target.value)}
-                    placeholder="2024-08-01-preview"
-                    disabled={saving}
-                  />
-                </Field>
-              </div>
+              )}
+              <p
+                className={
+                  "flex items-start gap-2 rounded-md border p-2 text-xs " +
+                  (providerRequiresApiKey(form.provider)
+                    ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-200"
+                    : "border-border/60 bg-background/40 text-muted-foreground")
+                }
+              >
+                <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {providerKeyHint(form.provider)}
+              </p>
               <Field label="Extra system prompt (optional)">
                 <Textarea
                   rows={4}
@@ -435,9 +509,11 @@ function AISettingsBody() {
                   dev/CI or running the product without Azure credentials.
                 </p>
                 <p>
-                  <strong>Live:</strong> calls Azure OpenAI Chat Completions
-                  with a JSON-schema prompt; the response is parsed,
-                  rule-checked, and stored alongside the raw provider payload.
+                  <strong>Live:</strong> calls the configured provider — Azure
+                  OpenAI, an OpenAI-compatible server (vLLM / LM Studio / OpenAI
+                  direct), or a local Ollama — with a JSON-schema prompt; the
+                  response is parsed, rule-checked, and stored alongside the raw
+                  provider payload.
                 </p>
               </CardDescription>
             </CardHeader>

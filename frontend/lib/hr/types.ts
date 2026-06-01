@@ -593,9 +593,11 @@ export interface AIReviewGenerateResult {
 export interface AISettings {
   id: number;
   mode: "disabled" | "mock" | "live";
+  provider: "azure" | "openai_compatible" | "ollama" | null;
   azure_endpoint: string | null;
   azure_deployment: string | null;
   azure_api_version: string | null;
+  base_url: string | null;
   model_name: string | null;
   temperature: number;
   max_output_tokens: number;
@@ -607,6 +609,10 @@ export interface AISettings {
   updated_at: string | null;
   has_azure_api_key: boolean;
   effective_mode: string | null;
+  // Multi-provider diagnostics resolved server-side.
+  effective_provider: string | null;
+  has_api_key: boolean;
+  requires_api_key: boolean;
 }
 
 // Phase 17 — public Ask-PUG-AI logs --------------------------------------

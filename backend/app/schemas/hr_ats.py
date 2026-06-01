@@ -442,6 +442,7 @@ class StatusPipelineMeta(BaseModel):
 
 
 AI_MODE_PATTERN = r"^(disabled|mock|live)$"
+AI_PROVIDER_PATTERN = r"^(azure|openai_compatible|ollama)$"
 
 
 class CandidateAIReviewRead(BaseModel):
@@ -482,9 +483,13 @@ class AISettingsRead(BaseModel):
 
     id: int
     mode: str
+    # Multi-provider: which backend serves "live" chat.
+    provider: Optional[str] = None
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
     azure_api_version: Optional[str] = None
+    # Base URL for the openai_compatible / ollama providers.
+    base_url: Optional[str] = None
     model_name: Optional[str] = None
     temperature: float
     max_output_tokens: int
@@ -496,6 +501,15 @@ class AISettingsRead(BaseModel):
     # is selected but credentials aren't actually in the environment.
     has_azure_api_key: bool = False
     effective_mode: Optional[str] = None
+    # The provider actually in effect after merging the DB row with the
+    # .env fallbacks (``provider`` may be NULL while this resolves to
+    # 'azure'). ``has_api_key`` is provider-aware (Azure key, AI_API_KEY,
+    # or N/A for Ollama); ``requires_api_key`` is False for providers
+    # that commonly run keyless (openai_compatible / ollama) so the UI
+    # shows an info note rather than a hard "will fail" warning.
+    effective_provider: Optional[str] = None
+    has_api_key: bool = False
+    requires_api_key: bool = True
     # Public "Ask PUG AI" toggles (Phase 17). Decoupled from the HR
     # mode so admins can disable the public chat without touching the
     # HR review flow.
@@ -507,9 +521,11 @@ class AISettingsUpdate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     mode: Optional[str] = Field(default=None, pattern=AI_MODE_PATTERN)
+    provider: Optional[str] = Field(default=None, pattern=AI_PROVIDER_PATTERN)
     azure_endpoint: Optional[str] = Field(default=None, max_length=500)
     azure_deployment: Optional[str] = Field(default=None, max_length=120)
     azure_api_version: Optional[str] = Field(default=None, max_length=40)
+    base_url: Optional[str] = Field(default=None, max_length=500)
     model_name: Optional[str] = Field(default=None, max_length=120)
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_output_tokens: Optional[int] = Field(default=None, ge=64, le=8000)

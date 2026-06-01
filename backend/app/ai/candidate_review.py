@@ -36,6 +36,7 @@ from app.models.hr_ats import (
     AI_MODE_DISABLED,
     AI_MODE_LIVE,
     AI_MODE_MOCK,
+    AI_PROVIDER_AZURE,
     AISetting,
     Candidate,
     CandidateAIReview,
@@ -133,6 +134,17 @@ class ResolvedAIConfig:
     max_output_tokens: int
     request_timeout_seconds: int
     extra_system_prompt: Optional[str]
+    # Multi-provider fields. Appended (with defaults) so existing
+    # positional / kwargs constructors that predate the provider work
+    # keep functioning — they resolve to the Azure provider, exactly
+    # as before.
+    provider: str = AI_PROVIDER_AZURE
+    # Base URL + API key for the OpenAI-compatible / Ollama providers.
+    # Azure ignores these (it uses azure_endpoint / azure_deployment /
+    # azure_api_key). ``api_key`` is the generic, non-Azure chat key
+    # sourced from ``AI_API_KEY`` in .env.
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 def resolve_config(setting: Optional[AISetting]) -> ResolvedAIConfig:
@@ -151,11 +163,14 @@ def resolve_config(setting: Optional[AISetting]) -> ResolvedAIConfig:
             azure_deployment=env.azure_openai_deployment,
             azure_api_key=env.azure_openai_api_key,
             azure_api_version=env.azure_openai_api_version,
-            model_name=env.azure_openai_deployment,
+            model_name=env.ai_model or env.azure_openai_deployment,
             temperature=0.2,
             max_output_tokens=900,
             request_timeout_seconds=45,
             extra_system_prompt=None,
+            provider=(env.ai_provider or AI_PROVIDER_AZURE).strip().lower(),
+            base_url=env.ai_base_url,
+            api_key=env.ai_api_key,
         )
     return ResolvedAIConfig(
         mode=setting.mode,
@@ -166,12 +181,20 @@ def resolve_config(setting: Optional[AISetting]) -> ResolvedAIConfig:
         model_name=(
             setting.model_name
             or setting.azure_deployment
+            or env.ai_model
             or env.azure_openai_deployment
         ),
         temperature=setting.temperature,
         max_output_tokens=setting.max_output_tokens,
         request_timeout_seconds=setting.request_timeout_seconds,
         extra_system_prompt=setting.extra_system_prompt,
+        # DB value wins; otherwise the .env fallback, otherwise Azure.
+        provider=(
+            setting.provider or env.ai_provider or AI_PROVIDER_AZURE
+        ).strip().lower(),
+        base_url=setting.base_url or env.ai_base_url,
+        # The non-Azure chat key never lives in the DB — always .env.
+        api_key=env.ai_api_key,
     )
 
 

@@ -8,23 +8,26 @@ This package wraps the three operations they actually need —
 a future ``OpenAIProvider`` / ``AnthropicProvider`` /
 ``GoogleProvider`` is a drop-in.
 
-Scope of the initial slice:
+Providers:
 
-* ``LLMProvider`` Protocol — the interface every concrete provider
-  satisfies.
-* ``AzureOpenAIProvider`` — the only concrete implementation
-  today, wrapping the existing ``AzureOpenAI`` SDK calls. Same
-  exception shape (``AIConfigError`` / ``AIProviderError``) so
-  call sites don't have to learn a new error vocabulary.
-* ``get_chat_provider(config)`` — factory keyed on the
-  ``ResolvedAIConfig.mode`` + (future) ``provider_type`` field.
-  Live mode returns the Azure provider; mock / disabled raise the
+* ``LLMProvider`` / ``EmbeddingProvider`` Protocols — the interfaces
+  every concrete provider satisfies.
+* ``AzureOpenAIProvider`` — wraps the ``AzureOpenAI`` SDK.
+* ``OpenAICompatibleProvider`` — wraps the ``OpenAI`` SDK pointed at
+  an arbitrary ``base_url``; serves both the ``openai_compatible``
+  (vLLM / LM Studio / OpenAI direct) and ``ollama`` providers. Same
+  exception shape (``ProviderError``) as Azure so call sites don't
+  learn a new error vocabulary.
+* ``get_chat_provider(config)`` — factory keyed on
+  ``ResolvedAIConfig.mode`` + ``.provider``. Live mode returns the
+  provider matching the discriminator; mock / disabled raise the
   appropriate config error so the call site can fall back to its
   module-local mock path.
 * ``get_embedding_provider()`` — sibling factory for the embedding
-  surface, which reads provider settings off ``Settings`` instead
-  of ``AISetting`` (semantic search is unauthenticated, runs
-  in worker contexts that don't open a DB session for it).
+  surface, keyed on ``Settings.ai_embedding_provider`` (semantic
+  search is unauthenticated and runs in worker contexts that don't
+  open an ``AISetting`` row, so its provider is env-driven and
+  independent of chat).
 
 Mock + disabled stay implemented as inline branches in each call
 site. They generate prompt-specific outputs that the abstraction
@@ -45,12 +48,14 @@ from app.ai.providers.factory import (
     get_chat_provider,
     get_embedding_provider,
 )
+from app.ai.providers.openai_compatible import OpenAICompatibleProvider
 
 
 __all__ = [
     "AzureOpenAIProvider",
     "EmbeddingProvider",
     "LLMProvider",
+    "OpenAICompatibleProvider",
     "ProviderError",
     "get_chat_provider",
     "get_embedding_provider",

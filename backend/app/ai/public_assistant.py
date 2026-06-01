@@ -24,9 +24,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.candidate_review import (
@@ -45,6 +46,7 @@ from app.models.hr_ats import (
     JobOpening,
     PublicAIQuery,
 )
+from app.models.marketing import OfferCampaign
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,7 @@ class PublicContext:
     leadership: List[Dict[str, Any]] = field(default_factory=list)
     news: List[Dict[str, Any]] = field(default_factory=list)
     jobs: List[Dict[str, Any]] = field(default_factory=list)
+    offers: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +128,39 @@ def load_public_context(db: Session) -> PublicContext:
             select(JobOpening)
             .where(JobOpening.status == JOB_STATUS_OPEN)
             .order_by(desc(JobOpening.posted_at))
+            .limit(20)
+        )
+        .scalars()
+        .all()
+    )
+    # Currently-running marketing offers: active, already started, and
+    # not yet expired. The marketing flags (killer / featured / flash)
+    # are public promotional metadata — surfacing them lets the
+    # assistant answer "any killer offers?" / "which branch has the
+    # best offers?" without ever touching internal data. Ordered so the
+    # highlighted promos come first, then the admin's manual sort.
+    today = date.today()
+    offers = (
+        db.execute(
+            select(OfferCampaign)
+            .where(
+                OfferCampaign.is_active.is_(True),
+                or_(
+                    OfferCampaign.start_date.is_(None),
+                    OfferCampaign.start_date <= today,
+                ),
+                or_(
+                    OfferCampaign.end_date.is_(None),
+                    OfferCampaign.end_date >= today,
+                ),
+            )
+            .order_by(
+                OfferCampaign.is_killer_offer.desc(),
+                OfferCampaign.is_featured.desc(),
+                OfferCampaign.is_flash_sale.desc(),
+                OfferCampaign.sort_order.asc(),
+                desc(OfferCampaign.created_at),
+            )
             .limit(20)
         )
         .scalars()
@@ -181,6 +217,19 @@ def load_public_context(db: Session) -> PublicContext:
             }
             for j in jobs
         ],
+        offers=[
+            {
+                "title": o.title,
+                "branch": o.branch,
+                "description": ((o.description or "")[:300] or None),
+                "is_featured": o.is_featured,
+                "is_killer_offer": o.is_killer_offer,
+                "is_flash_sale": o.is_flash_sale,
+                "valid_until": o.end_date.isoformat() if o.end_date else None,
+                "url": f"/offers/{o.slug}",
+            }
+            for o in offers
+        ],
     )
 
 
@@ -196,6 +245,7 @@ Your job is to help visitors of the public website learn about:
   - Leadership (names + roles only — NEVER discuss salaries, hiring decisions, or anything internal)
   - News + events
   - Current open job openings (titles, departments, locations only — NEVER discuss specific applicants)
+  - Current promotional offers & catalogues (which branch they apply to, what's featured / killer / flash, and when they're valid)
   - How to contact the group
 
 HARD RULES (non-negotiable):
@@ -204,7 +254,8 @@ HARD RULES (non-negotiable):
 3. You MUST NEVER claim to take actions like "I'll forward your CV", "I'll book an interview", or "I've updated your application". You cannot modify any data.
 4. Keep answers concise (2–5 sentences for most questions). Use friendly, professional, corporate tone.
 5. For job-related questions, list relevant open roles from the context and direct candidates to apply through the careers page.
-6. If asked about something outside the group's scope (e.g. politics, opinions, generic chit-chat), gently decline and redirect to what you can help with."""
+6. For questions about offers, deals, promotions, discounts, or "killer offers", use the `offers` list in the CONTEXT. State the offer title, which branch it applies to, and any badges (killer offer / featured / flash sale). When the visitor asks for the "best" or "killer" offers, prioritise those flagged `is_killer_offer` or `is_featured`, and mention the branch when they ask "which branch". Point them to the Offers page or the offer's `url`. NEVER invent offers, prices, or discount percentages that aren't in the context.
+7. If asked about something outside the group's scope (e.g. politics, opinions, generic chit-chat), gently decline and redirect to what you can help with."""
 
 
 def _build_user_prompt(question: str, ctx: PublicContext, history: Optional[List[Dict[str, str]]]) -> str:
@@ -237,6 +288,7 @@ def _build_user_prompt(question: str, ctx: PublicContext, history: Optional[List
             "leadership": ctx.leadership,
             "news": ctx.news,
             "open_jobs": ctx.jobs,
+            "offers": ctx.offers,
         },
         indent=2,
         default=str,
@@ -393,6 +445,57 @@ def _mock_answer(question: str, ctx: PublicContext) -> AskResult:
                 f"• {j['title']} — {j['department']} at {j['company']} ({j['location']})"
             )
         lines.append("Apply via the Careers page on the website.")
+        return AskResult(answer="\n".join(lines), mode=AI_MODE_MOCK, model_name="mock")
+
+    # Offers / deals / promotions
+    if any(
+        k in q
+        for k in (
+            "offer", "deal", "promo", "discount", "sale",
+            "killer", "bargain", "catalogue", "catalog",
+        )
+    ):
+        if not ctx.offers:
+            return AskResult(
+                answer=(
+                    "There are no offers running at the moment. Check the "
+                    "Offers page for the latest promotions and catalogues."
+                ),
+                mode=AI_MODE_MOCK,
+                model_name="mock",
+            )
+        # "best" / "killer" intent → lead with the highlighted promos.
+        wants_best = any(
+            k in q for k in ("killer", "best", "top", "biggest", "featured")
+        )
+        pool = ctx.offers
+        if wants_best:
+            prioritized = [
+                o
+                for o in ctx.offers
+                if o.get("is_killer_offer") or o.get("is_featured")
+            ]
+            pool = prioritized or ctx.offers
+        count = len(ctx.offers)
+        lines = [
+            f"We currently have {count} offer{'s' if count != 1 else ''} "
+            "running. A few highlights:"
+        ]
+        for o in pool[:5]:
+            tags = []
+            if o.get("is_killer_offer"):
+                tags.append("🔥 Killer offer")
+            if o.get("is_featured"):
+                tags.append("⭐ Featured")
+            if o.get("is_flash_sale"):
+                tags.append("⚡ Flash sale")
+            tag_str = f" [{', '.join(tags)}]" if tags else ""
+            branch_str = f" — {o['branch']}" if o.get("branch") else ""
+            valid_str = (
+                f" (valid until {o['valid_until']})" if o.get("valid_until") else ""
+            )
+            lines.append(f"• {o['title']}{branch_str}{tag_str}{valid_str}")
+        lines.append("See all promotions on the Offers page.")
         return AskResult(answer="\n".join(lines), mode=AI_MODE_MOCK, model_name="mock")
 
     # Companies / group
