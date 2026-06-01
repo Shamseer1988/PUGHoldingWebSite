@@ -22,6 +22,7 @@ from app.api.endpoints import (
     hr_dashboard,
     hr_interviews,
     hr_jobs,
+    hr_offer_templates,
     hr_offers,
     hr_reports,
     hr_saved_searches,
@@ -55,6 +56,7 @@ api_router.include_router(hr_jobs.router)
 api_router.include_router(hr_candidates.router)
 api_router.include_router(hr_interviews.router)
 api_router.include_router(hr_offers.router)
+api_router.include_router(hr_offer_templates.router)
 api_router.include_router(hr_assessments.router)
 api_router.include_router(hr_reports.router)
 api_router.include_router(hr_saved_searches.router)

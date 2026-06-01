@@ -962,6 +962,7 @@ class OfferBase(BaseModel):
     offer_letter_number: Optional[str] = Field(default=None, max_length=80)
     attachment_url: Optional[str] = Field(default=None, max_length=500)
     remarks: Optional[str] = Field(default=None, max_length=4000)
+    letter_body: Optional[str] = Field(default=None, max_length=20000)
 
 
 class OfferCreate(OfferBase):
@@ -994,6 +995,49 @@ class OfferResponseRequest(BaseModel):
 
 class OfferMarkNotJoinedRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=4000)
+
+
+# ---------------------------------------------------------------------------
+# Offer-letter templates
+# ---------------------------------------------------------------------------
+
+
+class OfferLetterTemplateBase(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    body: str = Field(min_length=1, max_length=20000)
+    is_active: bool = True
+    is_default: bool = False
+
+
+class OfferLetterTemplateCreate(OfferLetterTemplateBase):
+    pass
+
+
+class OfferLetterTemplateUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    body: Optional[str] = Field(default=None, max_length=20000)
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+
+
+class OfferLetterTemplateRead(OfferLetterTemplateBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_by_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OfferApplyTemplateRequest(BaseModel):
+    template_id: int = Field(ge=1)
+
+
+class MergeFieldInfo(BaseModel):
+    token: str
+    label: str
 
 
 class OfferStatusHistoryRead(BaseModel):

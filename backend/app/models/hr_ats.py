@@ -1001,6 +1001,11 @@ class OfferTracking(Base, TimestampMixin):
     attachment_url: Mapped[Optional[str]] = mapped_column(String(500))
     remarks: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Editable offer-letter body — rendered from a template's merge fields,
+    # then editable by HR. When set, the PDF renders this as the letter's
+    # main body in place of the default generated opening prose.
+    letter_body: Mapped[Optional[str]] = mapped_column(Text)
+
     # Top-level lifecycle status (Phase 6 — see OFFER_STATUSES enum).
     status: Mapped[str] = mapped_column(
         String(20),
@@ -1096,6 +1101,36 @@ class OfferStatusHistory(Base):
     )
 
     offer: Mapped[OfferTracking] = relationship(back_populates="status_history")
+
+
+class OfferLetterTemplate(Base, TimestampMixin):
+    """A reusable offer-letter body with merge fields.
+
+    The ``body`` carries ``{{tokens}}`` (e.g. ``{{candidate_name}}``,
+    ``{{position}}``, ``{{salary}}``, ``{{joining_date}}``,
+    ``{{company}}``). When HR applies a template to an offer, the tokens
+    are substituted from the offer/candidate/job context and the rendered
+    text is stored on ``OfferTracking.letter_body`` (and stays editable).
+    Mirrors the ScorecardTemplate pattern.
+    """
+
+    __tablename__ = "hr_offer_letter_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    # At most one default — the offer drawer pre-selects it. Enforced in
+    # the service layer (clearing other defaults on set), not the DB.
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
 
 
 # ---------------------------------------------------------------------------

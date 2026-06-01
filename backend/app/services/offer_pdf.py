@@ -164,22 +164,37 @@ def build_offer_letter_pdf(
     # --- Salutation + opening -------------------------------------------
     first_name = (candidate.full_name or "Candidate").split()[0]
     story.append(Paragraph(f"Dear {first_name},", body))
-    position_phrase = (
-        offer.position
-        or (job.title if job is not None else None)
-        or "the position"
-    )
-    company_phrase = (
-        (job.company if job is not None and job.company else COMPANY_NAME)
-    )
-    story.append(
-        Paragraph(
-            f"We are delighted to extend this offer of employment for the "
-            f"role of <b>{position_phrase}</b> with <b>{company_phrase}</b>. "
-            f"Below are the principal terms of your engagement.",
-            body,
+    if offer.letter_body and offer.letter_body.strip():
+        # HR-authored body (rendered from a template). Each blank-line-
+        # separated block is a paragraph; single newlines become <br/>.
+        for block in offer.letter_body.split("\n\n"):
+            safe = (
+                block.strip()
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br/>")
+            )
+            if safe:
+                story.append(Paragraph(safe, body))
+                story.append(Spacer(1, 2 * mm))
+    else:
+        position_phrase = (
+            offer.position
+            or (job.title if job is not None else None)
+            or "the position"
         )
-    )
+        company_phrase = (
+            job.company if job is not None and job.company else COMPANY_NAME
+        )
+        story.append(
+            Paragraph(
+                f"We are delighted to extend this offer of employment for the "
+                f"role of <b>{position_phrase}</b> with <b>{company_phrase}</b>. "
+                f"Below are the principal terms of your engagement.",
+                body,
+            )
+        )
     story.append(Spacer(1, 4 * mm))
 
     # --- Offer terms table ----------------------------------------------
