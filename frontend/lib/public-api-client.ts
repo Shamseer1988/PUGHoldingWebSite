@@ -154,6 +154,10 @@ export interface AssessmentChoice {
 export interface AssessmentQuestion {
   id: number;
   text: string;
+  type: string;
+  help_text: string | null;
+  is_required: boolean;
+  config: Record<string, unknown>;
   order_index: number;
   points: number;
   choices: AssessmentChoice[];
@@ -172,6 +176,9 @@ export interface PublicAssessment {
 export interface AssessmentAnswerSubmit {
   question_id: number;
   selected_choice_ids: number[];
+  // Typed answer for non-choice questions:
+  // { text } | { date } | { checked }
+  value?: Record<string, unknown> | null;
 }
 
 export interface AssessmentSubmissionAck {

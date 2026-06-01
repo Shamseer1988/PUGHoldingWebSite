@@ -71,7 +71,11 @@ def _seed_template(
     # Two questions, the first all-or-nothing, the second with two
     # correct choices to exercise the set-equality scoring.
     q1 = AssessmentQuestion(
-        assessment_id=assessment.id, text="Q1?", order_index=0, points=1
+        assessment_id=assessment.id,
+        text="Q1?",
+        order_index=0,
+        points=1,
+        is_required=False,
     )
     db_session.add(q1)
     db_session.flush()
@@ -86,7 +90,11 @@ def _seed_template(
         ]
     )
     q2 = AssessmentQuestion(
-        assessment_id=assessment.id, text="Q2?", order_index=1, points=2
+        assessment_id=assessment.id,
+        text="Q2?",
+        order_index=1,
+        points=2,
+        is_required=False,
     )
     db_session.add(q2)
     db_session.flush()

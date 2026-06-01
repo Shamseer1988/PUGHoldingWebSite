@@ -39,6 +39,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.hr_assessment import (
+    CHOICE_QUESTION_TYPES,
+    QUESTION_ATTACHMENT,
+    QUESTION_CHECKBOX,
+    QUESTION_DATE,
+    QUESTION_LONG_TEXT,
+    QUESTION_SHORT_TEXT,
     Assessment,
     AssessmentAnswer,
     AssessmentChoice,
@@ -104,6 +110,52 @@ def _validate_choices(choices: Iterable[AssessmentChoiceCreate]) -> None:
         )
 
 
+def _validate_question_payload(
+    qtype: str, choices: Optional[Iterable[AssessmentChoiceCreate]]
+) -> None:
+    """Type-aware validation: single/multi-choice need a valid choice list;
+    every other type must not carry choices."""
+    items = list(choices or [])
+    if qtype in CHOICE_QUESTION_TYPES:
+        _validate_choices(items)
+    elif items:
+        raise AssessmentValidationError(
+            f"'{qtype}' questions do not take choices."
+        )
+
+
+def _normalise_answer_value(qtype: str, value: Optional[dict]) -> dict:
+    """Coerce a candidate's typed answer into the canonical value shape."""
+    value = value or {}
+    if qtype in (QUESTION_SHORT_TEXT, QUESTION_LONG_TEXT):
+        return {"text": str(value.get("text", "")).strip()}
+    if qtype == QUESTION_DATE:
+        raw = value.get("date")
+        return {"date": raw.strip() if isinstance(raw, str) else raw}
+    if qtype == QUESTION_CHECKBOX:
+        return {"checked": bool(value.get("checked"))}
+    # attachment (reserved) / unknown — persist as-is.
+    return dict(value)
+
+
+def _answer_is_empty(qtype: str, answer: Optional["AssessmentAnswer"]) -> bool:
+    """Whether a required question was left effectively blank."""
+    if answer is None:
+        return True
+    if qtype in CHOICE_QUESTION_TYPES:
+        return not (answer.selected_choice_ids or [])
+    v = answer.value or {}
+    if qtype in (QUESTION_SHORT_TEXT, QUESTION_LONG_TEXT):
+        return not str(v.get("text", "")).strip()
+    if qtype == QUESTION_DATE:
+        return not v.get("date")
+    if qtype == QUESTION_CHECKBOX:
+        return not bool(v.get("checked"))
+    if qtype == QUESTION_ATTACHMENT:
+        return not v.get("attachment_id")
+    return False
+
+
 def _materialise_choices(
     question: AssessmentQuestion, choices: Iterable[AssessmentChoiceCreate]
 ) -> None:
@@ -148,13 +200,18 @@ def create_assessment(
 
     if payload.questions:
         for q_idx, q_payload in enumerate(payload.questions):
-            _validate_choices(q_payload.choices)
+            _validate_question_payload(q_payload.type, q_payload.choices)
             question = AssessmentQuestion(
                 text=q_payload.text,
+                type=q_payload.type,
+                help_text=q_payload.help_text,
+                is_required=q_payload.is_required,
+                config=q_payload.config or {},
                 order_index=q_payload.order_index or q_idx,
                 points=q_payload.points,
             )
-            _materialise_choices(question, q_payload.choices)
+            if q_payload.type in CHOICE_QUESTION_TYPES and q_payload.choices:
+                _materialise_choices(question, q_payload.choices)
             assessment.questions.append(question)
 
     db.add(assessment)
@@ -245,7 +302,7 @@ def add_question(
     assessment = db.get(Assessment, assessment_id)
     if assessment is None:
         raise AssessmentNotFound(f"Assessment {assessment_id} not found.")
-    _validate_choices(payload.choices)
+    _validate_question_payload(payload.type, payload.choices)
     # Default order_index to "next" if caller didn't pin one.
     next_order = db.execute(
         select(func.coalesce(func.max(AssessmentQuestion.order_index), -1) + 1)
@@ -254,10 +311,15 @@ def add_question(
     question = AssessmentQuestion(
         assessment_id=assessment_id,
         text=payload.text,
+        type=payload.type,
+        help_text=payload.help_text,
+        is_required=payload.is_required,
+        config=payload.config or {},
         order_index=payload.order_index or next_order,
         points=payload.points,
     )
-    _materialise_choices(question, payload.choices)
+    if payload.type in CHOICE_QUESTION_TYPES and payload.choices:
+        _materialise_choices(question, payload.choices)
     db.add(question)
     db.flush()
     return question
@@ -273,6 +335,9 @@ def update_question(
     if question is None:
         raise AssessmentNotFound(f"Question {question_id} not found.")
 
+    # Effective type after this update (caller may be switching it).
+    new_type = payload.type or question.type
+
     # If the template has submissions tied to it, lock destructive
     # edits — changing the answer key after the fact would silently
     # rescore past attempts on next view.
@@ -282,17 +347,26 @@ def update_question(
             "already answered this question. Add a new question "
             "instead."
         )
+    if payload.choices is not None:
+        _validate_question_payload(new_type, payload.choices)
 
     data = payload.model_dump(exclude_unset=True, exclude={"choices"})
+    # config is NOT NULL — an explicit null clears to {}.
+    if "config" in data and data["config"] is None:
+        data["config"] = {}
     for field, value in data.items():
         setattr(question, field, value)
 
     if payload.choices is not None:
-        _validate_choices(payload.choices)
         # Replace the whole set — cascade-delete handles the orphans.
         question.choices.clear()
         db.flush()
-        _materialise_choices(question, payload.choices)
+        if new_type in CHOICE_QUESTION_TYPES:
+            _materialise_choices(question, payload.choices)
+    elif payload.type is not None and new_type not in CHOICE_QUESTION_TYPES:
+        # Switched to a non-choice type — drop any stale choices.
+        if question.choices:
+            question.choices.clear()
 
     db.flush()
     return question
@@ -616,6 +690,7 @@ def finalise_submission(
         )
     )
 
+    new_answers: list[AssessmentAnswer] = []
     for payload in answers:
         question = questions_by_id.get(payload.question_id)
         if question is None:
@@ -623,20 +698,37 @@ def finalise_submission(
             # a stale browser tab from before a question got removed
             # shouldn't lose the candidate's other answers.
             continue
-        # Filter selected choices to ones that actually belong to this
-        # question (defends against a client sending arbitrary IDs).
-        valid_choice_ids = {c.id for c in question.choices}
-        cleaned = [
-            cid for cid in payload.selected_choice_ids if cid in valid_choice_ids
-        ]
-        # is_correct gets populated by the scorer below.
-        db.add(
-            AssessmentAnswer(
+        if question.type in CHOICE_QUESTION_TYPES:
+            # Filter selected choices to ones that actually belong to this
+            # question (defends against a client sending arbitrary IDs).
+            valid_choice_ids = {c.id for c in question.choices}
+            cleaned = [
+                cid
+                for cid in payload.selected_choice_ids
+                if cid in valid_choice_ids
+            ]
+            answer = AssessmentAnswer(
                 submission_id=submission.id,
                 question_id=question.id,
                 selected_choice_ids=cleaned,
             )
-        )
+        else:
+            answer = AssessmentAnswer(
+                submission_id=submission.id,
+                question_id=question.id,
+                selected_choice_ids=[],
+                value=_normalise_answer_value(question.type, payload.value),
+            )
+        new_answers.append(answer)
+        db.add(answer)
+
+    # Required-field validation. Raising here rolls the endpoint's
+    # transaction back, so the answer-wipe above is undone and the
+    # candidate's prior answers survive.
+    answers_by_q = {a.question_id: a for a in new_answers}
+    for q in questions:
+        if q.is_required and _answer_is_empty(q.type, answers_by_q.get(q.id)):
+            raise AssessmentValidationError(f"'{q.text[:60]}' is required.")
 
     db.flush()
 
@@ -673,10 +765,18 @@ def score_submission(
             .all()
         )
 
+    # Only choice questions are auto-graded; text/date/checkbox/attachment
+    # are manual-review (objective 0 until HR sets a score override) and
+    # are excluded from the objective max so "score / max" reads as the
+    # auto-gradable portion.
+    choice_questions = [
+        q for q in questions if q.type in CHOICE_QUESTION_TYPES
+    ]
     correct_sets = {
-        q.id: {c.id for c in q.choices if c.is_correct} for q in questions
+        q.id: {c.id for c in q.choices if c.is_correct}
+        for q in choice_questions
     }
-    points_by_q = {q.id: q.points for q in questions}
+    points_by_q = {q.id: q.points for q in choice_questions}
 
     answers = (
         db.execute(
@@ -690,7 +790,11 @@ def score_submission(
 
     score = 0
     for ans in answers:
-        expected = correct_sets.get(ans.question_id, set())
+        if ans.question_id not in correct_sets:
+            # Manual-review question — leave is_correct NULL.
+            ans.is_correct = None
+            continue
+        expected = correct_sets[ans.question_id]
         chosen = set(ans.selected_choice_ids or [])
         is_correct = chosen == expected
         ans.is_correct = is_correct

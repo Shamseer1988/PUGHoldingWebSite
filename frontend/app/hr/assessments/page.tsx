@@ -671,7 +671,8 @@ function QuestionsList({
               <header className="mb-2 flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">
-                    Q{idx + 1} · {q.points} pt{q.points === 1 ? "" : "s"}
+                    Q{idx + 1} · {q.points} pt{q.points === 1 ? "" : "s"} ·{" "}
+                    {QUESTION_TYPE_LABEL[q.type] ?? q.type}
                   </p>
                   <p className="text-sm">{q.text}</p>
                 </div>
@@ -754,6 +755,23 @@ function QuestionsList({
 // ---------------------------------------------------------------------------
 
 
+const QUESTION_TYPE_LABEL: Record<string, string> = {
+  short_text: "Short text",
+  long_text: "Paragraph",
+  date: "Date",
+  checkbox: "Checkbox",
+  single_choice: "Dropdown",
+  multi_choice: "Multiple choice",
+  attachment: "Attachment",
+};
+
+function numStr(v: unknown): string {
+  return typeof v === "number" ? String(v) : "";
+}
+function strVal(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
 function QuestionEditor({
   mode,
   assessmentId,
@@ -767,10 +785,23 @@ function QuestionEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const cfg = (question?.config ?? {}) as Record<string, unknown>;
   const [text, setText] = React.useState(question?.text ?? "");
+  const [type, setType] = React.useState<string>(question?.type ?? "multi_choice");
+  const [helpText, setHelpText] = React.useState(question?.help_text ?? "");
+  const [isRequired, setIsRequired] = React.useState(
+    question?.is_required ?? true,
+  );
   const [points, setPoints] = React.useState<string>(
     question?.points?.toString() ?? "1",
   );
+  // Type-specific config fields (only the relevant ones are sent).
+  const [minLen, setMinLen] = React.useState(numStr(cfg.min_length));
+  const [maxLen, setMaxLen] = React.useState(numStr(cfg.max_length));
+  const [placeholder, setPlaceholder] = React.useState(strVal(cfg.placeholder));
+  const [minDate, setMinDate] = React.useState(strVal(cfg.min_date));
+  const [maxDate, setMaxDate] = React.useState(strVal(cfg.max_date));
+  const [checkboxLabel, setCheckboxLabel] = React.useState(strVal(cfg.label));
   const [choices, setChoices] = React.useState<
     Array<{ text: string; is_correct: boolean }>
   >(
@@ -782,6 +813,8 @@ function QuestionEditor({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const isChoice = type === "single_choice" || type === "multi_choice";
+
   function addChoice() {
     setChoices((prev) => [...prev, { text: "", is_correct: false }]);
   }
@@ -792,31 +825,53 @@ function QuestionEditor({
     setChoices((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
   }
 
+  function buildConfig(): Record<string, unknown> {
+    const c: Record<string, unknown> = {};
+    if (type === "short_text" || type === "long_text") {
+      if (minLen) c.min_length = Number(minLen);
+      if (maxLen) c.max_length = Number(maxLen);
+      if (placeholder.trim()) c.placeholder = placeholder.trim();
+    } else if (type === "date") {
+      if (minDate) c.min_date = minDate;
+      if (maxDate) c.max_date = maxDate;
+    } else if (type === "checkbox") {
+      if (checkboxLabel.trim()) c.label = checkboxLabel.trim();
+    }
+    return c;
+  }
+
   async function save() {
     if (!text.trim()) {
       setError("Question text required.");
       return;
     }
-    const cleaned = choices
-      .map((c) => ({ text: c.text.trim(), is_correct: c.is_correct }))
-      .filter((c) => c.text);
-    if (cleaned.length < 2) {
-      setError("At least two choices required.");
-      return;
-    }
-    if (!cleaned.some((c) => c.is_correct)) {
-      setError("Mark at least one choice as correct.");
-      return;
+    let cleaned: Array<{ text: string; is_correct: boolean }> = [];
+    if (isChoice) {
+      cleaned = choices
+        .map((c) => ({ text: c.text.trim(), is_correct: c.is_correct }))
+        .filter((c) => c.text);
+      if (cleaned.length < 2) {
+        setError("At least two choices required.");
+        return;
+      }
+      if (!cleaned.some((c) => c.is_correct)) {
+        setError("Mark at least one choice as correct.");
+        return;
+      }
     }
 
     setBusy(true);
     setError(null);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         text: text.trim(),
+        type,
+        help_text: helpText.trim() || null,
+        is_required: isRequired,
+        config: buildConfig(),
         points: Number(points) || 1,
-        choices: cleaned,
       };
+      if (isChoice) body.choices = cleaned;
       if (mode === "add") {
         await hrApi.post(`/hr/assessments/${assessmentId}/questions`, body);
       } else if (question) {
@@ -840,6 +895,21 @@ function QuestionEditor({
     >
       <div className="space-y-3">
         <div className="space-y-1">
+          <Label htmlFor="q-type">Question type</Label>
+          <Select
+            id="q-type"
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+          >
+            <option value="short_text">Short text</option>
+            <option value="long_text">Paragraph (long text)</option>
+            <option value="date">Date</option>
+            <option value="checkbox">Checkbox (acknowledgement)</option>
+            <option value="single_choice">Dropdown (single choice)</option>
+            <option value="multi_choice">Multiple choice</option>
+          </Select>
+        </div>
+        <div className="space-y-1">
           <Label htmlFor="q-text">Question</Label>
           <Textarea
             id="q-text"
@@ -849,18 +919,111 @@ function QuestionEditor({
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="q-points">Points</Label>
+          <Label htmlFor="q-help">Help text (optional)</Label>
           <Input
-            id="q-points"
-            type="number"
-            min={1}
-            max={100}
-            value={points}
-            onChange={(e) => setPoints(e.target.value)}
+            id="q-help"
+            value={helpText}
+            onChange={(e) => setHelpText(e.target.value)}
+            placeholder="Shown under the question"
           />
         </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={isRequired}
+              onChange={(e) => setIsRequired(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+            />
+            Required
+          </label>
+          <div className="space-y-1">
+            <Label htmlFor="q-points">Points</Label>
+            <Input
+              id="q-points"
+              type="number"
+              min={1}
+              max={100}
+              value={points}
+              onChange={(e) => setPoints(e.target.value)}
+              className="w-24"
+            />
+          </div>
+        </div>
+
+        {/* Type-specific config */}
+        {(type === "short_text" || type === "long_text") && (
+          <div className="grid grid-cols-2 gap-2 rounded-md border border-border/60 p-3">
+            <div className="space-y-1">
+              <Label htmlFor="q-minlen">Min length</Label>
+              <Input
+                id="q-minlen"
+                type="number"
+                min={0}
+                value={minLen}
+                onChange={(e) => setMinLen(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="q-maxlen">Max length</Label>
+              <Input
+                id="q-maxlen"
+                type="number"
+                min={0}
+                value={maxLen}
+                onChange={(e) => setMaxLen(e.target.value)}
+              />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label htmlFor="q-ph">Placeholder</Label>
+              <Input
+                id="q-ph"
+                value={placeholder}
+                onChange={(e) => setPlaceholder(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+        {type === "date" && (
+          <div className="grid grid-cols-2 gap-2 rounded-md border border-border/60 p-3">
+            <div className="space-y-1">
+              <Label htmlFor="q-mind">Earliest date</Label>
+              <Input
+                id="q-mind"
+                type="date"
+                value={minDate}
+                onChange={(e) => setMinDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="q-maxd">Latest date</Label>
+              <Input
+                id="q-maxd"
+                type="date"
+                value={maxDate}
+                onChange={(e) => setMaxDate(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+        {type === "checkbox" && (
+          <div className="space-y-1 rounded-md border border-border/60 p-3">
+            <Label htmlFor="q-cblabel">Checkbox label</Label>
+            <Input
+              id="q-cblabel"
+              value={checkboxLabel}
+              onChange={(e) => setCheckboxLabel(e.target.value)}
+              placeholder="e.g. I confirm the details are accurate"
+            />
+          </div>
+        )}
+        {isChoice && (
         <div className="space-y-2">
-          <Label>Choices (tick the correct ones)</Label>
+          <Label>
+            {type === "single_choice"
+              ? "Options (tick the correct one)"
+              : "Choices (tick the correct ones)"}
+          </Label>
           {choices.map((c, i) => (
             <div key={i} className="flex items-center gap-2">
               <input
@@ -898,7 +1061,8 @@ function QuestionEditor({
             Add choice
           </Button>
         </div>
-        {mode === "edit" && (
+        )}
+        {mode === "edit" && isChoice && (
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
             <ClipboardList className="-mt-0.5 mr-1 inline h-3 w-3" />
             Once any candidate has answered, choices lock — adding a

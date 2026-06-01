@@ -22,13 +22,23 @@ service.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 INVITE_STATUS_PATTERN = r"^(pending|sent|opened|submitted|expired|cancelled)$"
 IDENTITY_FIELD_PATTERN = r"^(dob|email|mobile)$"
+
+QuestionType = Literal[
+    "short_text",
+    "long_text",
+    "date",
+    "checkbox",
+    "single_choice",
+    "multi_choice",
+    "attachment",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -50,22 +60,49 @@ class AssessmentChoiceUpdate(BaseModel):
 
 class AssessmentQuestionCreate(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
+    type: QuestionType = "multi_choice"
+    help_text: Optional[str] = Field(default=None, max_length=2000)
+    is_required: bool = True
+    # Type-specific options (min_length/max_length, min_date/max_date,
+    # placeholder, accepted_mime_types, max_file_size_mb).
+    config: Dict[str, Any] = Field(default_factory=dict)
     order_index: int = Field(default=0, ge=0, le=10_000)
     points: int = Field(default=1, ge=1, le=100)
-    # At least two choices required; at least one must be marked correct
-    # — enforced in the endpoint after we materialise the list.
-    choices: List[AssessmentChoiceCreate] = Field(min_length=2, max_length=20)
+    # Required + non-empty (≥2, ≥1 correct) only for single_choice /
+    # multi_choice — validated by type here (422) and defended in the
+    # service layer.
+    choices: Optional[List[AssessmentChoiceCreate]] = Field(
+        default=None, max_length=20
+    )
+
+    @model_validator(mode="after")
+    def _check_choices_by_type(self) -> "AssessmentQuestionCreate":
+        # Shape check (422). The "≥1 correct" rule stays in the service
+        # layer so it surfaces as a friendly 400 with a message.
+        items = self.choices or []
+        if self.type in ("single_choice", "multi_choice"):
+            if len(items) < 2:
+                raise ValueError("Choice questions need at least two choices.")
+        elif items:
+            raise ValueError(
+                f"'{self.type}' questions do not take choices."
+            )
+        return self
 
 
 class AssessmentQuestionUpdate(BaseModel):
     text: Optional[str] = Field(default=None, max_length=5000)
+    type: Optional[QuestionType] = None
+    help_text: Optional[str] = Field(default=None, max_length=2000)
+    is_required: Optional[bool] = None
+    config: Optional[Dict[str, Any]] = None
     order_index: Optional[int] = Field(default=None, ge=0, le=10_000)
     points: Optional[int] = Field(default=None, ge=1, le=100)
     # If supplied, the choice list fully replaces what's stored —
     # simpler than a per-choice diff and matches how the HR UI edits
     # a question (whole form, then Save).
     choices: Optional[List[AssessmentChoiceCreate]] = Field(
-        default=None, min_length=2, max_length=20
+        default=None, max_length=20
     )
 
 
@@ -108,6 +145,10 @@ class AssessmentQuestionRead(BaseModel):
 
     id: int
     text: str
+    type: str = "multi_choice"
+    help_text: Optional[str] = None
+    is_required: bool = True
+    config: Dict[str, Any] = Field(default_factory=dict)
     order_index: int
     points: int
     choices: List[AssessmentChoiceRead]
@@ -194,7 +235,10 @@ class AssessmentAnswerRead(BaseModel):
     id: int
     question_id: int
     selected_choice_ids: List[int]
+    value: Optional[Dict[str, Any]] = None
     is_correct: Optional[bool]
+    reviewer_passed: Optional[bool] = None
+    reviewer_note: Optional[str] = None
 
 
 class AssessmentSubmissionRead(BaseModel):
@@ -207,6 +251,11 @@ class AssessmentSubmissionRead(BaseModel):
     score: Optional[int]
     max_score: Optional[int]
     passed: Optional[bool]
+    review_status: str = "pending"
+    reviewed_by_user_id: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    reviewer_overall_comment: Optional[str] = None
+    reviewer_score_override: Optional[int] = None
     answers: List[AssessmentAnswerRead]
 
 
@@ -267,6 +316,10 @@ class PublicQuestionRead(BaseModel):
 
     id: int
     text: str
+    type: str = "multi_choice"
+    help_text: Optional[str] = None
+    is_required: bool = True
+    config: Dict[str, Any] = Field(default_factory=dict)
     order_index: int
     points: int
     choices: List[PublicChoiceRead]
@@ -307,6 +360,10 @@ class IdentityVerifyResponse(BaseModel):
 class PublicAnswerSubmit(BaseModel):
     question_id: int = Field(ge=1)
     selected_choice_ids: List[int] = Field(default_factory=list, max_length=20)
+    # Typed answer for non-choice questions:
+    #   {"text": "..."} | {"date": "2026-05-31"} | {"checked": true}
+    #   | {"choice_id": 42}  (single_choice)
+    value: Optional[Dict[str, Any]] = None
 
 
 class PublicAssessmentSubmit(BaseModel):
@@ -323,6 +380,46 @@ class PublicSubmissionAck(BaseModel):
     max_score: int
     passed: Optional[bool]
     submitted_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# HR review-and-advance
+# ---------------------------------------------------------------------------
+
+
+class ReviewPerQuestion(BaseModel):
+    question_id: int = Field(ge=1)
+    passed: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssessmentReviewCreate(BaseModel):
+    """Payload for ``POST /hr/assessments/submissions/{id}/review``."""
+
+    action: Literal[
+        "draft_saved", "approved_advanced", "rejected", "changes_requested"
+    ]
+    per_question: List[ReviewPerQuestion] = Field(default_factory=list)
+    overall_comment: Optional[str] = Field(default=None, max_length=5000)
+    score_override: Optional[int] = Field(default=None, ge=0)
+    # Required when action == approved_advanced — the next application
+    # status (must be in ALLOWED_TRANSITIONS for the current status).
+    advance_to_status: Optional[str] = None
+    # Required when action in {rejected, changes_requested}.
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssessmentReviewEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    submission_id: int
+    actor_user_id: Optional[int] = None
+    action: str
+    from_status: Optional[str] = None
+    to_status: Optional[str] = None
+    note: Optional[str] = None
+    created_at: datetime
 
 
 __all__ = [
@@ -347,6 +444,10 @@ __all__ = [
     "AssessmentSubmissionRead",
     "AssessmentSubmissionListItem",
     "AssessmentSubmissionListResponse",
+    # Review
+    "ReviewPerQuestion",
+    "AssessmentReviewCreate",
+    "AssessmentReviewEventRead",
     # Public
     "PublicChoiceRead",
     "PublicQuestionRead",
