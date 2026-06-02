@@ -19,14 +19,17 @@
 # ----- Builder ------------------------------------------------------
 FROM python:3.11-slim AS builder
 
-# Resilience on slow / flaky links to files.pythonhosted.org: pip's default
-# read timeout is only 15s, which fails the whole build on a single stalled
-# download. PIP_DEFAULT_TIMEOUT (120s) + PIP_RETRIES (10) ride out transient
-# drops and are picked up automatically by the ``pip install`` below.
+# Resilience on slow / flaky links to files.pythonhosted.org:
+#   * PIP_DEFAULT_TIMEOUT (120s) + PIP_RETRIES (10) ride out transient drops.
+#   * The BuildKit pip cache mount on the install step below keeps every wheel
+#     that already downloaded across a failed/interrupted build, so re-running
+#     ``build`` resumes instead of re-fetching all ~60 packages. We
+#     intentionally do NOT set PIP_NO_CACHE_DIR so pip populates that cache;
+#     it lives in the build cache (not the final image), so image size is
+#     unaffected.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DEFAULT_TIMEOUT=120 \
     PIP_RETRIES=10
 
@@ -42,7 +45,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --user -r /tmp/requirements.txt
+# Cache mount: downloaded wheels persist across build attempts (see ENV note
+# above), so a flaky PyPI connection resumes instead of starting over.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r /tmp/requirements.txt
 
 
 # ----- Runner -------------------------------------------------------

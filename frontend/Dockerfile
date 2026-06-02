@@ -30,7 +30,9 @@ ENV NPM_CONFIG_FETCH_RETRIES=10 \
 # Copy the manifest pair first so the ``npm ci`` layer caches well —
 # changing app source doesn't bust this layer.
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# Cache mount: npm's tarball cache persists across build attempts so a flaky
+# registry connection resumes instead of re-downloading every package.
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 
 # ----- Stage: dev --------------------------------------------------
