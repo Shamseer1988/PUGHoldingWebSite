@@ -1,0 +1,217 @@
+# ============================================================================
+# Shared-server production stack — "Local Webserver" topology
+# ============================================================================
+# Runs the PUG corporate website (FastAPI + Next.js) on the SAME Windows
+# host that already serves the Employee Housing Control Portal, BEHIND that
+# project's nginx container (Cloudflare Full-Strict + Cloudflare Tunnel).
+#
+# How this differs from docker-compose.prod.yml (the standalone AWS stack):
+#   * NO nginx service and NO published 80/443. The Employee-Housing
+#     portal's nginx is the single TLS terminator / entry point for the
+#     whole box — running a second one here would collide on 80/443.
+#   * backend + frontend join an EXTERNAL, shared docker network
+#     (``pug_edge``) under the stable network aliases ``pugweb-api`` (8000)
+#     and ``pugweb-frontend`` (3000) — the exact upstream names the housing
+#     portal's nginx.conf already templates for Host #3
+#     (parisunitedgroup.com). The housing nginx must also be attached to
+#     ``pug_edge`` (one-line compose edit on that side — see
+#     deploy/webserver-local/README.md).
+#   * postgres + redis stay on a PRIVATE internal network — never reachable
+#     from the edge network, the housing portal, or the host.
+#   * Explicit project name ``pugweb`` so containers/volumes never collide
+#     with the housing portal's (volumes become ``pugweb_postgres_data`` …).
+#
+# One-time host prep (PowerShell), then bring-up — see the README for the
+# full runbook. Quick version, from C:\Apps\PUGWebSite :
+#
+#   docker network create pug_edge
+#   copy backend\.env.webserver-local.example backend\.env   # then edit it
+#   docker compose -f docker-compose.webserver-local.yml up -d --build
+#
+# The backend container runs ``alembic upgrade head`` before gunicorn on
+# every start, so new migrations apply automatically on redeploy.
+# ============================================================================
+
+name: pugweb
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Postgres reads POSTGRES_USER / PASSWORD / DB from backend/.env at
+    # initdb, the same file the backend loads — so creds agree by
+    # construction. ``required: true`` makes a missing .env fail loudly.
+    env_file:
+      - path: ./backend/.env
+        required: true
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # ``$$VAR`` resolves inside the container against the env_file values.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    # Reach a host-run Ollama / OpenAI-compatible AI server (optional) at
+    # http://host.docker.internal:11434/v1 etc.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: ./backend/.env
+        required: true
+    environment:
+      # Compose-network coordinates always win over backend/.env.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_ENV: production
+      # Pin uploads to the persistent volume mounted below (matches the
+      # prod stack — the relative default would write inside the container
+      # and vanish on every rebuild).
+      UPLOAD_DIR: /app/uploads
+      # uvicorn (under gunicorn's UvicornWorker) honours this env var and
+      # will then trust X-Forwarded-* from its peer. Safe to set to "*"
+      # because ONLY the nginx container can reach this service on the
+      # edge network — it makes request.scheme == "https" behind the
+      # Cloudflare-Tunnel -> nginx chain.
+      FORWARDED_ALLOW_IPS: "*"
+    # gunicorn + uvicorn workers (production-grade). Run migrations first.
+    command:
+      - sh
+      - -c
+      - >
+        alembic upgrade head &&
+        exec gunicorn app.main:app
+        --bind 0.0.0.0:8000
+        --workers 4
+        --worker-class uvicorn.workers.UvicornWorker
+        --access-logfile -
+        --error-logfile -
+        --timeout 300
+        --graceful-timeout 30
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      # Private side: talk to postgres/redis and serve the frontend's
+      # server-side fetches as ``backend:8000``.
+      internal:
+      # Edge side: the housing nginx reaches us as ``pugweb-api:8000``.
+      edge:
+        aliases:
+          - pugweb-api
+
+  worker:
+    # ARQ background worker (semantic-search embeddings, async email, AI
+    # review). Opt-in via the ``worker`` profile — a plain ``up`` skips it.
+    # Start with: docker compose -f docker-compose.webserver-local.yml \
+    #               --profile worker up -d
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: ./backend/.env
+        required: true
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: production
+      ARQ_ENABLED: "true"
+      UPLOAD_DIR: /app/uploads
+    command: ["python", "worker_runner.py"]
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - internal
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: runner
+      # NEXT_PUBLIC_* are baked into the JS bundle (and the CSP header in
+      # next.config.mjs) at ``npm run build`` time. Default to the
+      # parisunitedgroup.com origin so the browser calls the API
+      # same-origin (https://parisunitedgroup.com/api/v1) via nginx. A host
+      # shell env or project-root .env can override; change the defaults
+      # for a different domain.
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://parisunitedgroup.com/api/v1}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://parisunitedgroup.com}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    # Optional — runtime (server-side) public vars; the build args above
+    # already bake the browser-facing values. ``required: false`` so a
+    # missing file doesn't block ``up``.
+    env_file:
+      - path: ./frontend/.env.local
+        required: false
+    environment:
+      # Server-side fetches hit the backend over the private network.
+      API_BASE_URL: http://backend:8000/api/v1
+      NODE_ENV: production
+    networks:
+      internal:
+      # The housing nginx reaches the Next.js server as
+      # ``pugweb-frontend:3000``.
+      edge:
+        aliases:
+          - pugweb-frontend
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  # Private app network — postgres/redis/backend/frontend/worker only.
+  internal:
+    driver: bridge
+  # Shared edge network created once on the host with
+  # ``docker network create pug_edge`` and joined by BOTH this stack and
+  # the Employee-Housing portal's nginx container.
+  edge:
+    external: true
+    name: pug_edge
