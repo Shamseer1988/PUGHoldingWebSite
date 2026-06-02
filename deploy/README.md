@@ -1,34 +1,31 @@
 # `deploy/` — Production deployment artifacts
 
-Ready-to-copy configuration files for the Paris United Group corporate
-website + HR ATS portal, tuned for the shared Ubuntu EC2 host that
-already runs the **PUG Accounts** application. Each file's
-destination path matches the runbook in
-[`docs/deployment-guide.md`](../docs/deployment-guide.md).
+Everything needed to put the Paris United Group apps online is the
+**standalone edge proxy** in [`edge-proxy/`](edge-proxy/) — a single nginx
+that terminates TLS (Cloudflare Origin cert) behind the Cloudflare Tunnel and
+routes each hostname to the right app over the shared `pug_edge` docker
+network. It is shared infrastructure: it is **not** part of any one app's
+compose project, and its config is a **mounted file you edit + reload** — no
+image rebuild to change routing.
 
-| File | Destination on the server | Purpose |
-|------|---------------------------|---------|
-| [`systemd/pugweb-backend.service`](systemd/pugweb-backend.service) | `/etc/systemd/system/pugweb-backend.service` | FastAPI under Gunicorn + Uvicorn workers, bound to `127.0.0.1:8000`. |
-| [`systemd/pugweb-frontend.service`](systemd/pugweb-frontend.service) | `/etc/systemd/system/pugweb-frontend.service` | Next.js in production mode (`npm run start`), bound to `127.0.0.1:3000`. |
-| [`nginx/parisgroup.conf`](nginx/parisgroup.conf) | `/etc/nginx/sites-available/parisgroup` (then `ln -s …/sites-enabled/`) | Reverse proxy for `parisunitedgroup.com` + `www.…`. Phase 1 = HTTP only; Phase 2 = HTTPS via Cloudflare Origin Cert (commented section in the same file). Leaves the existing `pugaccounts` site config untouched. |
-| [`scripts/pg_backup.sh`](scripts/pg_backup.sh) | `/usr/local/bin/pugweb-pg-backup` (chmod +x) | Daily `pg_dump` of `pug_holding` + 14-day retention, optional S3 push. |
-| [`logrotate/pugweb`](logrotate/pugweb) | `/etc/logrotate.d/pugweb` | Rotates `/var/log/pugweb/*.log` (backup log, etc.). |
-
-After copying:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now pugweb-backend pugweb-frontend
-sudo nginx -t && sudo systemctl reload nginx
+```
+Cloudflare ──► cloudflared ──► edge-proxy nginx (deploy/edge-proxy/)
+                                  │  accommodation.parisunitedgroup.com ─► housing-backend / -frontend
+                                  │  parisunitedgroup.com (+ www)        ─► pugweb-api      / pugweb-frontend
+                                  └  pugfin.parisunitedgroup.com         ─► (planned)
 ```
 
-The new services use the `parisgroup` Linux user and read from
-`/home/parisgroup/PugWebSite`, matching the production deployment.
-**Do not edit** the existing `pugaccounts.service` /
-`/etc/nginx/sites-available/pugaccounts` files — the PUG Accounts
-app on `pugfinapp.parisunitedgroup.com` must stay isolated.
+| Path | Purpose |
+|------|---------|
+| [`edge-proxy/`](edge-proxy/) | The standalone reverse proxy — `docker-compose.yml`, the mounted multi-vhost `nginx.conf`, `snippets/`, and an `ssl/` slot for the Origin cert. Start here. |
+| [`edge-proxy/README.md`](edge-proxy/README.md) | Migration runbook + day-2 ops (add an app, change routing, reload, rollback). |
 
-For the full step-by-step — including PostgreSQL hardening,
-Cloudflare DNS + Origin Certificate setup, restore drills, and a
-troubleshooting matrix — see
-[`docs/deployment-guide.md`](../docs/deployment-guide.md).
+The PUG corporate site's own container stack (FastAPI + Next.js, no nginx of
+its own) lives in [`../docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
+at the repo root; it joins `pug_edge` as `pugweb-api` / `pugweb-frontend`, the
+exact aliases `edge-proxy/nginx.conf` resolves for `parisunitedgroup.com`.
+
+> **History:** the earlier bare-metal (systemd + host nginx) and self-contained
+> AWS Docker (`docker-compose.prod.yml` + `deploy/docker/`) deployment paths
+> were retired in favour of this shared edge proxy. They remain in git history
+> if ever needed.

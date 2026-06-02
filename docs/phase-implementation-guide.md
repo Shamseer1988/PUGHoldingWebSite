@@ -153,27 +153,18 @@ lives at the repo root in
   and was not modified.
 
 ### Phase 20 deliverables
-- [`docs/deployment-guide.md`](deployment-guide.md) — full production
-  walkthrough covering Ubuntu 22.04 server prep, PostgreSQL install +
-  hardening, backend deploy under gunicorn + uvicorn workers, Next.js
-  production service, Nginx reverse proxy with TLS, Cloudflare DNS +
-  Origin Certificate SSL, backup + restore runbook, log inspection,
-  rolling deploy + rollback procedures, and a 12-row troubleshooting
-  matrix.
-- [`deploy/systemd/pug-backend.service`](../deploy/systemd/pug-backend.service)
-  — sandboxed systemd unit for the API.
-- [`deploy/systemd/pug-frontend.service`](../deploy/systemd/pug-frontend.service)
-  — sandboxed systemd unit for Next.js.
-- [`deploy/nginx/pug-holding.conf`](../deploy/nginx/pug-holding.conf)
-  — Nginx site config: 80 → 443 redirect, TLS, `/api/v1/` → FastAPI,
-  `/_next/static/` cached, `/api/v1/uploads/` served off disk,
-  20 MB upload cap, security headers, gzip.
-- [`deploy/scripts/pg_backup.sh`](../deploy/scripts/pg_backup.sh) —
-  daily `pg_dump` with 14-day retention and an optional S3 hook.
-- [`deploy/logrotate/pug`](../deploy/logrotate/pug) — `logrotate`
-  config for `/var/log/pug/`.
-- [`deploy/README.md`](../deploy/README.md) — index pointing each
-  artifact at its destination on the server.
+> **Note:** the original Phase 20 shipped a bare-metal deployment (systemd
+> units, a host nginx site, `pg_backup.sh`, logrotate). That path has since
+> been retired in favour of the **standalone edge proxy** + Docker Compose;
+> the original artifacts were removed (they live in git history).
+- [`deploy/edge-proxy/`](../deploy/edge-proxy/) — the standalone reverse
+  proxy that now terminates TLS and routes every app over the `pug_edge`
+  network; its [`README.md`](../deploy/edge-proxy/README.md) is the
+  production runbook (migration, add-an-app, reload, rollback).
+- [`docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
+  — the PUG corporate site's container stack (FastAPI + Next.js), joined to
+  `pug_edge` as `pugweb-api` / `pugweb-frontend`.
+- [`deploy/README.md`](../deploy/README.md) — index for the `deploy/` folder.
 
 ## Phase 8 deliverables
 

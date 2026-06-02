@@ -2,34 +2,38 @@
 # Shared-server production stack — "Local Webserver" topology
 # ============================================================================
 # Runs the PUG corporate website (FastAPI + Next.js) on the SAME Windows
-# host that already serves the Employee Housing Control Portal, BEHIND that
-# project's nginx container (Cloudflare Full-Strict + Cloudflare Tunnel).
+# host that also serves the Employee Housing Control Portal. All public
+# traffic enters through the STANDALONE EDGE PROXY (deploy/edge-proxy/) — a
+# single shared nginx that terminates TLS (Cloudflare Origin cert) behind the
+# Cloudflare Tunnel and routes each hostname to the right app over the shared
+# ``pug_edge`` docker network.
 #
-# How this differs from docker-compose.prod.yml (the standalone AWS stack):
-#   * NO nginx service and NO published 80/443. The Employee-Housing
-#     portal's nginx is the single TLS terminator / entry point for the
-#     whole box — running a second one here would collide on 80/443.
-#   * backend + frontend join an EXTERNAL, shared docker network
-#     (``pug_edge``) under the stable network aliases ``pugweb-api`` (8000)
-#     and ``pugweb-frontend`` (3000) — the exact upstream names the housing
-#     portal's nginx.conf already templates for Host #3
-#     (parisunitedgroup.com). The housing nginx must also be attached to
-#     ``pug_edge`` (one-line compose edit on that side — see
-#     deploy/webserver-local/README.md).
-#   * postgres + redis stay on a PRIVATE internal network — never reachable
-#     from the edge network, the housing portal, or the host.
-#   * Explicit project name ``pugweb`` so containers/volumes never collide
+#   Cloudflare ──► cloudflared ──► edge-proxy nginx (deploy/edge-proxy/)
+#                                    │  parisunitedgroup.com ─► pugweb-api / pugweb-frontend
+#                                    └  accommodation.…       ─► housing-backend / -frontend
+#
+# This stack therefore:
+#   * Runs NO nginx of its own and publishes NO host ports — the edge proxy
+#     owns 80/443 for the whole box. (The corporate vhost already lives in
+#     deploy/edge-proxy/nginx.conf as Host #2.)
+#   * Joins backend + frontend to the EXTERNAL, shared ``pug_edge`` network
+#     under the stable aliases ``pugweb-api`` (8000) and ``pugweb-frontend``
+#     (3000) — the exact upstream names deploy/edge-proxy/nginx.conf resolves
+#     at request time via Docker DNS.
+#   * Keeps postgres + redis on a PRIVATE internal network — never reachable
+#     from the edge network or the host.
+#   * Pins the project name ``pugweb`` so containers/volumes never collide
 #     with the housing portal's (volumes become ``pugweb_postgres_data`` …).
 #
-# One-time host prep (PowerShell), then bring-up — see the README for the
-# full runbook. Quick version, from C:\Apps\PUGWebSite :
+# One-time host prep (PowerShell), then bring-up:
 #
-#   docker network create pug_edge
+#   docker network create pug_edge          # once; shared by every app + the proxy
 #   copy backend\.env.webserver-local.example backend\.env   # then edit it
 #   docker compose -f docker-compose.webserver-local.yml up -d --build
 #
-# The backend container runs ``alembic upgrade head`` before gunicorn on
-# every start, so new migrations apply automatically on redeploy.
+# Bring up the edge proxy itself per deploy/edge-proxy/README.md. The backend
+# container runs ``alembic upgrade head`` before gunicorn on every start, so
+# new migrations apply automatically on redeploy.
 # ============================================================================
 
 name: pugweb
@@ -125,7 +129,7 @@ services:
       # Private side: talk to postgres/redis and serve the frontend's
       # server-side fetches as ``backend:8000``.
       internal:
-      # Edge side: the housing nginx reaches us as ``pugweb-api:8000``.
+      # Edge side: the edge proxy reaches us as ``pugweb-api:8000``.
       edge:
         aliases:
           - pugweb-api
@@ -194,7 +198,7 @@ services:
       NODE_ENV: production
     networks:
       internal:
-      # The housing nginx reaches the Next.js server as
+      # The edge proxy reaches the Next.js server as
       # ``pugweb-frontend:3000``.
       edge:
         aliases:
@@ -211,7 +215,7 @@ networks:
     driver: bridge
   # Shared edge network created once on the host with
   # ``docker network create pug_edge`` and joined by BOTH this stack and
-  # the Employee-Housing portal's nginx container.
+  # the standalone edge proxy (deploy/edge-proxy/).
   edge:
     external: true
     name: pug_edge
