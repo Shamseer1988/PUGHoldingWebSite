@@ -162,20 +162,29 @@ Seeders are idempotent. **Change the seeded admin password immediately.**
 ## Step 7 — Add the Host #3 vhost to nginx
 
 Open `C:\Apps\Employee-Housing-Control-Portal\deploy\nginx.conf` and make the
-three edits described at the top of [`nginx-pugweb.conf`](nginx-pugweb.conf):
+two edits described at the top of [`nginx-pugweb.conf`](nginx-pugweb.conf):
 
-1. Paste the two `upstream pugweb_*` blocks into the upstreams section.
-2. Add `parisunitedgroup.com www.parisunitedgroup.com` to the `server_name`
+1. Add `parisunitedgroup.com www.parisunitedgroup.com` to the `server_name`
    of the `listen 80` redirect block.
-3. Paste the Host #3 `server { … }` block after Host #1.
+2. Paste the Host #3 `server { … }` block after Host #1. (No `upstream`
+   blocks — the vhost resolves `pugweb-api` / `pugweb-frontend` dynamically
+   via Docker DNS, so nginx still boots even if the PUG stack is down and
+   never needs a reload after a PUG redeploy.)
 
-Validate and reload (inside the nginx container — find its name with
-`docker ps`):
+**Apply it with a REBUILD, not a reload.** The housing nginx **bakes
+`nginx.conf` into its image** (`build: Dockerfile.nginx`), so `nginx -s reload`
+won't see your host-side edit — you must rebuild + recreate the container
+(this also attaches it to `pug_edge`):
 
 ```powershell
-docker exec <housing-nginx> nginx -t
-docker exec <housing-nginx> nginx -s reload
+cd C:\Apps\Employee-Housing-Control-Portal
+docker compose -f docker-compose.prod.yml up -d --build nginx
+docker exec <housing-nginx> nginx -t      # sanity-check the running config
 ```
+
+> The PUG stack must already be up on `pug_edge` (Step 5) before you recreate
+> nginx. Confirm with `docker network inspect pug_edge` — it should list the
+> nginx container plus `pugweb-backend-1` and `pugweb-frontend-1`.
 
 ## Step 8 — Route the hostnames through Cloudflare Tunnel
 
