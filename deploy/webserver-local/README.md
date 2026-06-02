@@ -129,6 +129,26 @@ docker compose -f docker-compose.webserver-local.yml logs -f backend   # watch m
 
 The backend runs `alembic upgrade head` automatically before gunicorn starts.
 
+> **Don't let the build disrupt the live housing portal.** The image build
+> (especially the frontend `next build`) is RAM/CPU-heavy and, on a small
+> Docker Desktop VM, can starve the *running* accommodation containers until
+> the build finishes. The two stacks don't conflict (separate project, no
+> shared host ports, separate volumes) — it's pure resource contention during
+> **build only**; runtime (`up -d`) is light. To build gently:
+>
+> 1. Give Docker Desktop **6–8 GB** RAM (Settings → Resources).
+> 2. Build the two images **one at a time** so the heavy steps don't overlap,
+>    with an auto-retry loop for flaky networks (PowerShell):
+>    ```powershell
+>    do { docker compose -f docker-compose.webserver-local.yml build backend }  until ($LASTEXITCODE -eq 0)
+>    do { docker compose -f docker-compose.webserver-local.yml build frontend } until ($LASTEXITCODE -eq 0)
+>    docker compose -f docker-compose.webserver-local.yml up -d
+>    ```
+>    The pip/npm cache mounts mean each retry resumes instead of re-downloading.
+> 3. Or build during off-peak hours, or build on another machine and copy the
+>    images over with `docker save` / `docker load` so the server never runs a
+>    heavy build next to the live app.
+
 ## Step 6 — Seed baseline data (first deploy only)
 
 ```powershell
@@ -246,6 +266,7 @@ docker compose -f docker-compose.webserver-local.yml down           # stop (keep
 
 | Symptom | Cause / fix |
 |---|---|
+| Housing portal becomes slow/unresponsive **while building** PUG web | Resource contention, **not** a conflict (separate project, no shared host ports, separate volumes). The frontend `next build` is RAM-hungry and squeezes the running app on a small Docker VM. Raise Docker Desktop RAM to 6–8 GB, build one service at a time (`build backend` then `build frontend`), or build off-peak / on another machine (`docker save`/`load`). Runtime (`up -d`) is light and doesn't affect the live app. See the note under Step 5. |
 | `502 Bad Gateway` on parisunitedgroup.com (esp. after a redeploy) | nginx cached the old container IP. `docker exec <housing-nginx> nginx -s reload`. Confirm both stacks share `pug_edge`: `docker network inspect pug_edge` should list the nginx, `pugweb-api`, and `pugweb-frontend` containers. |
 | `nginx: host not found in upstream "pugweb-api"` on reload/start | The PUG stack isn't up yet, or nginx isn't on `pug_edge`. Start Step 5 first, redo Step 4, then reload. |
 | `403 Forbidden` on every request | `$cf_edge` gate. Traffic isn't arriving via Cloudflare/tunnel (peer not in the allowlist). Confirm the tunnel ingress points at nginx and you're testing through `https://parisunitedgroup.com`, not the raw IP. |
