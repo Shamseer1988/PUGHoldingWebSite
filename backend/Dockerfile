@@ -19,10 +19,16 @@
 # ----- Builder ------------------------------------------------------
 FROM python:3.11-slim AS builder
 
+# Resilience on slow / flaky links to files.pythonhosted.org: pip's default
+# read timeout is only 15s, which fails the whole build on a single stalled
+# download. PIP_DEFAULT_TIMEOUT (120s) + PIP_RETRIES (10) ride out transient
+# drops and are picked up automatically by the ``pip install`` below.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=10
 
 WORKDIR /app
 

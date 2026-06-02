@@ -20,6 +20,13 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
+# Resilience on slow / flaky links to the npm registry — mirror the pip
+# hardening in backend/Dockerfile so a single stalled download doesn't fail
+# the whole image build. (npm defaults: 2 retries / 60s max.)
+ENV NPM_CONFIG_FETCH_RETRIES=10 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=300000
+
 # Copy the manifest pair first so the ``npm ci`` layer caches well —
 # changing app source doesn't bust this layer.
 COPY frontend/package.json frontend/package-lock.json ./
