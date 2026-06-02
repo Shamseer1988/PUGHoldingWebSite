@@ -232,6 +232,44 @@ docker compose -f docker-compose.webserver-local.yml up -d --build
 docker exec <housing-nginx> nginx -s reload
 ```
 
+### Build elsewhere & copy images over (zero build load on the live server)
+
+Use this instead of building on the server when the box is small or the live
+housing portal must not be disturbed. Build on any machine with good internet,
+then ship the finished images.
+
+**On the BUILD machine** (good internet, x86-64):
+
+```powershell
+git clone https://github.com/Shamseer1988/PUGHoldingWebSite.git PUGWebSite
+cd PUGWebSite
+git checkout WebserverLocal
+copy backend\.env.webserver-local.example backend\.env   # placeholder; build ignores its values
+docker compose -f docker-compose.webserver-local.yml build
+docker save -o pugweb-images.tar pugweb-backend:latest pugweb-frontend:latest
+```
+
+Copy `pugweb-images.tar` to the server (USB / share / scp).
+
+**On the PRODUCTION server** (no build runs here):
+
+```powershell
+cd C:\Apps\PUGHoldingWebSite-Docker
+docker load -i pugweb-images.tar
+docker images | findstr pugweb         # confirm pugweb-backend:latest + pugweb-frontend:latest
+docker compose -f docker-compose.webserver-local.yml up -d --no-build
+docker exec <housing-nginx> nginx -s reload
+```
+
+`--no-build` forces Compose to use the copied images and never build. Three
+musts: (1) the build PC produces **linux/amd64** (default on Intel/AMD; on an
+Apple-Silicon Mac set `DOCKER_DEFAULT_PLATFORM=linux/amd64` first); (2) the
+frontend's public URL is **baked at build** — building via this compose file
+bakes `https://parisunitedgroup.com`, so override `NEXT_PUBLIC_API_BASE_URL` /
+`NEXT_PUBLIC_SITE_URL` before building for another domain; (3) don't rename the
+images — the pinned project name `pugweb` is what lets `--no-build` find them.
+(If you enable the optional ARQ worker, also `docker save pugweb-worker:latest`.)
+
 ### Backup (PostgreSQL — runs inside the container; no host port published)
 
 ```powershell
