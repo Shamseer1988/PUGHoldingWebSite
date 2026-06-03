@@ -1,7 +1,7 @@
 import "@/styles/globals.css";
 
 import type { Metadata, Viewport } from "next";
-import { Inter, Noto_Sans_Arabic } from "next/font/google";
+import localFont from "next/font/local";
 
 import { SeoBodyStart } from "@/components/site/seo-body-start";
 import { SeoHead } from "@/components/site/seo-head";
@@ -14,20 +14,25 @@ import { getPublicSeoHead, type PublicSeoHeadFeed } from "@/lib/seo-api";
 import { buildThemeStyle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
-const inter = Inter({
-  subsets: ["latin"],
+// Self-hosted for offline-safe builds. ``next/font/google`` downloads the
+// woff2 from fonts.gstatic.com at BUILD time, which hangs/fails on hosts whose
+// Docker build network can't reach Google. These are the same variable woff2
+// files Google serves — the Inter "latin" and Noto Sans Arabic "arabic"
+// subsets — vendored under ./fonts so the build never calls out.
+const inter = localFont({
+  src: "./fonts/inter-latin-variable.woff2",
   variable: "--font-sans",
   display: "swap",
+  weight: "100 900",
 });
 
-// Phase C-1: Arabic glyph coverage. Loaded under the same
-// ``--font-sans`` variable family stack so swapping ``<html lang>``
-// is enough — no per-component font swap. ``display: swap`` keeps
-// the FOIT minimal while the file downloads.
-const notoArabic = Noto_Sans_Arabic({
-  subsets: ["arabic"],
+// Arabic glyph coverage under its own ``--font-sans-arabic`` variable so
+// swapping ``<html lang>`` is enough — no per-component font swap.
+const notoArabic = localFont({
+  src: "./fonts/noto-sans-arabic-variable.woff2",
   variable: "--font-sans-arabic",
   display: "swap",
+  weight: "100 900",
 });
 
 // Removed `export const dynamic = "force-dynamic"` (Phase A-1). Forcing
