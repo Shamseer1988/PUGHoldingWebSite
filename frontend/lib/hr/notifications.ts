@@ -31,6 +31,16 @@ interface CandidateApplicationNew {
 
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 
+// Event types that mean "HR data changed". The realtime listener turns
+// each of these into a data-sync bump so every open HR screen refetches —
+// this is how one operator's status change reaches another's console. The
+// backend can add new data-changing events with just one line here.
+const DATA_CHANGED_EVENTS = new Set<string>([
+  "candidate.application.new",
+  "candidate.status.changed",
+  "offer.status.changed",
+]);
+
 function buildWsUrl(token: string): string {
   // ``env.apiBaseUrl`` is e.g. ``http://localhost:8000/api/v1`` —
   // swap the scheme and append the endpoint path so a single env
@@ -66,7 +76,12 @@ function handleEvent(envelope: WsEnvelope): void {
   }
 }
 
-export function useHrNotifications(): void {
+export function useHrNotifications(onDataChange?: () => void): void {
+  // Read through a ref so a changing callback identity never tears down the
+  // socket — the effect intentionally runs once.
+  const onDataChangeRef = React.useRef(onDataChange);
+  onDataChangeRef.current = onDataChange;
+
   React.useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -98,6 +113,9 @@ export function useHrNotifications(): void {
         try {
           const envelope = JSON.parse(e.data) as WsEnvelope;
           handleEvent(envelope);
+          if (DATA_CHANGED_EVENTS.has(envelope.type)) {
+            onDataChangeRef.current?.();
+          }
         } catch {
           // Malformed payload — log to console (the rare debug aid)
           // and move on. Crashing the hook would lose every future

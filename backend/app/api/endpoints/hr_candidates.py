@@ -120,7 +120,10 @@ from app.ai.candidate_review import (
     resolve_config,
 )
 from app.services.audit_log import record_audit
-from app.services.hr_realtime import broadcast_candidate_application_new
+from app.services.hr_realtime import (
+    broadcast_candidate_application_new,
+    broadcast_candidate_status_changed,
+)
 from app.services.candidate_intake import (
     DuplicateApplicationError,
     IntakeForm,
@@ -1574,6 +1577,7 @@ def change_application_status(
     application_id: int,
     payload: CandidateStatusChange,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_CANDIDATES_STATUS_UPDATE)),
 ) -> CandidateRead:
@@ -1622,6 +1626,16 @@ def change_application_status(
     )
     db.commit()
 
+    # Realtime: nudge every other HR console to refetch (best-effort; the
+    # broadcast can never affect the status change that already committed).
+    background_tasks.add_task(
+        broadcast_candidate_status_changed,
+        application_id=app.id,
+        candidate_id=candidate_id,
+        old_status=previous,
+        new_status=result.new_status,
+    )
+
     # Fire-and-forget candidate email if HR opted in. Only the three
     # candidate-facing milestone statuses have templates today —
     # shortlisted, selected, rejected. Other transitions are internal
@@ -1669,6 +1683,7 @@ def change_application_status(
 def bulk_change_application_status(
     payload: BulkCandidateStatusChangeRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_CANDIDATES_STATUS_UPDATE)),
 ) -> BulkCandidateStatusChangeResult:
@@ -1831,6 +1846,18 @@ def bulk_change_application_status(
         )
 
     db.commit()
+
+    # Realtime: nudge every other HR console to refetch for each row that
+    # actually moved (best-effort; never affects the committed result).
+    for row in rows:
+        if row.success:
+            background_tasks.add_task(
+                broadcast_candidate_status_changed,
+                application_id=row.application_id,
+                candidate_id=row.candidate_id,
+                old_status=row.old_status,
+                new_status=row.new_status,
+            )
 
     # Fire-and-forget email notifications for successful rows.
     if notify_keys:

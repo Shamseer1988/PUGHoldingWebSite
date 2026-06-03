@@ -70,7 +70,55 @@ async def broadcast_candidate_application_new(
         return 0
 
 
+EVENT_CANDIDATE_STATUS_CHANGED = "candidate.status.changed"
+
+
+async def broadcast_candidate_status_changed(
+    *,
+    application_id: int,
+    candidate_id: int,
+    old_status: Optional[str],
+    new_status: str,
+) -> int:
+    """Push a recruitment-status change to every connected HR operator so
+    their pipeline / list / dashboard / timeline refreshes without a manual
+    reload.
+
+    Best-effort, exactly like ``broadcast_candidate_application_new`` — a
+    failed or no-op broadcast never affects the status change that already
+    committed.
+    """
+    payload: dict[str, Any] = {
+        "application_id": application_id,
+        "candidate_id": candidate_id,
+        "old_status": old_status,
+        "new_status": new_status,
+    }
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_CANDIDATE_STATUS_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast candidate.status.changed",
+            application_id=application_id,
+            new_status=new_status,
+            sockets=sent,
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the status transaction
+        logger.exception(
+            "Failed to broadcast candidate.status.changed",
+            application_id=application_id,
+        )
+        return 0
+
+
 __all__ = [
     "EVENT_CANDIDATE_APPLICATION_NEW",
+    "EVENT_CANDIDATE_STATUS_CHANGED",
     "broadcast_candidate_application_new",
+    "broadcast_candidate_status_changed",
 ]
