@@ -44,11 +44,16 @@ const csp = [
     (apiOrigin ? apiOrigin + " " : "") +
     "https://www.google-analytics.com https://vitals.vercel-insights.com " +
     "*.r2.cloudflarestorage.com",
-  // ``frame-src`` allows the Google Maps embed on the Contact page +
-  // the optional admin-pasted map embed in the footer. ``youtube.com``
-  // covers any future hero video embeds. Anything else in an iframe is
-  // blocked.
-  "frame-src 'self' https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
+  // ``frame-src`` must cover every host the contact-map sanitiser accepts
+  // (``lib/contact-map.ts`` ALLOWED_HOSTS: Google / OpenStreetMap / Bing) —
+  // otherwise a pasted embed passes validation but the browser silently
+  // blocks the iframe. ``youtube.com`` covers hero video embeds. Anything
+  // else in an iframe is blocked. Keep this in sync with ALLOWED_HOSTS.
+  "frame-src 'self' " +
+    "https://www.google.com https://google.com https://maps.google.com " +
+    "https://www.openstreetmap.org https://openstreetmap.org " +
+    "https://www.bing.com https://bing.com " +
+    "https://www.youtube.com https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
