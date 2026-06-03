@@ -31,11 +31,14 @@ Allowed transitions
     joined             -> (terminal)
     not_joined         -> (terminal)
 
-Each transition writes a row to hr_offer_status_history. ``joined`` /
-``not_joined`` ALSO pushes the underlying CandidateJobApplication
-status to STATUS_JOINED / STATUS_NOT_JOINED — this is the only place
-in the codebase where the offer module mutates the recruitment
-status, and it matches the master plan's explicit rule.
+Each transition writes a row to hr_offer_status_history. Three offer
+milestones ALSO advance the underlying CandidateJobApplication:
+``issue`` -> ``offer_sent``, ``mark_joined`` -> ``joined``, and
+``mark_not_joined`` -> ``not_joined``. Those pushes are funnelled through
+``candidate_workflow.change_status`` (never written directly) so the
+recruitment pipeline keeps a single authority: every push is
+transition-validated and recorded in hr_candidate_status_history, exactly
+like an HR-driven status change.
 """
 from __future__ import annotations
 
@@ -70,10 +73,10 @@ from app.models.hr_ats import (
     STATUS_RECOMMENDED_FOR_OFFER,
     STATUS_SELECTED,
     CandidateJobApplication,
-    CandidateStatusHistory,
     OfferStatusHistory,
     OfferTracking,
 )
+from app.services import candidate_workflow
 
 
 # ---------------------------------------------------------------------------
@@ -170,26 +173,53 @@ def _push_application_status(
     actor: Optional[User],
     remarks: Optional[str] = None,
 ) -> None:
-    """When the offer hits a terminal joining state, mirror that into
-    the candidate's recruitment status — and record the change in
-    hr_candidate_status_history so the candidate timeline stays in sync.
+    """Mirror an offer milestone into the candidate's recruitment status.
 
-    Best-effort: if the candidate is already in that status (e.g. HR
-    manually moved them ahead of the offer), this is a no-op.
+    Routed through the candidate-workflow state machine
+    (:func:`candidate_workflow.change_status`) so the recruitment status
+    has ONE authority: the transition is validated and recorded in
+    hr_candidate_status_history, identically to an HR-driven change.
+
+    - Already at the target -> no-op (e.g. HR moved the candidate ahead of
+      the offer manually).
+    - An offer can legitimately be issued while the application is still
+      ``recommended_for_offer``; the FSM requires ``selected`` as the hop
+      before ``offer_sent``, so we take it automatically.
+    - An illegal push (e.g. issuing against a rejected application) raises
+      :class:`InvalidOfferTransitionError`, which the endpoints already map
+      to a 409 — rather than silently corrupting the pipeline the way the
+      old direct write did.
     """
     if application.status == target_status:
         return
-    old = application.status
-    application.status = target_status
-    db.add(
-        CandidateStatusHistory(
-            application_id=application.id,
-            old_status=old,
+    if actor is None:
+        raise InvalidOfferTransitionError(
+            "Cannot update the recruitment status without an acting user."
+        )
+    try:
+        if (
+            target_status == STATUS_OFFER_SENT
+            and application.status == STATUS_RECOMMENDED_FOR_OFFER
+        ):
+            candidate_workflow.change_status(
+                db,
+                application=application,
+                new_status=STATUS_SELECTED,
+                actor=actor,
+                remarks=remarks or "Selected (offer issued).",
+            )
+        candidate_workflow.change_status(
+            db,
+            application=application,
             new_status=target_status,
-            changed_by_id=actor.id if actor else None,
+            actor=actor,
             remarks=remarks or "Status updated via offer workflow.",
         )
-    )
+    except candidate_workflow.WorkflowError as exc:
+        raise InvalidOfferTransitionError(
+            f"Offer action cannot advance the recruitment pipeline "
+            f"({application.status!r} -> {target_status!r}): {exc}"
+        ) from exc
 
 
 def _gen_offer_letter_number(offer: OfferTracking) -> str:
