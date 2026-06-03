@@ -1,0 +1,8 @@
+# docker-compose.local-access.yml
+services:
+  frontend:
+    ports:
+      - "127.0.0.1:3000:3000"   # the website
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"   # the API (/api/v1, /api/v1/health)
