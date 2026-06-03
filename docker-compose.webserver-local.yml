@@ -177,13 +177,14 @@ services:
       dockerfile: frontend/Dockerfile
       target: runner
       # NEXT_PUBLIC_* are baked into the JS bundle (and the CSP header in
-      # next.config.mjs) at ``npm run build`` time. Default to the
-      # parisunitedgroup.com origin so the browser calls the API
-      # same-origin (https://parisunitedgroup.com/api/v1) via nginx. A host
-      # shell env or project-root .env can override; change the defaults
-      # for a different domain.
+      # next.config.mjs) at ``npm run build`` time. The API base defaults to
+      # the RELATIVE ``/api/v1`` so the browser calls the API same-origin on
+      # whatever host serves the page — the public domain via the edge proxy
+      # AND http://localhost:3000 (Next proxies /api/* to the backend; see
+      # next.config.mjs rewrites). SITE_URL stays absolute for canonical / OG
+      # tags. Override NEXT_PUBLIC_API_BASE_URL for a split api.<domain> host.
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://parisunitedgroup.com/api/v1}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://parisunitedgroup.com}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN-}
     restart: unless-stopped

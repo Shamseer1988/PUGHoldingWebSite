@@ -44,11 +44,16 @@ const csp = [
     (apiOrigin ? apiOrigin + " " : "") +
     "https://www.google-analytics.com https://vitals.vercel-insights.com " +
     "*.r2.cloudflarestorage.com",
-  // ``frame-src`` allows the Google Maps embed on the Contact page +
-  // the optional admin-pasted map embed in the footer. ``youtube.com``
-  // covers any future hero video embeds. Anything else in an iframe is
-  // blocked.
-  "frame-src 'self' https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
+  // ``frame-src`` must cover every host the contact-map sanitiser accepts
+  // (``lib/contact-map.ts`` ALLOWED_HOSTS: Google / OpenStreetMap / Bing) —
+  // otherwise a pasted embed passes validation but the browser silently
+  // blocks the iframe. ``youtube.com`` covers hero video embeds. Anything
+  // else in an iframe is blocked. Keep this in sync with ALLOWED_HOSTS.
+  "frame-src 'self' " +
+    "https://www.google.com https://google.com https://maps.google.com " +
+    "https://www.openstreetmap.org https://openstreetmap.org " +
+    "https://www.bing.com https://bing.com " +
+    "https://www.youtube.com https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -137,11 +142,37 @@ const nextConfig = {
     //   /pinterest-abc123.html
     //   /yandex_abc123.html
     //   /my-site-verification.html
-    const apiBase =
-      process.env.NEXT_PUBLIC_API_BASE_URL ??
-      process.env.API_BASE_URL ??
-      "http://localhost:8000/api/v1";
+    // Same-origin support: NEXT_PUBLIC_API_BASE_URL may be a relative
+    // "/api/v1" so the browser calls the API on whatever host serves the
+    // page (the public domain via the edge proxy, OR http://localhost:3000).
+    // Rewrites run on the Next server, so their destinations must be an
+    // ABSOLUTE backend origin or they'd loop back to this server. Pick the
+    // first absolute URL we know, else fall back to the compose service name.
+    const internalApiBase = (
+      [process.env.API_BASE_URL, process.env.NEXT_PUBLIC_API_BASE_URL].find(
+        (v) => v && /^https?:\/\//i.test(v),
+      ) ?? "http://backend:8000/api/v1"
+    ).replace(/\/+$/, "");
+    let internalApiOrigin;
+    try {
+      internalApiOrigin = new URL(internalApiBase).origin;
+    } catch {
+      internalApiOrigin = "http://backend:8000";
+    }
     return [
+      // Same-origin API proxy — forwards /api/* to the backend so the site
+      // works when served from a host that ISN'T the API origin (notably
+      // http://localhost:3000 for local access). This is a plain array entry
+      // (``afterFiles``), so the real ``/api/health`` route still wins and
+      // only unmatched /api/* (i.e. /api/v1/*) is proxied. On the PUBLIC
+      // deployment the edge proxy handles /api/ before Next sees it, so this
+      // is inert there. NOTE: Next rewrites don't proxy WebSocket upgrades,
+      // so /api/v1/ws/ works via the edge proxy / public domain, not plain
+      // http://localhost:3000.
+      {
+        source: "/api/:path*",
+        destination: `${internalApiOrigin}/api/:path*`,
+      },
       // Branded short URLs — ``/go/{slug}`` resolves to the backend
       // public endpoint, which 302s to the campaign target. Pattern
       // accepts upper-case too so a flyer printed in CAPS still
@@ -150,31 +181,31 @@ const nextConfig = {
       // counter.
       {
         source: "/go/:slug([A-Za-z0-9_-]{3,32})",
-        destination: `${apiBase}/go/:slug`,
+        destination: `${internalApiBase}/go/:slug`,
       },
       {
         source: "/:filename(google[a-zA-Z0-9_-]{4,64}\\.html)",
-        destination: `${apiBase}/public/seo/verify/:filename`,
+        destination: `${internalApiBase}/public/seo/verify/:filename`,
       },
       {
         source: "/BingSiteAuth.xml",
-        destination: `${apiBase}/public/seo/verify/BingSiteAuth.xml`,
+        destination: `${internalApiBase}/public/seo/verify/BingSiteAuth.xml`,
       },
       {
         source: "/:filename(pinterest-[a-zA-Z0-9_-]{4,64}\\.html)",
-        destination: `${apiBase}/public/seo/verify/:filename`,
+        destination: `${internalApiBase}/public/seo/verify/:filename`,
       },
       {
         source: "/:filename(yandex_[a-zA-Z0-9_-]{4,64}\\.html)",
-        destination: `${apiBase}/public/seo/verify/:filename`,
+        destination: `${internalApiBase}/public/seo/verify/:filename`,
       },
       {
         source: "/:filename([a-zA-Z0-9_-]{3,40}-verification\\.html)",
-        destination: `${apiBase}/public/seo/verify/:filename`,
+        destination: `${internalApiBase}/public/seo/verify/:filename`,
       },
       {
         source: "/:filename([a-zA-Z0-9_-]{3,40}-site-verification\\.html)",
-        destination: `${apiBase}/public/seo/verify/:filename`,
+        destination: `${internalApiBase}/public/seo/verify/:filename`,
       },
     ];
   },

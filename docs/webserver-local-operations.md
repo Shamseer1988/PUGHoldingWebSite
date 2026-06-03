@@ -80,9 +80,26 @@ plus `pugweb-api` / `pugweb-frontend`):
 docker network inspect pug_edge --format "{{range .Containers}}{{.Name}} {{end}}"
 ```
 
-> The frontend's browser-facing URL (`NEXT_PUBLIC_API_BASE_URL`) is **baked at
-> build time** and defaults to `https://parisunitedgroup.com/api/v1`. Override
-> it before building for a different domain.
+> The frontend's API base (`NEXT_PUBLIC_API_BASE_URL`) is **baked at build
+> time** and defaults to the relative **`/api/v1`**, so the same image calls
+> the API same-origin on both the public domain and `localhost`. (The Next
+> server proxies `/api/*` to the backend — see `next.config.mjs`.)
+
+### Open the site locally at http://localhost:3000
+
+The stack publishes no host ports by default. To reach it on the box without
+the public domain, add the loopback overlay and (re)build:
+
+```powershell
+docker compose -f docker-compose.webserver-local.yml -f docker-compose.local-access.yml up -d --build
+```
+
+Then open **http://localhost:3000** — login and the REST API work, and the
+public site at https://parisunitedgroup.com keeps working from the *same*
+image (there the edge proxy handles `/api/` before Next). The only thing that
+doesn't proxy on plain localhost is the HR realtime WebSocket (`/api/v1/ws/`),
+which connects via the public domain / edge proxy. See
+`docker-compose.local-access.yml` for the LAN-exposure note.
 
 ## 3 · Update after code changes
 
