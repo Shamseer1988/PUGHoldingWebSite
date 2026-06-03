@@ -168,6 +168,11 @@ OFFER_APPROVAL_STATUSES = (
 OFFER_JOINING_PENDING = "pending"
 OFFER_JOINING_JOINED = "joined"
 OFFER_JOINING_NOT_JOINED = "not_joined"
+OFFER_JOINING_STATUSES = (
+    OFFER_JOINING_PENDING,
+    OFFER_JOINING_JOINED,
+    OFFER_JOINING_NOT_JOINED,
+)
 
 OFFER_STATUSES = (
     OFFER_DRAFT,
@@ -1058,6 +1063,10 @@ class OfferTracking(Base, TimestampMixin):
             _enum_in_clause("approval_status", OFFER_APPROVAL_STATUSES),
             name="ck_hr_offers_approval_status",
         ),
+        CheckConstraint(
+            _enum_in_clause("joining_status", OFFER_JOINING_STATUSES),
+            name="ck_hr_offers_joining_status",
+        ),
     )
 
 
@@ -1271,6 +1280,13 @@ class JobApprovalHistory(Base):
 
     job_opening: Mapped[JobOpening] = relationship(back_populates="approval_history")
 
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("action", APPROVAL_ACTIONS),
+            name="ck_hr_job_approval_history_action",
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Job revision (pending edit of an approved job)
@@ -1307,6 +1323,13 @@ class JobRevision(Base, TimestampMixin):
     remarks: Mapped[Optional[str]] = mapped_column(Text)
 
     job_opening: Mapped[JobOpening] = relationship(back_populates="revisions")
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", REVISION_STATUSES),
+            name="ck_hr_job_revisions_status",
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1346,6 +1369,13 @@ class EmailLog(Base):
         nullable=False,
         server_default=func.now(),
         index=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", EMAIL_LOG_STATUSES),
+            name="ck_hr_email_logs_status",
+        ),
     )
 
 
@@ -1428,6 +1458,13 @@ class CandidateAutoReview(Base, TimestampMixin):
     )
     reviewed_by_system: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("decision", AUTO_REVIEW_DECISIONS),
+            name="ck_hr_candidate_auto_reviews_decision",
+        ),
     )
 
 
@@ -1651,5 +1688,9 @@ class ScheduledReport(Base, TimestampMixin):
         CheckConstraint(
             _enum_in_clause("frequency", SCHEDULED_REPORT_FREQUENCIES),
             name="ck_hr_scheduled_reports_frequency",
+        ),
+        CheckConstraint(
+            _enum_in_clause("last_run_status", SCHEDULED_REPORT_STATUSES),
+            name="ck_hr_scheduled_reports_last_run_status",
         ),
     )
