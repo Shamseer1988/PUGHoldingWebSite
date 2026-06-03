@@ -23,7 +23,9 @@ Cloudflare ──► cloudflared ──► edge-proxy nginx (deploy/edge-proxy/)
 The PUG corporate site's own container stack (FastAPI + Next.js, no nginx of
 its own) lives in [`../docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
 at the repo root; it joins `pug_edge` as `pugweb-api` / `pugweb-frontend`, the
-exact aliases `edge-proxy/nginx.conf` resolves for `parisunitedgroup.com`.
+exact aliases `edge-proxy/nginx.conf` resolves for `parisunitedgroup.com`. Its
+day-2 operations (build/deploy, update, seed, backup/restore, troubleshooting)
+are in [`../docs/webserver-local-operations.md`](../docs/webserver-local-operations.md).
 
 > **History:** the earlier bare-metal (systemd + host nginx) and self-contained
 > AWS Docker (`docker-compose.prod.yml` + `deploy/docker/`) deployment paths

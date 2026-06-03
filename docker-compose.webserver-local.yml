@@ -34,6 +34,9 @@
 # Bring up the edge proxy itself per deploy/edge-proxy/README.md. The backend
 # container runs ``alembic upgrade head`` before gunicorn on every start, so
 # new migrations apply automatically on redeploy.
+#
+# Day-2 ops (build/deploy, update, seed, backup/restore, troubleshooting):
+#   docs/webserver-local-operations.md
 # ============================================================================
 
 name: pugweb
