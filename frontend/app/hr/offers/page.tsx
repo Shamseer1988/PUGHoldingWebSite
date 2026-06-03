@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataSync } from "@/lib/hr/data-sync";
 import { PERM_HR_OFFERS_CREATE } from "@/lib/hr/permissions";
 import type { Offer, OfferStats } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
@@ -73,6 +74,10 @@ export default function HrOffersPage() {
   React.useEffect(() => {
     void refresh();
   }, []);
+
+  // Refresh the list + stats when an offer transition or candidate status
+  // change happens anywhere (drawer, dialogs, another operator).
+  useHrDataSync(() => void refresh());
 
   async function refresh() {
     setItems(null);

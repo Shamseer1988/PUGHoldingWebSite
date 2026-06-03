@@ -2,6 +2,7 @@ import { AuthProvider } from "@/components/auth-provider";
 import { HrRealtimeListener } from "@/components/hr/hr-realtime";
 import { QueryProvider } from "@/components/query-provider";
 import { Toaster } from "@/components/ui/toaster";
+import { HrDataSyncProvider } from "@/lib/hr/data-sync";
 
 // Phase A-1: HR ATS is per-user, per-permission, never cached.
 // Same reasoning as the admin layout — caching candidate / interview
@@ -25,8 +26,10 @@ export default function HrLayout({
   return (
     <AuthProvider scope="hr" loginRedirect="/hr" logoutRedirect="/hr/login">
       <QueryProvider>
-        <div className="min-h-screen bg-background">{children}</div>
-        <HrRealtimeListener />
+        <HrDataSyncProvider>
+          <div className="min-h-screen bg-background">{children}</div>
+          <HrRealtimeListener />
+        </HrDataSyncProvider>
         <Toaster />
       </QueryProvider>
     </AuthProvider>

@@ -7,6 +7,7 @@ import { GripVertical } from "lucide-react";
 import { ScoreBadge } from "@/components/hr/score-badge";
 import { Select } from "@/components/ui/select";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataBump } from "@/lib/hr/data-sync";
 import { cn } from "@/lib/utils";
 
 /**
@@ -85,6 +86,7 @@ interface PipelineBoardProps {
 export function PipelineBoard({ cards, onMoved, onError }: PipelineBoardProps) {
   const laneRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
   const [busyId, setBusyId] = React.useState<number | null>(null);
+  const bump = useHrDataBump();
 
   const byLane = React.useMemo(() => {
     const map: Record<string, PipelineCard[]> = {};
@@ -108,13 +110,14 @@ export function PipelineBoard({ cards, onMoved, onError }: PipelineBoardProps) {
           { new_status: lane.target },
         );
         onMoved();
+        bump();
       } catch (err) {
         onError?.((err as HrApiError).message);
       } finally {
         setBusyId(null);
       }
     },
-    [onMoved, onError],
+    [onMoved, onError, bump],
   );
 
   function handleDragEnd(card: PipelineCard, point: { x: number; y: number }) {

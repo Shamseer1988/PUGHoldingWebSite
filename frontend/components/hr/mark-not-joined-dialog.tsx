@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { ConfirmReasonDialog } from "@/components/hr/confirm-reason-dialog";
 import { hrApi } from "@/lib/hr/api";
+import { useHrDataBump } from "@/lib/hr/data-sync";
 
 /**
  * Mark a candidate as a no-show / not-joined (acceptance criterion 7).
@@ -25,6 +26,7 @@ export function MarkNotJoinedDialog({
   onClose,
   onDone,
 }: Props) {
+  const bump = useHrDataBump();
   return (
     <ConfirmReasonDialog
       title="Mark as not joined"
@@ -38,6 +40,7 @@ export function MarkNotJoinedDialog({
       onConfirm={async (reason) => {
         await hrApi.post(`/hr/offers/${offerId}/mark-not-joined`, { reason });
         onDone();
+        bump();
       }}
       onClose={onClose}
     />

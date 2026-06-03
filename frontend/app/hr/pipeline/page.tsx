@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PipelineBoard, type PipelineCard } from "@/components/hr/pipeline-board";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataSync } from "@/lib/hr/data-sync";
 import type { CandidateListItem } from "@/lib/hr/types";
 
 export default function HrPipelinePage() {
@@ -35,6 +36,10 @@ export default function HrPipelinePage() {
   React.useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Refresh the board when a status changes anywhere (drawer, bulk, or
+  // another operator via realtime).
+  useHrDataSync(() => void refresh());
 
   return (
     <HrShell
