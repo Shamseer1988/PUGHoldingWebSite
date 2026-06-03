@@ -1,0 +1,37 @@
+# ============================================================================
+# Local-access overlay for the "Local Webserver" stack.
+# ============================================================================
+# Publishes the frontend on the host's loopback so you can open the site at
+# http://localhost:3000 WITHOUT going through the public domain / edge proxy.
+#
+# It works because the app calls its API SAME-ORIGIN (``/api/v1``) and
+# next.config.mjs proxies ``/api/*`` to the backend on the internal network —
+# so the very same image also serves https://parisunitedgroup.com correctly
+# (there the edge proxy handles ``/api/`` before Next ever sees it).
+#
+# Use (from C:\Apps\PUGHoldingWebSite-Docker):
+#   docker compose -f docker-compose.webserver-local.yml -f docker-compose.local-access.yml up -d --build
+# Then open http://localhost:3000  (the website). Admin: /admin/login, HR: /hr/login.
+#
+# ``127.0.0.1:`` binds to THIS machine only. Use ``0.0.0.0`` (or just
+# "3000:3000") to reach it from other devices on the LAN — note that bypasses
+# the edge proxy's Cloudflare allow-list + TLS, so only do that on a network
+# you trust.
+#
+# Caveat: HR realtime notifications (WebSocket /api/v1/ws/) are NOT proxied by
+# Next.js rewrites, so they connect only via the public domain / edge proxy,
+# not over plain http://localhost:3000. Everything else (login, REST API,
+# uploads, SSR) works locally.
+# ============================================================================
+
+services:
+  frontend:
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  # Optional: expose the API directly for debugging (curl / Swagger). The site
+  # does NOT need this — it reaches the API through the same-origin /api proxy
+  # above. Uncomment to poke the backend at http://localhost:8000/api/v1.
+  # backend:
+  #   ports:
+  #     - "127.0.0.1:8000:8000"
