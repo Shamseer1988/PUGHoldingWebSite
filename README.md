@@ -4,7 +4,7 @@ Monorepo for the Paris United Group corporate website + HR ATS portal.
 
 * `frontend/` — Next.js 14 (App Router), TypeScript, Tailwind, Framer Motion / GSAP
 * `backend/` — FastAPI, SQLAlchemy 2, PostgreSQL, Alembic, structlog, Sentry
-* `deploy/` — the standalone edge proxy (shared nginx) the production server sits behind
+* `deploy/` — deployment notes (the app runs behind a standalone edge proxy managed on the server)
 * `docs/` — architecture + operational notes
 
 See [`CLAUDE.md`](./CLAUDE.md) for the project conventions Claude Code reads at the start of every session.
@@ -107,7 +107,7 @@ docker build --target runner -t pug-backend:prod -f backend/Dockerfile .
 docker build --target runner -t pug-frontend:prod -f frontend/Dockerfile .
 ```
 
-CI / production deployment lives outside this file — see [`deploy/edge-proxy/`](deploy/edge-proxy/) for the standalone reverse proxy the production server sits behind (and [`docker-compose.webserver-local.yml`](docker-compose.webserver-local.yml) for the corporate site's container stack), plus `.github/workflows/` (added in Phase B-6) for the pipeline.
+CI / production deployment lives outside this file — see [`docker-compose.webserver-local.yml`](docker-compose.webserver-local.yml) for the corporate site's container stack (it runs behind a standalone edge proxy managed on the server — see [`docs/webserver-local-operations.md`](docs/webserver-local-operations.md)), plus `.github/workflows/` (added in Phase B-6) for the pipeline.
 
 ### Troubleshooting
 

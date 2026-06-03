@@ -3,22 +3,23 @@
 # ============================================================================
 # Runs the PUG corporate website (FastAPI + Next.js) on the SAME Windows
 # host that also serves the Employee Housing Control Portal. All public
-# traffic enters through the STANDALONE EDGE PROXY (deploy/edge-proxy/) — a
-# single shared nginx that terminates TLS (Cloudflare Origin cert) behind the
+# traffic enters through the STANDALONE EDGE PROXY (managed on the server at
+# C:\Apps\edge-proxy, not tracked in this repo) — a single shared nginx that
+# terminates TLS (Cloudflare Origin cert) behind the
 # Cloudflare Tunnel and routes each hostname to the right app over the shared
 # ``pug_edge`` docker network.
 #
-#   Cloudflare ──► cloudflared ──► edge-proxy nginx (deploy/edge-proxy/)
+#   Cloudflare ──► cloudflared ──► edge-proxy nginx (C:\Apps\edge-proxy, server-managed)
 #                                    │  parisunitedgroup.com ─► pugweb-api / pugweb-frontend
 #                                    └  accommodation.…       ─► housing-backend / -frontend
 #
 # This stack therefore:
 #   * Runs NO nginx of its own and publishes NO host ports — the edge proxy
 #     owns 80/443 for the whole box. (The corporate vhost already lives in
-#     deploy/edge-proxy/nginx.conf as Host #2.)
+#     the edge proxy's nginx.conf as Host #2.)
 #   * Joins backend + frontend to the EXTERNAL, shared ``pug_edge`` network
 #     under the stable aliases ``pugweb-api`` (8000) and ``pugweb-frontend``
-#     (3000) — the exact upstream names deploy/edge-proxy/nginx.conf resolves
+#     (3000) — the exact upstream names the edge proxy's nginx.conf resolves
 #     at request time via Docker DNS.
 #   * Keeps postgres + redis on a PRIVATE internal network — never reachable
 #     from the edge network or the host.
@@ -31,9 +32,9 @@
 #   copy backend\.env.webserver-local.example backend\.env   # then edit it
 #   docker compose -f docker-compose.webserver-local.yml up -d --build
 #
-# Bring up the edge proxy itself per deploy/edge-proxy/README.md. The backend
-# container runs ``alembic upgrade head`` before gunicorn on every start, so
-# new migrations apply automatically on redeploy.
+# The edge proxy is managed on the server at C:\Apps\edge-proxy (not tracked in
+# this repo). The backend container runs ``alembic upgrade head`` before
+# gunicorn on every start, so new migrations apply automatically on redeploy.
 #
 # Day-2 ops (build/deploy, update, seed, backup/restore, troubleshooting):
 #   docs/webserver-local-operations.md
@@ -219,7 +220,7 @@ networks:
     driver: bridge
   # Shared edge network created once on the host with
   # ``docker network create pug_edge`` and joined by BOTH this stack and
-  # the standalone edge proxy (deploy/edge-proxy/).
+  # the standalone edge proxy (server-managed at C:\Apps\edge-proxy).
   edge:
     external: true
     name: pug_edge

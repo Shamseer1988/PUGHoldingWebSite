@@ -10,8 +10,9 @@
 > behind the Cloudflare Tunnel and routes every host over the `pug_edge`
 > network. See:
 >
-> - [`deploy/edge-proxy/README.md`](../deploy/edge-proxy/README.md) — the edge
->   proxy stack, migration runbook, and day-2 operations.
+> - [`docs/webserver-local-operations.md`](webserver-local-operations.md) — the
+>   operations runbook (the standalone edge proxy is managed on the server at
+>   `C:\Apps\edge-proxy`, not tracked in this repo).
 > - [`docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
 >   — the PUG corporate site's container stack (FastAPI + Next.js), joined to
 >   `pug_edge` as `pugweb-api` / `pugweb-frontend`.

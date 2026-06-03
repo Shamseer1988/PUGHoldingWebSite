@@ -8,8 +8,9 @@
 > nginx that terminates TLS and routes every app over the `pug_edge` docker
 > network. See:
 >
-> - [`deploy/edge-proxy/README.md`](../deploy/edge-proxy/README.md) — the edge
->   proxy stack and its migration / day-2 runbook.
+> - [`docs/webserver-local-operations.md`](webserver-local-operations.md) — the
+>   operations runbook (the standalone edge proxy is managed on the server at
+>   `C:\Apps\edge-proxy`, not tracked in this repo).
 > - [`docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
 >   — the PUG corporate site's container stack (no nginx of its own; joins
 >   `pug_edge` as `pugweb-api` / `pugweb-frontend`).

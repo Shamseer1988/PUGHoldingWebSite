@@ -2,9 +2,9 @@
 
 Day-2 runbook for the PUG Holding website (FastAPI + Next.js) running as the
 `pugweb` Docker Compose stack on the shared Windows host, **behind the
-standalone edge proxy** (`deploy/edge-proxy/`). For the proxy itself — TLS,
-routing, adding an app, rollback — see
-[`deploy/edge-proxy/README.md`](../deploy/edge-proxy/README.md). First-time
+standalone edge proxy** — a single shared nginx managed on the server at
+`C:\Apps\edge-proxy` (it terminates TLS behind the Cloudflare Tunnel and
+routes each host over `pug_edge`; it is not tracked in this repo). First-time
 bring-up is documented in the header of
 [`docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml).
 
@@ -191,8 +191,8 @@ file is plain SQL, not custom format → use `psql -U pug_user -d pug_holding -f
 
 - The corporate vhost is **Host #2** in `C:\Apps\edge-proxy\nginx.conf` — there
   is nothing to add for `parisunitedgroup.com`. Routing edits = edit that file +
-  `docker exec edge-proxy-nginx-1 nginx -s reload` (see
-  [`deploy/edge-proxy/README.md`](../deploy/edge-proxy/README.md)).
+  `docker exec edge-proxy-nginx-1 nginx -s reload`. The proxy config lives on
+  the server at `C:\Apps\edge-proxy` and is not tracked in this repo.
 - `parisunitedgroup.com` + `www` are public hostnames on the **same** Cloudflare
   Tunnel that serves `accommodation.parisunitedgroup.com`, pointing at the edge
   proxy. The Cloudflare **Origin Certificate must cover both** the apex

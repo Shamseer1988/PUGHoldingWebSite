@@ -1,33 +1,30 @@
-# `deploy/` — Production deployment artifacts
+# `deploy/` — Deployment notes
 
-Everything needed to put the Paris United Group apps online is the
-**standalone edge proxy** in [`edge-proxy/`](edge-proxy/) — a single nginx
-that terminates TLS (Cloudflare Origin cert) behind the Cloudflare Tunnel and
-routes each hostname to the right app over the shared `pug_edge` docker
-network. It is shared infrastructure: it is **not** part of any one app's
-compose project, and its config is a **mounted file you edit + reload** — no
-image rebuild to change routing.
+The Paris United Group apps are served by two pieces:
+
+1. **The app stack** — [`../docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
+   (FastAPI + Next.js, Postgres, Redis), with no nginx of its own. It joins the
+   shared `pug_edge` docker network as `pugweb-api` / `pugweb-frontend`. For
+   local access at http://localhost:3000, add the
+   [`../docker-compose.local-access.yml`](../docker-compose.local-access.yml) overlay.
+2. **A standalone edge proxy** — a single shared nginx that terminates TLS
+   (Cloudflare Origin cert) behind the Cloudflare Tunnel and routes each
+   hostname to the right app over `pug_edge`. It is **managed on the server at
+   `C:\Apps\edge-proxy` and is not tracked in this repo** — its `nginx.conf` is
+   a mounted file you edit + reload (`docker exec edge-proxy-nginx-1 nginx -s reload`),
+   no rebuild.
 
 ```
-Cloudflare ──► cloudflared ──► edge-proxy nginx (deploy/edge-proxy/)
+Cloudflare ──► cloudflared ──► edge-proxy nginx (C:\Apps\edge-proxy, server-managed)
                                   │  accommodation.parisunitedgroup.com ─► housing-backend / -frontend
-                                  │  parisunitedgroup.com (+ www)        ─► pugweb-api      / pugweb-frontend
-                                  └  pugfin.parisunitedgroup.com         ─► (planned)
+                                  └  parisunitedgroup.com (+ www)        ─► pugweb-api      / pugweb-frontend
 ```
 
-| Path | Purpose |
-|------|---------|
-| [`edge-proxy/`](edge-proxy/) | The standalone reverse proxy — `docker-compose.yml`, the mounted multi-vhost `nginx.conf`, `snippets/`, and an `ssl/` slot for the Origin cert. Start here. |
-| [`edge-proxy/README.md`](edge-proxy/README.md) | Migration runbook + day-2 ops (add an app, change routing, reload, rollback). |
-
-The PUG corporate site's own container stack (FastAPI + Next.js, no nginx of
-its own) lives in [`../docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
-at the repo root; it joins `pug_edge` as `pugweb-api` / `pugweb-frontend`, the
-exact aliases `edge-proxy/nginx.conf` resolves for `parisunitedgroup.com`. Its
-day-2 operations (build/deploy, update, seed, backup/restore, troubleshooting)
-are in [`../docs/webserver-local-operations.md`](../docs/webserver-local-operations.md).
+Full operations runbook (build/deploy, update, seed, backup/restore, edge-proxy
++ Cloudflare, troubleshooting):
+[`../docs/webserver-local-operations.md`](../docs/webserver-local-operations.md).
 
 > **History:** the earlier bare-metal (systemd + host nginx) and self-contained
 > AWS Docker (`docker-compose.prod.yml` + `deploy/docker/`) deployment paths
-> were retired in favour of this shared edge proxy. They remain in git history
-> if ever needed.
+> were retired, and the in-repo copy of the edge-proxy stack was later removed
+> too (it now lives only on the server). All remain in git history.

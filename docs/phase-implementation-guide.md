@@ -157,10 +157,10 @@ lives at the repo root in
 > units, a host nginx site, `pg_backup.sh`, logrotate). That path has since
 > been retired in favour of the **standalone edge proxy** + Docker Compose;
 > the original artifacts were removed (they live in git history).
-- [`deploy/edge-proxy/`](../deploy/edge-proxy/) — the standalone reverse
-  proxy that now terminates TLS and routes every app over the `pug_edge`
-  network; its [`README.md`](../deploy/edge-proxy/README.md) is the
-  production runbook (migration, add-an-app, reload, rollback).
+- A standalone edge proxy (a shared nginx) now terminates TLS and routes
+  every app over the `pug_edge` network. It's managed on the server at
+  `C:\Apps\edge-proxy` (not tracked in this repo); operations are in
+  [`docs/webserver-local-operations.md`](webserver-local-operations.md).
 - [`docker-compose.webserver-local.yml`](../docker-compose.webserver-local.yml)
   — the PUG corporate site's container stack (FastAPI + Next.js), joined to
   `pug_edge` as `pugweb-api` / `pugweb-frontend`.
