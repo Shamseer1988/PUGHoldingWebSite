@@ -116,9 +116,54 @@ async def broadcast_candidate_status_changed(
         return 0
 
 
+EVENT_OFFER_STATUS_CHANGED = "offer.status.changed"
+
+
+async def broadcast_offer_status_changed(
+    *,
+    offer_id: int,
+    application_id: Optional[int],
+    new_status: str,
+) -> int:
+    """Push an offer-lifecycle transition to every connected HR operator so
+    the offers list / stats (and any candidate screen the move touches)
+    refresh without a manual reload.
+
+    Best-effort, like the candidate broadcasts — a failed/no-op send never
+    affects the transition that already committed.
+    """
+    payload: dict[str, Any] = {
+        "offer_id": offer_id,
+        "application_id": application_id,
+        "new_status": new_status,
+    }
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_OFFER_STATUS_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast offer.status.changed",
+            offer_id=offer_id,
+            new_status=new_status,
+            sockets=sent,
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the offer transaction
+        logger.exception(
+            "Failed to broadcast offer.status.changed",
+            offer_id=offer_id,
+        )
+        return 0
+
+
 __all__ = [
     "EVENT_CANDIDATE_APPLICATION_NEW",
     "EVENT_CANDIDATE_STATUS_CHANGED",
+    "EVENT_OFFER_STATUS_CHANGED",
     "broadcast_candidate_application_new",
     "broadcast_candidate_status_changed",
+    "broadcast_offer_status_changed",
 ]

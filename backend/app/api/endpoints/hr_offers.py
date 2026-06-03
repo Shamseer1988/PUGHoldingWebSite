@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -58,6 +58,7 @@ from app.models.hr_ats import (
     OfferStatusHistory,
     OfferTracking,
 )
+from app.services.hr_realtime import broadcast_offer_status_changed
 from app.schemas.hr_ats import (
     OfferActionRequest,
     OfferApplyTemplateRequest,
@@ -189,6 +190,20 @@ def _notify_safe(name: str, **kwargs) -> None:
         func(**kwargs)
     except Exception:  # pragma: no cover
         logger.exception("HR notification %s failed", name)
+
+
+def _schedule_offer_broadcast(
+    background_tasks: BackgroundTasks, offer: OfferTracking
+) -> None:
+    """Best-effort realtime nudge so every other HR console refetches when
+    an offer transitions. Scheduled as a post-response background task; a
+    failed broadcast never affects the committed transition."""
+    background_tasks.add_task(
+        broadcast_offer_status_changed,
+        offer_id=offer.id,
+        application_id=offer.application_id,
+        new_status=offer.status,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +427,7 @@ def update_offer_endpoint(
 @router.post("/{offer_id}/submit-approval", response_model=OfferRead)
 def submit_for_approval_endpoint(
     offer_id: int,
+    background_tasks: BackgroundTasks,
     payload: Optional[OfferActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
@@ -431,6 +447,7 @@ def submit_for_approval_endpoint(
     _audit(db, user, request, action="hr.offer.submit_approval", offer_id=offer.id)
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     _notify_safe(
         "notify_offer_approval_requested", offer_id=offer.id, actor_id=user.id
     )
@@ -440,6 +457,7 @@ def submit_for_approval_endpoint(
 @router.post("/{offer_id}/approve", response_model=OfferRead)
 def approve_offer_endpoint(
     offer_id: int,
+    background_tasks: BackgroundTasks,
     payload: Optional[OfferActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
@@ -460,6 +478,7 @@ def approve_offer_endpoint(
     _audit(db, user, request, action="hr.offer.approve", offer_id=offer.id)
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     _notify_safe("notify_offer_approved", offer_id=offer.id, actor_id=user.id)
     return _serialize_offer(offer)
 
@@ -469,6 +488,7 @@ def reject_offer_endpoint(
     offer_id: int,
     payload: OfferRejectRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_OFFERS_APPROVE)),
 ) -> OfferRead:
@@ -490,12 +510,14 @@ def reject_offer_endpoint(
     )
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     return _serialize_offer(offer)
 
 
 @router.post("/{offer_id}/issue", response_model=OfferRead)
 def issue_offer_endpoint(
     offer_id: int,
+    background_tasks: BackgroundTasks,
     payload: Optional[OfferActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
@@ -522,6 +544,7 @@ def issue_offer_endpoint(
     )
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
 
     # Fire-and-forget candidate notification.
     _notify_safe("notify_offer_issued", offer_id=offer.id, actor_id=user.id)
@@ -533,6 +556,7 @@ def respond_offer_endpoint(
     offer_id: int,
     payload: OfferResponseRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_OFFERS_CREATE)),
 ) -> OfferRead:
@@ -560,6 +584,7 @@ def respond_offer_endpoint(
     )
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     _notify_safe(
         "notify_offer_accepted" if payload.accepted else "notify_offer_declined",
         offer_id=offer.id,
@@ -571,6 +596,7 @@ def respond_offer_endpoint(
 @router.post("/{offer_id}/mark-joined", response_model=OfferRead)
 def mark_joined_endpoint(
     offer_id: int,
+    background_tasks: BackgroundTasks,
     payload: Optional[OfferActionRequest] = None,
     request: Request = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
@@ -590,6 +616,7 @@ def mark_joined_endpoint(
     _audit(db, user, request, action="hr.offer.mark_joined", offer_id=offer.id)
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     _notify_safe("notify_offer_joined", offer_id=offer.id, actor_id=user.id)
     return _serialize_offer(offer)
 
@@ -599,6 +626,7 @@ def mark_not_joined_endpoint(
     offer_id: int,
     payload: OfferMarkNotJoinedRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_OFFERS_CREATE)),
 ) -> OfferRead:
@@ -618,6 +646,7 @@ def mark_not_joined_endpoint(
     )
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     return _serialize_offer(offer)
 
 
@@ -665,6 +694,7 @@ def withdraw_offer_endpoint(
     offer_id: int,
     payload: OfferRejectRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_OFFERS_CREATE)),
 ) -> OfferRead:
@@ -686,6 +716,7 @@ def withdraw_offer_endpoint(
     )
     db.commit()
     db.refresh(offer)
+    _schedule_offer_broadcast(background_tasks, offer)
     return _serialize_offer(offer)
 
 
