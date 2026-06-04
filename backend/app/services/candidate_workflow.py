@@ -163,6 +163,19 @@ ALLOWED_TRANSITIONS: Dict[str, Set[str]] = {
     STATUS_BLACKLISTED: set(),
 }
 
+
+# A status with no outgoing forward edge is terminal: the candidate's
+# pipeline is closed (only a superuser reopen can revive it). Derived from
+# the FSM above so the two can never drift apart.
+TERMINAL_STATUSES: frozenset = frozenset(
+    status for status, nxt in ALLOWED_TRANSITIONS.items() if not nxt
+)
+
+
+def is_terminal(status: str) -> bool:
+    """True when an application has reached a closed (terminal) state."""
+    return status in TERMINAL_STATUSES
+
 # A superuser may always reopen a final-state application by moving it
 # back into HR_REVIEW_PENDING. This is rare and intentionally restricted.
 SUPERUSER_REOPEN_TARGET = STATUS_HR_REVIEW_PENDING

@@ -17,6 +17,7 @@ from app.models.hr_ats import (
     INTERVIEW_NO_SHOW,
     INTERVIEW_SCHEDULED,
     JOB_STATUS_OPEN,
+    STATUS_REJECTED,
     Candidate,
     CandidateJobApplication,
     Interview,
@@ -95,6 +96,30 @@ def test_create_interview_requires_future_time(db_session: Session, seed_auth):
             round_name="First",
             round_number=1,
             scheduled_at=past,
+            duration_minutes=60,
+            mode=INTERVIEW_MODE_ONLINE,
+            location_or_link="https://meet.example.com/x",
+            interviewer_id=None,
+            actor=superadmin,
+        )
+
+
+def test_create_interview_blocked_for_terminal_candidate(
+    db_session: Session, seed_auth
+):
+    """Scheduling emails the candidate an invite, so it must be refused once
+    the pipeline is closed — no inviting a rejected/joined candidate."""
+    app = _make_application(db_session)
+    app.status = STATUS_REJECTED
+    db_session.commit()
+    superadmin = seed_auth["users"]["superadmin@pug.example.com"]
+    with pytest.raises(InvalidInterviewError):
+        create_interview(
+            db_session,
+            application=app,
+            round_name="First",
+            round_number=1,
+            scheduled_at=datetime.now(timezone.utc) + timedelta(hours=24),
             duration_minutes=60,
             mode=INTERVIEW_MODE_ONLINE,
             location_or_link="https://meet.example.com/x",
