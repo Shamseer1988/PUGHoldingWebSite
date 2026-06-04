@@ -11,12 +11,14 @@ import {
   X,
 } from "lucide-react";
 
+import { usePermission } from "@/components/auth/permission";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { PERM_HR_INTERVIEWS_RESCHEDULE } from "@/lib/hr/permissions";
 import type {
   Interview,
   InterviewFeedbackPayload,
@@ -102,6 +104,12 @@ export function InterviewQuickUpdateDialog({ row, onClose, onSaved }: Props) {
   const [reassignInterviewerId, setReassignInterviewerId] = React.useState("");
   const [sendRescheduleEmail, setSendRescheduleEmail] = React.useState(true);
 
+  // Only reschedule-capable users get the inline reschedule fields; everyone
+  // else can still flip the status to "Rescheduled" (the status endpoint
+  // accepts the feedback permission too), so they aren't blocked by the
+  // stricter reschedule-only PATCH.
+  const canReschedule = usePermission().has(PERM_HR_INTERVIEWS_RESCHEDULE);
+
   // Fetch fresh detail when the modal opens.
   React.useEffect(() => {
     let cancelled = false;
@@ -156,7 +164,12 @@ export function InterviewQuickUpdateDialog({ row, onClose, onSaved }: Props) {
       //    "rescheduled": a PATCH that moves the date/mode/location (and,
       //    optionally, transfers the interview to another HR user) and fires
       //    the branded "rescheduled" email when the date actually changed.
-      if (status === "rescheduled") {
+      if (status === "rescheduled" && canReschedule) {
+        if (!scheduledAt) {
+          setError("Pick a new date & time to reschedule.");
+          setSaving(false);
+          return;
+        }
         const reschedulePayload: InterviewUpdatePayload = {
           scheduled_at: new Date(scheduledAt).toISOString(),
           duration_minutes: Number(duration) || 60,
@@ -165,8 +178,16 @@ export function InterviewQuickUpdateDialog({ row, onClose, onSaved }: Props) {
           reschedule_reason: rescheduleReason.trim() || null,
           send_email_now: sendRescheduleEmail,
         };
-        if (reassignInterviewerId.trim()) {
-          reschedulePayload.interviewer_id = Number(reassignInterviewerId);
+        // Reassign only on a valid positive integer id — never let stray text
+        // (e.g. a typed name) become NaN -> null and silently unassign.
+        const reassignId = reassignInterviewerId.trim();
+        if (reassignId) {
+          if (!/^\d+$/.test(reassignId)) {
+            setError("Reassign interviewer id must be a whole number.");
+            setSaving(false);
+            return;
+          }
+          reschedulePayload.interviewer_id = Number(reassignId);
         }
         await hrApi.patch(`/hr/interviews/${row.id}`, reschedulePayload);
       }
@@ -277,8 +298,8 @@ export function InterviewQuickUpdateDialog({ row, onClose, onSaved }: Props) {
                 </Select>
               </div>
 
-              {/* --- Reschedule fields — only when status = rescheduled --- */}
-              {status === "rescheduled" && (
+              {/* --- Reschedule fields — only when rescheduling + permitted --- */}
+              {status === "rescheduled" && canReschedule && (
                 <section className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
                   <p className="flex items-center gap-1.5 text-xs font-medium">
                     <CalendarClock className="h-3.5 w-3.5 text-amber-600" />
@@ -392,7 +413,7 @@ export function InterviewQuickUpdateDialog({ row, onClose, onSaved }: Props) {
               )}
 
               {/* --- Feedback form (hidden while rescheduling) --- */}
-              {status !== "rescheduled" && (
+              {!(status === "rescheduled" && canReschedule) && (
                 <>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">

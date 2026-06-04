@@ -11,6 +11,10 @@ new ``hr:jobs:post_direct`` permission.
 
 Additive + backfilled via ``server_default``, so existing installs keep the
 current (approval-required) behaviour with no data migration.
+
+Also seeds the new ``hr:jobs:post_direct`` permission row (granted to no role)
+so the per-role bypass is grantable from the role matrix right after
+``alembic upgrade`` — no manual re-seed needed.
 """
 from __future__ import annotations
 
@@ -25,6 +29,11 @@ branch_labels = None
 depends_on = None
 
 
+PERM_KEY = "hr:jobs:post_direct"
+PERM_SCOPE = "hr"
+PERM_DESC = "Post jobs directly without approval (when approval is required globally)"
+
+
 def upgrade() -> None:
     op.add_column(
         "email_settings",
@@ -36,6 +45,39 @@ def upgrade() -> None:
         ),
     )
 
+    # Register the per-role bypass permission so it shows up in the role
+    # matrix and can be granted. Granted to NO role by default (skipping
+    # approval is an explicit per-role opt-in a Super Admin makes; even Super
+    # Admin is left without it so its own jobs still follow the flow).
+    # Idempotent — mirrors 20260527_0017_marketing_perms_seed.
+    bind = op.get_bind()
+    existing = bind.execute(
+        sa.text("SELECT id FROM permissions WHERE key = :key"),
+        {"key": PERM_KEY},
+    ).first()
+    if existing is None:
+        bind.execute(
+            sa.text(
+                "INSERT INTO permissions (key, scope, description) "
+                "VALUES (:key, :scope, :description)"
+            ),
+            {"key": PERM_KEY, "scope": PERM_SCOPE, "description": PERM_DESC},
+        )
+
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    perm = bind.execute(
+        sa.text("SELECT id FROM permissions WHERE key = :key"),
+        {"key": PERM_KEY},
+    ).first()
+    if perm is not None:
+        perm_id = perm[0]
+        bind.execute(
+            sa.text("DELETE FROM role_permissions WHERE permission_id = :pid"),
+            {"pid": perm_id},
+        )
+        bind.execute(
+            sa.text("DELETE FROM permissions WHERE id = :pid"), {"pid": perm_id}
+        )
     op.drop_column("email_settings", "job_approval_required")

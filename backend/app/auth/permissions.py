@@ -239,8 +239,10 @@ ROLE_VIEWER = "Viewer / Auditor"
 
 
 HR_ROLES: Tuple[RoleSpec, ...] = (
-    # Super Admin gets every key explicitly (and bypasses checks via
-    # is_superuser anyway, but the explicit grant makes audit cleaner).
+    # Super Admin gets every key explicitly except hr:jobs:post_direct (see
+    # _ALL_HR) and bypasses RBAC via is_superuser anyway. The post_direct
+    # exclusion keeps a Super Admin's own job creations inside the approval
+    # flow unless they explicitly opt a role in via the role matrix.
     RoleSpec(
         name=ROLE_SUPER_ADMIN,
         description="Full system access — manages roles and permissions.",
