@@ -60,7 +60,6 @@ JOB_STATUS_OPEN = "open"
 JOB_STATUS_ON_HOLD = "on_hold"
 JOB_STATUS_CLOSED = "closed"
 JOB_STATUSES = (JOB_STATUS_OPEN, JOB_STATUS_ON_HOLD, JOB_STATUS_CLOSED)
-JOB_STATUSES = (JOB_STATUS_OPEN, JOB_STATUS_ON_HOLD, JOB_STATUS_CLOSED)
 
 # Employment type
 EMPLOYMENT_FULL_TIME = "full_time"
@@ -107,23 +106,11 @@ RECRUITMENT_STATUSES = (
     STATUS_BLACKLISTED,
 )
 
-APPLICATION_STATUSES = (
-    STATUS_CV_RECEIVED,
-    STATUS_AI_REVIEWED,
-    STATUS_HR_REVIEW_PENDING,
-    STATUS_SHORTLISTED,
-    STATUS_FIRST_INTERVIEW,
-    STATUS_TECHNICAL_INTERVIEW,
-    STATUS_FINAL_INTERVIEW,
-    STATUS_WAITING_LIST,
-    STATUS_RECOMMENDED_FOR_OFFER,
-    STATUS_SELECTED,
-    STATUS_OFFER_SENT,
-    STATUS_JOINED,
-    STATUS_NOT_JOINED,
-    STATUS_REJECTED,
-    STATUS_BLACKLISTED,
-)
+# ``APPLICATION_STATUSES`` is a backward-compatible alias of
+# ``RECRUITMENT_STATUSES``. They were byte-identical literals that could
+# silently drift apart; collapsing them to one canonical tuple means a new
+# pipeline status can never be added to one and missed in the other.
+APPLICATION_STATUSES = RECRUITMENT_STATUSES
 
 # Statuses that require a mandatory reason on transition.
 STATUSES_REQUIRING_REASON = (STATUS_REJECTED, STATUS_BLACKLISTED)
@@ -181,6 +168,11 @@ OFFER_APPROVAL_STATUSES = (
 OFFER_JOINING_PENDING = "pending"
 OFFER_JOINING_JOINED = "joined"
 OFFER_JOINING_NOT_JOINED = "not_joined"
+OFFER_JOINING_STATUSES = (
+    OFFER_JOINING_PENDING,
+    OFFER_JOINING_JOINED,
+    OFFER_JOINING_NOT_JOINED,
+)
 
 OFFER_STATUSES = (
     OFFER_DRAFT,
@@ -1071,6 +1063,10 @@ class OfferTracking(Base, TimestampMixin):
             _enum_in_clause("approval_status", OFFER_APPROVAL_STATUSES),
             name="ck_hr_offers_approval_status",
         ),
+        CheckConstraint(
+            _enum_in_clause("joining_status", OFFER_JOINING_STATUSES),
+            name="ck_hr_offers_joining_status",
+        ),
     )
 
 
@@ -1284,6 +1280,13 @@ class JobApprovalHistory(Base):
 
     job_opening: Mapped[JobOpening] = relationship(back_populates="approval_history")
 
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("action", APPROVAL_ACTIONS),
+            name="ck_hr_job_approval_history_action",
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Job revision (pending edit of an approved job)
@@ -1320,6 +1323,13 @@ class JobRevision(Base, TimestampMixin):
     remarks: Mapped[Optional[str]] = mapped_column(Text)
 
     job_opening: Mapped[JobOpening] = relationship(back_populates="revisions")
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", REVISION_STATUSES),
+            name="ck_hr_job_revisions_status",
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1359,6 +1369,13 @@ class EmailLog(Base):
         nullable=False,
         server_default=func.now(),
         index=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("status", EMAIL_LOG_STATUSES),
+            name="ck_hr_email_logs_status",
+        ),
     )
 
 
@@ -1441,6 +1458,13 @@ class CandidateAutoReview(Base, TimestampMixin):
     )
     reviewed_by_system: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_in_clause("decision", AUTO_REVIEW_DECISIONS),
+            name="ck_hr_candidate_auto_reviews_decision",
+        ),
     )
 
 
@@ -1664,5 +1688,9 @@ class ScheduledReport(Base, TimestampMixin):
         CheckConstraint(
             _enum_in_clause("frequency", SCHEDULED_REPORT_FREQUENCIES),
             name="ck_hr_scheduled_reports_frequency",
+        ),
+        CheckConstraint(
+            _enum_in_clause("last_run_status", SCHEDULED_REPORT_STATUSES),
+            name="ck_hr_scheduled_reports_last_run_status",
         ),
     )

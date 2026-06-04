@@ -31,11 +31,14 @@ Allowed transitions
     joined             -> (terminal)
     not_joined         -> (terminal)
 
-Each transition writes a row to hr_offer_status_history. ``joined`` /
-``not_joined`` ALSO pushes the underlying CandidateJobApplication
-status to STATUS_JOINED / STATUS_NOT_JOINED — this is the only place
-in the codebase where the offer module mutates the recruitment
-status, and it matches the master plan's explicit rule.
+Each transition writes a row to hr_offer_status_history. Three offer
+milestones ALSO advance the underlying CandidateJobApplication:
+``issue`` -> ``offer_sent``, ``mark_joined`` -> ``joined``, and
+``mark_not_joined`` -> ``not_joined``. Those pushes are funnelled through
+``candidate_workflow.change_status`` (never written directly) so the
+recruitment pipeline keeps a single authority: every push is
+transition-validated and recorded in hr_candidate_status_history, exactly
+like an HR-driven status change.
 """
 from __future__ import annotations
 
@@ -70,10 +73,10 @@ from app.models.hr_ats import (
     STATUS_RECOMMENDED_FOR_OFFER,
     STATUS_SELECTED,
     CandidateJobApplication,
-    CandidateStatusHistory,
     OfferStatusHistory,
     OfferTracking,
 )
+from app.services import candidate_workflow
 
 
 # ---------------------------------------------------------------------------
@@ -170,26 +173,53 @@ def _push_application_status(
     actor: Optional[User],
     remarks: Optional[str] = None,
 ) -> None:
-    """When the offer hits a terminal joining state, mirror that into
-    the candidate's recruitment status — and record the change in
-    hr_candidate_status_history so the candidate timeline stays in sync.
+    """Mirror an offer milestone into the candidate's recruitment status.
 
-    Best-effort: if the candidate is already in that status (e.g. HR
-    manually moved them ahead of the offer), this is a no-op.
+    Routed through the candidate-workflow state machine
+    (:func:`candidate_workflow.change_status`) so the recruitment status
+    has ONE authority: the transition is validated and recorded in
+    hr_candidate_status_history, identically to an HR-driven change.
+
+    - Already at the target -> no-op (e.g. HR moved the candidate ahead of
+      the offer manually).
+    - An offer can legitimately be issued while the application is still
+      ``recommended_for_offer``; the FSM requires ``selected`` as the hop
+      before ``offer_sent``, so we take it automatically.
+    - An illegal push (e.g. issuing against a rejected application) raises
+      :class:`InvalidOfferTransitionError`, which the endpoints already map
+      to a 409 — rather than silently corrupting the pipeline the way the
+      old direct write did.
     """
     if application.status == target_status:
         return
-    old = application.status
-    application.status = target_status
-    db.add(
-        CandidateStatusHistory(
-            application_id=application.id,
-            old_status=old,
+    if actor is None:
+        raise InvalidOfferTransitionError(
+            "Cannot update the recruitment status without an acting user."
+        )
+    try:
+        if (
+            target_status == STATUS_OFFER_SENT
+            and application.status == STATUS_RECOMMENDED_FOR_OFFER
+        ):
+            candidate_workflow.change_status(
+                db,
+                application=application,
+                new_status=STATUS_SELECTED,
+                actor=actor,
+                remarks=remarks or "Selected (offer issued).",
+            )
+        candidate_workflow.change_status(
+            db,
+            application=application,
             new_status=target_status,
-            changed_by_id=actor.id if actor else None,
+            actor=actor,
             remarks=remarks or "Status updated via offer workflow.",
         )
-    )
+    except candidate_workflow.WorkflowError as exc:
+        raise InvalidOfferTransitionError(
+            f"Offer action cannot advance the recruitment pipeline "
+            f"({application.status!r} -> {target_status!r}): {exc}"
+        ) from exc
 
 
 def _gen_offer_letter_number(offer: OfferTracking) -> str:
@@ -238,10 +268,15 @@ def create_offer(
             f"in {APPLICATION_STATUSES_PERMITTING_OFFER}; current = "
             f"'{application.status}'."
         )
-    if application.offer is not None:
+    existing = application.offer
+    if existing is not None and existing.status != OFFER_WITHDRAWN:
         raise OfferPreconditionError(
             "An offer already exists for this application; edit it instead."
         )
+    if existing is not None:
+        # A withdrawn offer is re-drafted in place (offers are 1:1 with the
+        # application) so HR can revise the terms and send a fresh offer.
+        return _revive_offer(db, offer=existing, actor=actor, payload=payload)
 
     offer = OfferTracking(
         application_id=application.id,
@@ -522,6 +557,64 @@ def mark_not_joined(
     return offer
 
 
+def _revive_offer(
+    db: Session,
+    *,
+    offer: OfferTracking,
+    actor: User,
+    payload: OfferCreatePayload,
+) -> OfferTracking:
+    """Re-draft a withdrawn offer in place with fresh terms.
+
+    Offers are 1:1 with the application, so re-offering a candidate whose
+    previous offer was withdrawn reuses that row: apply the new payload and
+    clear every lifecycle marker (including the withdrawal) so it starts a
+    clean draft cycle. The prior withdrawal stays visible in the offer's
+    status history.
+    """
+    offer.position = payload.position
+    offer.salary_offered = payload.salary_offered
+    offer.allowances = payload.allowances
+    offer.joining_date = payload.joining_date
+    offer.probation_period = payload.probation_period
+    offer.reporting_manager = payload.reporting_manager
+    offer.work_location = payload.work_location
+    offer.benefits_summary = payload.benefits_summary
+    offer.remarks = payload.remarks
+    offer.status = OFFER_DRAFT
+    offer.approval_status = OFFER_APPROVAL_DRAFT
+    offer.approved_by_id = None
+    offer.approved_at = None
+    offer.rejected_by_id = None
+    offer.rejected_at = None
+    offer.rejection_reason = None
+    offer.issued_by_id = None
+    offer.issued_at = None
+    offer.sent_at = None
+    offer.responded_at = None
+    offer.accepted_at = None
+    offer.declined_at = None
+    offer.decline_reason = None
+    offer.withdrawn_by_id = None
+    offer.withdrawn_at = None
+    offer.withdrawn_reason = None
+    offer.joining_status = None
+    offer.joined_at = None
+    offer.not_joined_reason = None
+    offer.created_by_id = actor.id
+    db.flush()
+    _record_history(
+        db,
+        offer=offer,
+        action="created",
+        actor=actor,
+        old_status=OFFER_WITHDRAWN,
+        new_status=OFFER_DRAFT,
+        remarks="Re-drafted after withdrawal.",
+    )
+    return offer
+
+
 def withdraw(
     db: Session,
     *,
@@ -529,7 +622,20 @@ def withdraw(
     actor: User,
     reason: str,
 ) -> OfferTracking:
-    """HR rescinds the offer. Allowed from any non-terminal state."""
+    """HR rescinds the offer and frees the candidate to be re-offered.
+
+    Per the repo owner's decision, a withdrawal is not a dead end. The
+    offer moves to its terminal ``withdrawn`` state (still counted on the
+    dashboard's Withdrawn card / status filter) and, if it had already been
+    issued, the candidate is reverted from ``offer_sent`` back to
+    ``selected`` *through the candidate FSM* — the move is
+    transition-validated and recorded in ``CandidateStatusHistory``. To
+    send a fresh offer, HR drafts one again: ``create_offer`` revives this
+    row, since offers are 1:1 with the application.
+    """
+    # The offer FSM's "* -> withdrawn" edges are exactly the live states an
+    # offer can be pulled from; this rejects a terminal joined / declined /
+    # not_joined (or already-withdrawn) offer with a 409.
     _assert_transition(offer.status, OFFER_WITHDRAWN)
     old = offer.status
     offer.status = OFFER_WITHDRAWN
@@ -545,4 +651,15 @@ def withdraw(
         new_status=OFFER_WITHDRAWN,
         remarks=reason,
     )
+    # Only a candidate this offer actually moved to 'offer_sent' needs
+    # reverting; a withdrawal before the offer was issued leaves the
+    # pipeline status untouched.
+    if offer.application.status == STATUS_OFFER_SENT:
+        _push_application_status(
+            db,
+            application=offer.application,
+            target_status=STATUS_SELECTED,
+            actor=actor,
+            remarks="Offer withdrawn — reverted to Selected for re-issue.",
+        )
     return offer

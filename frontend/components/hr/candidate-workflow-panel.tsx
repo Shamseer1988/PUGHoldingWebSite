@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataBump } from "@/lib/hr/data-sync";
 import { PERM_HR_OFFERS_CREATE } from "@/lib/hr/permissions";
 import type {
   Candidate,
@@ -119,6 +120,7 @@ function ApplicationWorkflowRow({
   // Default ON — the most common HR action is "shortlist/select/reject
   // AND tell the candidate". Backend only fires emails for those three.
   const [sendEmail, setSendEmail] = React.useState(true);
+  const bump = useHrDataBump();
 
   React.useEffect(() => {
     setNewStatus(application.allowed_next_statuses[0] ?? "");
@@ -171,6 +173,9 @@ function ApplicationWorkflowRow({
       setHistory(null);
       if (historyOpen) await loadHistory();
       onChanged();
+      // Propagate to every other open HR screen (list, pipeline,
+      // timeline, dashboard) — they refetch on the signal.
+      bump();
     } catch (err) {
       setError((err as HrApiError).message);
     } finally {

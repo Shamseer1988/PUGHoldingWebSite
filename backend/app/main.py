@@ -18,6 +18,7 @@ from app import __version__
 from app.api import api_router
 from app.core.cache_headers import PublicCacheHeadersMiddleware
 from app.core.config import ensure_production_safety, get_settings
+from app.core.hr_data_bump import HrDataBumpMiddleware
 from app.core.logging_config import configure_logging, get_logger
 from app.core.request_id import RequestIDMiddleware
 
@@ -210,6 +211,11 @@ def create_app() -> FastAPI:
     # Edge cache headers on public GET responses. Toggle off in dev
     # via PUBLIC_CACHE_HEADERS_ENABLED=false if it gets in the way.
     app.add_middleware(PublicCacheHeadersMiddleware)
+
+    # Recruitment overhaul: pulse every open HR console after any successful
+    # HR write so surfaces without a dedicated event (jobs, bulk upload, …)
+    # still refresh live. Best-effort + fire-and-forget — see HrDataBumpMiddleware.
+    app.add_middleware(HrDataBumpMiddleware)
 
     app.include_router(api_router, prefix="/api/v1")
 

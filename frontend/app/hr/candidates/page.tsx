@@ -51,6 +51,7 @@ import {
 import { loadSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataBump, useHrDataSync } from "@/lib/hr/data-sync";
 import { hrFiltersToQueryString, parseHrFilters } from "@/hooks/use-hr-filters";
 import {
   PERM_HR_CANDIDATES_EDIT,
@@ -101,6 +102,10 @@ export default function HrCandidatesPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const bump = useHrDataBump();
+  // Refetch the list when a status changes anywhere (drawer, pipeline,
+  // bulk, or another operator via realtime).
+  useHrDataSync(() => void refresh());
 
   React.useEffect(() => {
     // Seed the shared filters from the URL so clickable dashboard KPIs
@@ -176,7 +181,9 @@ export default function HrCandidatesPage() {
         body,
       );
       setToast(`Moved to ${statusLabel("application", target)}.`);
-      await refresh();
+      // Signal-driven refresh keeps the list, any open drawer/timeline,
+      // and other screens in sync from one place.
+      bump();
     } catch (err) {
       setError((err as HrApiError).message);
     }

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataBump } from "@/lib/hr/data-sync";
 import type {
   BulkCandidateStatusChangeResult,
   BulkCandidateStatusChangeRow,
@@ -48,6 +49,7 @@ export function BulkStatusModal({
   const [result, setResult] = React.useState<BulkCandidateStatusChangeResult | null>(
     null,
   );
+  const bump = useHrDataBump();
 
   React.useEffect(() => {
     if (!open) {
@@ -87,6 +89,7 @@ export function BulkStatusModal({
       );
       setResult(res);
       onCompleted(res);
+      bump();
     } catch (err) {
       if (err instanceof HrApiError) {
         setError(err.message);

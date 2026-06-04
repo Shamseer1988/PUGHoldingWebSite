@@ -43,6 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataSync } from "@/lib/hr/data-sync";
 import type { DashboardSummary, FunnelStage, StageCounts } from "@/lib/hr/types";
 
 export default function HrDashboardPage() {
@@ -50,7 +51,7 @@ export default function HrDashboardPage() {
   const [counts, setCounts] = React.useState<StageCounts | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
+  const load = React.useCallback(() => {
     let cancelled = false;
     Promise.all([
       hrApi.get<DashboardSummary>("/hr/dashboard"),
@@ -68,6 +69,12 @@ export default function HrDashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  React.useEffect(() => load(), [load]);
+
+  // KPIs + stage counts refresh on any status change (this tab or another
+  // operator via realtime) instead of only on first mount.
+  useHrDataSync(() => void load());
 
   // "Interviews today" for the needs-attention rail.
   const interviewsToday = React.useMemo(() => {

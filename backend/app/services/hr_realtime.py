@@ -70,7 +70,181 @@ async def broadcast_candidate_application_new(
         return 0
 
 
+EVENT_CANDIDATE_STATUS_CHANGED = "candidate.status.changed"
+
+
+async def broadcast_candidate_status_changed(
+    *,
+    application_id: int,
+    candidate_id: int,
+    old_status: Optional[str],
+    new_status: str,
+) -> int:
+    """Push a recruitment-status change to every connected HR operator so
+    their pipeline / list / dashboard / timeline refreshes without a manual
+    reload.
+
+    Best-effort, exactly like ``broadcast_candidate_application_new`` — a
+    failed or no-op broadcast never affects the status change that already
+    committed.
+    """
+    payload: dict[str, Any] = {
+        "application_id": application_id,
+        "candidate_id": candidate_id,
+        "old_status": old_status,
+        "new_status": new_status,
+    }
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_CANDIDATE_STATUS_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast candidate.status.changed",
+            application_id=application_id,
+            new_status=new_status,
+            sockets=sent,
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the status transaction
+        logger.exception(
+            "Failed to broadcast candidate.status.changed",
+            application_id=application_id,
+        )
+        return 0
+
+
+EVENT_OFFER_STATUS_CHANGED = "offer.status.changed"
+
+
+async def broadcast_offer_status_changed(
+    *,
+    offer_id: int,
+    application_id: Optional[int],
+    new_status: str,
+) -> int:
+    """Push an offer-lifecycle transition to every connected HR operator so
+    the offers list / stats (and any candidate screen the move touches)
+    refresh without a manual reload.
+
+    Best-effort, like the candidate broadcasts — a failed/no-op send never
+    affects the transition that already committed.
+    """
+    payload: dict[str, Any] = {
+        "offer_id": offer_id,
+        "application_id": application_id,
+        "new_status": new_status,
+    }
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_OFFER_STATUS_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast offer.status.changed",
+            offer_id=offer_id,
+            new_status=new_status,
+            sockets=sent,
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the offer transaction
+        logger.exception(
+            "Failed to broadcast offer.status.changed",
+            offer_id=offer_id,
+        )
+        return 0
+
+
+EVENT_INTERVIEW_CHANGED = "interview.changed"
+
+
+async def broadcast_interview_changed(
+    *,
+    interview_id: int,
+    application_id: int,
+    status: Optional[str],
+) -> int:
+    """Push an interview create / reschedule / status / feedback / delete to
+    every connected HR operator so the interview list, calendar and the
+    candidate timeline refresh without a manual reload.
+
+    Best-effort, like the candidate / offer broadcasts — a failed or no-op
+    send never affects the mutation that already committed.
+    """
+    payload: dict[str, Any] = {
+        "interview_id": interview_id,
+        "application_id": application_id,
+        "status": status,
+    }
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_INTERVIEW_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast interview.changed",
+            interview_id=interview_id,
+            status=status,
+            sockets=sent,
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the interview transaction
+        logger.exception(
+            "Failed to broadcast interview.changed",
+            interview_id=interview_id,
+        )
+        return 0
+
+
+EVENT_HR_DATA_CHANGED = "hr.data.changed"
+
+
+async def broadcast_hr_data_changed(
+    *,
+    path: Optional[str] = None,
+    method: Optional[str] = None,
+) -> int:
+    """Generic "something in HR changed — refetch" pulse.
+
+    Emitted by ``HrDataBumpMiddleware`` after any successful HR write, so
+    consoles viewing surfaces without a dedicated event (jobs, bulk upload,
+    scorecards, …) still refresh live without wiring a broadcast into every
+    endpoint. ``path`` / ``method`` are carried for logging only — the
+    frontend treats this purely as a refetch signal. Best-effort: a failed
+    send never affects the write that already committed.
+    """
+    payload: dict[str, Any] = {"path": path, "method": method}
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_HR_DATA_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast hr.data.changed", path=path, method=method, sockets=sent
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the request
+        logger.exception("Failed to broadcast hr.data.changed", path=path)
+        return 0
+
+
 __all__ = [
     "EVENT_CANDIDATE_APPLICATION_NEW",
+    "EVENT_CANDIDATE_STATUS_CHANGED",
+    "EVENT_OFFER_STATUS_CHANGED",
+    "EVENT_INTERVIEW_CHANGED",
+    "EVENT_HR_DATA_CHANGED",
     "broadcast_candidate_application_new",
+    "broadcast_candidate_status_changed",
+    "broadcast_offer_status_changed",
+    "broadcast_interview_changed",
+    "broadcast_hr_data_changed",
 ]

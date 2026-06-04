@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataSync } from "@/lib/hr/data-sync";
 import type { CandidateTimelineEvent } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
@@ -39,10 +40,19 @@ export function CandidateTimeline({ candidateId, refreshKey }: Props) {
     null
   );
   const [error, setError] = React.useState<string | null>(null);
+  // Refetch counter bumped by the global HR data signal (a status change
+  // or realtime event anywhere) so the feed never lags the rest of the UI.
+  const [tick, setTick] = React.useState(0);
+  useHrDataSync(React.useCallback(() => setTick((t) => t + 1), []));
+
+  // Reset to the loading state only when the candidate switches; a
+  // signal-driven refetch updates in place without flashing the spinner.
+  React.useEffect(() => {
+    setEvents(null);
+  }, [candidateId]);
 
   React.useEffect(() => {
     let cancelled = false;
-    setEvents(null);
     setError(null);
     hrApi
       .get<CandidateTimelineEvent[]>(`/hr/candidates/${candidateId}/timeline`)
@@ -55,7 +65,7 @@ export function CandidateTimeline({ candidateId, refreshKey }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [candidateId, refreshKey]);
+  }, [candidateId, refreshKey, tick]);
 
   if (error) {
     return (

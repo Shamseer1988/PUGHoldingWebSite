@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataBump } from "@/lib/hr/data-sync";
 
 /**
  * Mark a candidate as joined (acceptance criterion 7).
@@ -35,6 +36,7 @@ export function MarkJoinedDialog({
   const [remarks, setRemarks] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const bump = useHrDataBump();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,6 +51,7 @@ export function MarkJoinedDialog({
         remarks.trim() ? { remarks: remarks.trim() } : {},
       );
       onDone();
+      bump();
     } catch (err) {
       setError((err as HrApiError).message);
     } finally {

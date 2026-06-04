@@ -39,6 +39,7 @@ from app.models.hr_ats import (
     Interview,
     InterviewFeedback,
 )
+from app.services.candidate_workflow import is_terminal
 
 
 # Human-readable labels
@@ -169,6 +170,14 @@ def create_interview(
         location_or_link=location_or_link,
         enforce_future=True,
     )
+    # Scheduling emails the candidate an invitation, so it must not be
+    # possible once the pipeline is closed — you don't invite a rejected,
+    # blacklisted, joined or not-joined candidate. Reopen them first.
+    if is_terminal(application.status):
+        raise InvalidInterviewError(
+            "Cannot schedule an interview for a candidate whose pipeline is "
+            f"closed (status '{application.status}'). Reopen the candidate first."
+        )
     interview = Interview(
         application_id=application.id,
         round_name=round_name.strip(),

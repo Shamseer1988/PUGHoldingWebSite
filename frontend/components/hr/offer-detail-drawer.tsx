@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { hrApi, HrApiError } from "@/lib/hr/api";
+import { useHrDataBump } from "@/lib/hr/data-sync";
 import {
   PERM_HR_OFFERS_APPROVE,
   PERM_HR_OFFERS_CREATE,
@@ -61,6 +62,7 @@ export function OfferDetailDrawer({ offerId, onClose, onChanged }: Props) {
   );
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const bump = useHrDataBump();
 
   const refresh = React.useCallback(async () => {
     setLoading(true);
@@ -99,6 +101,9 @@ export function OfferDetailDrawer({ offerId, onClose, onChanged }: Props) {
       }
       await refresh();
       onChanged();
+      // Offer transitions can move the candidate pipeline too (issued ->
+      // offer_sent, joined, not_joined) — propagate to every HR screen.
+      bump();
     } catch (err) {
       setError((err as HrApiError).message);
     }
