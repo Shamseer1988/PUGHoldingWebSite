@@ -39,6 +39,7 @@ const DATA_CHANGED_EVENTS = new Set<string>([
   "candidate.application.new",
   "candidate.status.changed",
   "offer.status.changed",
+  "interview.changed",
 ]);
 
 function buildWsUrl(token: string): string {

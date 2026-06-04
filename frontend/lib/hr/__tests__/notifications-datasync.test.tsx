@@ -69,6 +69,14 @@ describe("useHrNotifications -> onDataChange", () => {
     expect(onDataChange).toHaveBeenCalledTimes(2);
   });
 
+  test("fires for interview.changed", () => {
+    const onDataChange = vi.fn();
+    renderHook(() => useHrNotifications(onDataChange));
+
+    send("interview.changed");
+    expect(onDataChange).toHaveBeenCalledTimes(1);
+  });
+
   test("ignores unrelated events", () => {
     const onDataChange = vi.fn();
     renderHook(() => useHrNotifications(onDataChange));

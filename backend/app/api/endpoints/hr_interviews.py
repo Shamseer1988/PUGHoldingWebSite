@@ -9,7 +9,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -58,6 +66,26 @@ from app.services.interview_management import (
     submit_feedback,
     update_interview,
 )
+from app.services.hr_realtime import broadcast_interview_changed
+
+
+def _schedule_interview_broadcast(
+    background_tasks: BackgroundTasks,
+    *,
+    interview_id: int,
+    application_id: int,
+    status: Optional[str],
+) -> None:
+    """Best-effort realtime nudge so every other HR console refetches when an
+    interview is scheduled / rescheduled / completed / gets feedback / is
+    deleted. Scheduled post-response; a failed broadcast never affects the
+    committed mutation."""
+    background_tasks.add_task(
+        broadcast_interview_changed,
+        interview_id=interview_id,
+        application_id=application_id,
+        status=status,
+    )
 
 
 router = APIRouter(prefix="/hr/interviews", tags=["HR ATS - Interviews"])
@@ -311,6 +339,7 @@ def _get_application_or_404(db: Session, application_id: int) -> CandidateJobApp
 def create_interview_endpoint(
     payload: InterviewCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_INTERVIEWS_SCHEDULE)),
 ) -> InterviewRead:
@@ -398,6 +427,12 @@ def create_interview_endpoint(
             additional_attendee_emails=payload.additional_attendee_emails,
         )
 
+    _schedule_interview_broadcast(
+        background_tasks,
+        interview_id=interview.id,
+        application_id=interview.application_id,
+        status=interview.status,
+    )
     users = _email_lookup(db, [interview.interviewer_id])
     return _serialize_interview(interview, users=users)
 
@@ -470,6 +505,7 @@ def update_interview_endpoint(
     interview_id: int,
     payload: InterviewUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_INTERVIEWS_RESCHEDULE)),
 ) -> InterviewRead:
@@ -565,6 +601,12 @@ def update_interview_endpoint(
                 "interview-rescheduled notification failed"
             )
 
+    _schedule_interview_broadcast(
+        background_tasks,
+        interview_id=interview.id,
+        application_id=interview.application_id,
+        status=interview.status,
+    )
     users = _email_lookup(db, [interview.interviewer_id])
     return _serialize_interview(interview, users=users)
 
@@ -574,6 +616,7 @@ def change_status_endpoint(
     interview_id: int,
     payload: InterviewStatusChange,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(
         require_any_permission(
@@ -607,6 +650,12 @@ def change_status_endpoint(
     )
     db.commit()
     db.refresh(interview)
+    _schedule_interview_broadcast(
+        background_tasks,
+        interview_id=interview.id,
+        application_id=interview.application_id,
+        status=interview.status,
+    )
     users = _email_lookup(db, [interview.interviewer_id])
     return _serialize_interview(interview, users=users)
 
@@ -615,6 +664,7 @@ def change_status_endpoint(
 def delete_interview_endpoint(
     interview_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission(PERM_HR_INTERVIEWS_DELETE)),
 ):
@@ -638,6 +688,12 @@ def delete_interview_endpoint(
         commit=False,
     )
     db.commit()
+    _schedule_interview_broadcast(
+        background_tasks,
+        interview_id=interview_id_val,
+        application_id=application_id_val,
+        status=None,
+    )
     return Response(status_code=204)
 
 
@@ -668,6 +724,7 @@ def submit_feedback_endpoint(
     interview_id: int,
     payload: InterviewFeedbackCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ) -> InterviewFeedbackRead:
@@ -738,6 +795,12 @@ def submit_feedback_endpoint(
             "interview-feedback-submitted notification failed"
         )
 
+    _schedule_interview_broadcast(
+        background_tasks,
+        interview_id=interview.id,
+        application_id=interview.application_id,
+        status=interview.status,
+    )
     users = _email_lookup(db, [fb.submitted_by_id])
     return _serialize_feedback(fb, users=users)
 
