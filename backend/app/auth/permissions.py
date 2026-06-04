@@ -52,6 +52,9 @@ PERM_HR_JOBS_CREATE = "hr:jobs:create"
 PERM_HR_JOBS_EDIT = "hr:jobs:edit"
 PERM_HR_JOBS_APPROVE = "hr:jobs:approve"
 PERM_HR_JOBS_PUBLISH = "hr:jobs:publish"
+# Bypass the approval step entirely: a holder's new jobs are auto-approved
+# and published on create, even when approval is globally required.
+PERM_HR_JOBS_POST_DIRECT = "hr:jobs:post_direct"
 PERM_HR_JOBS_DELETE = "hr:jobs:delete"
 
 # Candidates ---------------------------------------------------------------
@@ -126,6 +129,10 @@ HR_PERMISSIONS: Tuple[Tuple[str, str], ...] = (
     (PERM_HR_JOBS_EDIT, "Edit job openings"),
     (PERM_HR_JOBS_APPROVE, "Approve, reject or request revision on submitted jobs"),
     (PERM_HR_JOBS_PUBLISH, "Publish / unpublish approved jobs"),
+    (
+        PERM_HR_JOBS_POST_DIRECT,
+        "Post jobs directly without approval (when approval is required globally)",
+    ),
     (PERM_HR_JOBS_DELETE, "Delete job openings"),
     # Candidates
     (PERM_HR_CANDIDATES_VIEW_LIST, "View candidates list (search / filter)"),
@@ -213,8 +220,14 @@ class RoleSpec:
     permissions: Tuple[str, ...] = field(default_factory=tuple)
 
 
-# Helper: full HR set for the all-powerful roles
-_ALL_HR = tuple(key for key, _ in HR_PERMISSIONS)
+# Helper: full HR set for the all-powerful roles. ``post_direct`` is
+# deliberately excluded — skipping the approval flow is an explicit, audited
+# per-role opt-in (assigned via the role matrix), never an implicit power of
+# the all-access roles. Super Admin still bypasses every RBAC check via
+# is_superuser; this exclusion only governs the job-approval bypass decision.
+_ALL_HR = tuple(
+    key for key, _ in HR_PERMISSIONS if key != PERM_HR_JOBS_POST_DIRECT
+)
 
 ROLE_SUPER_ADMIN = "Super Admin"
 ROLE_HR_ADMIN = "HR Admin"
@@ -226,8 +239,10 @@ ROLE_VIEWER = "Viewer / Auditor"
 
 
 HR_ROLES: Tuple[RoleSpec, ...] = (
-    # Super Admin gets every key explicitly (and bypasses checks via
-    # is_superuser anyway, but the explicit grant makes audit cleaner).
+    # Super Admin gets every key explicitly except hr:jobs:post_direct (see
+    # _ALL_HR) and bypasses RBAC via is_superuser anyway. The post_direct
+    # exclusion keeps a Super Admin's own job creations inside the approval
+    # flow unless they explicitly opt a role in via the role matrix.
     RoleSpec(
         name=ROLE_SUPER_ADMIN,
         description="Full system access — manages roles and permissions.",
@@ -469,6 +484,7 @@ __all__ = [
     "PERM_HR_JOBS_EDIT",
     "PERM_HR_JOBS_APPROVE",
     "PERM_HR_JOBS_PUBLISH",
+    "PERM_HR_JOBS_POST_DIRECT",
     "PERM_HR_JOBS_DELETE",
     "PERM_HR_CANDIDATES_VIEW_LIST",
     "PERM_HR_CANDIDATES_VIEW_FULL",

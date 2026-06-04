@@ -78,6 +78,15 @@ class EmailSetting(Base):
     offer_email_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+
+    # --- Recruitment workflow (Super Admin only) --------------------
+    # When True (default) HR job postings go through the approval flow
+    # before they can publish. A Super Admin flips this off globally;
+    # roles holding ``hr:jobs:post_direct`` bypass it per-role.
+    job_approval_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
     brand_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
     email_footer_text: Mapped[Optional[str]] = mapped_column(Text)
 

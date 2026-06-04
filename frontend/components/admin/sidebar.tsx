@@ -252,6 +252,12 @@ const NAV: NavGroup[] = [
         requiresScope: "system",
       },
       {
+        label: "Approval flow",
+        href: "/admin/recruitment-settings",
+        icon: ShieldCheck,
+        requiresScope: "superuser",
+      },
+      {
         label: "Users & roles",
         href: "/admin/users",
         icon: Users,
