@@ -152,6 +152,10 @@ ALLOWED_TRANSITIONS: Dict[str, Set[str]] = {
     STATUS_OFFER_SENT: {
         STATUS_JOINED,
         STATUS_NOT_JOINED,
+        # An issued offer can be withdrawn, which pulls the candidate back
+        # to 'selected' (offer authorised, awaiting a revised offer) — see
+        # offers.withdraw(). This is the pipeline's one backward edge.
+        STATUS_SELECTED,
     } | _common_terminal(),
     STATUS_JOINED: set(),
     STATUS_NOT_JOINED: set(),
