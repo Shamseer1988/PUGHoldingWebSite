@@ -40,6 +40,9 @@ const DATA_CHANGED_EVENTS = new Set<string>([
   "candidate.status.changed",
   "offer.status.changed",
   "interview.changed",
+  // Generic catch-all pulse fired by the backend's HrDataBumpMiddleware after
+  // any successful HR write (jobs, bulk upload, …). No toast — just refetch.
+  "hr.data.changed",
 ]);
 
 function buildWsUrl(token: string): string {

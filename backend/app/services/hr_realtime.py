@@ -202,13 +202,49 @@ async def broadcast_interview_changed(
         return 0
 
 
+EVENT_HR_DATA_CHANGED = "hr.data.changed"
+
+
+async def broadcast_hr_data_changed(
+    *,
+    path: Optional[str] = None,
+    method: Optional[str] = None,
+) -> int:
+    """Generic "something in HR changed — refetch" pulse.
+
+    Emitted by ``HrDataBumpMiddleware`` after any successful HR write, so
+    consoles viewing surfaces without a dedicated event (jobs, bulk upload,
+    scorecards, …) still refresh live without wiring a broadcast into every
+    endpoint. ``path`` / ``method`` are carried for logging only — the
+    frontend treats this purely as a refetch signal. Best-effort: a failed
+    send never affects the write that already committed.
+    """
+    payload: dict[str, Any] = {"path": path, "method": method}
+    try:
+        manager = get_ws_manager()
+        sent = await manager.broadcast(
+            scope=SCOPE_HR,
+            event_type=EVENT_HR_DATA_CHANGED,
+            payload=payload,
+        )
+        logger.info(
+            "Broadcast hr.data.changed", path=path, method=method, sockets=sent
+        )
+        return sent
+    except Exception:  # noqa: BLE001 - never break the request
+        logger.exception("Failed to broadcast hr.data.changed", path=path)
+        return 0
+
+
 __all__ = [
     "EVENT_CANDIDATE_APPLICATION_NEW",
     "EVENT_CANDIDATE_STATUS_CHANGED",
     "EVENT_OFFER_STATUS_CHANGED",
     "EVENT_INTERVIEW_CHANGED",
+    "EVENT_HR_DATA_CHANGED",
     "broadcast_candidate_application_new",
     "broadcast_candidate_status_changed",
     "broadcast_offer_status_changed",
     "broadcast_interview_changed",
+    "broadcast_hr_data_changed",
 ]

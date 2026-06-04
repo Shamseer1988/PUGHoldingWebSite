@@ -77,6 +77,14 @@ describe("useHrNotifications -> onDataChange", () => {
     expect(onDataChange).toHaveBeenCalledTimes(1);
   });
 
+  test("fires for hr.data.changed (generic HR write pulse)", () => {
+    const onDataChange = vi.fn();
+    renderHook(() => useHrNotifications(onDataChange));
+
+    send("hr.data.changed");
+    expect(onDataChange).toHaveBeenCalledTimes(1);
+  });
+
   test("ignores unrelated events", () => {
     const onDataChange = vi.fn();
     renderHook(() => useHrNotifications(onDataChange));
