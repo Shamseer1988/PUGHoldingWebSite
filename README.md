@@ -9,111 +9,128 @@ Monorepo for the Paris United Group corporate website + HR ATS portal.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the project conventions Claude Code reads at the start of every session.
 
+The site runs **natively — no Docker**: in development as local processes, in production inside a Proxmox **LXC container** supervised by `systemd`. (The repo still carries `docker-compose*.yml` / `Dockerfile`s from an earlier containerised experiment; they are no longer the supported path.)
+
 ---
 
-## Running Locally with Docker
+## Running locally (no Docker)
 
-A single `docker compose up -d` boots the full stack — Postgres 16, Redis 7, the FastAPI backend, and the Next.js frontend — with hot-reload on both apps. The compose file lives at the repo root; the per-service Dockerfiles under `backend/` and `frontend/`.
+You need four things on your machine (or a dev VM): **Python 3.11**, **Node 20**, a **PostgreSQL** server, and **Redis**. On Debian/Ubuntu: `sudo apt install postgresql redis-server`.
 
-### One-time setup
-
-```sh
-# 1. Copy the env templates. Edit the resulting files in your editor
-#    of choice — secrets, SMTP creds, AI keys etc. Everything left
-#    blank uses sensible defaults baked into the compose file.
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
-
-# 2. Build the images. First build takes a few minutes; subsequent
-#    builds reuse the npm + pip cache layers.
-docker compose build
-```
-
-### Bring up
+Create the database once:
 
 ```sh
-docker compose up -d              # all four services in the background
-docker compose ps                 # confirm everything's healthy
-docker compose logs -f backend    # tail backend log in JSON / dev format
+sudo -u postgres psql -c "CREATE USER pug_user WITH PASSWORD 'pug_password';"
+sudo -u postgres psql -c "CREATE DATABASE pug_holding OWNER pug_user;"
 ```
 
-When the stack is healthy:
-
-* Frontend: <http://localhost:3000>
-* Backend:  <http://localhost:8000>
-* OpenAPI docs: <http://localhost:8000/docs> (dev only — `APP_ENV=development` is set by compose)
-* Postgres: `localhost:5432` (user `pug_user`, pw `pug_password`, db `pug_holding`)
-* Redis:    `localhost:6379`
-
-### Migrations
-
-The backend service runs `alembic upgrade head` on every container start, so pulling a branch with new migrations and re-running `docker compose up -d` is enough.
-
-Run migrations manually:
+### Backend (FastAPI)
 
 ```sh
-docker compose exec backend alembic upgrade head
-docker compose exec backend alembic revision --autogenerate -m "describe it"
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+cp .env.example .env                       # edit: DB creds, Redis URL, AI keys, secrets
+
+.venv/bin/alembic upgrade head             # apply migrations
+.venv/bin/python -m app.scripts.seed_hr    # Super Admin + permission catalogue + HR roles
+.venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-### Seed the initial admin user
+The HR seed prints a one-time random password for `admin@parisunited.example` on the last line of stdout — log in with it at `/admin/login`. The backend config defaults to `localhost` for Postgres and Redis, so the values above work with no extra wiring.
 
-The HR seed script creates a Super Admin account, the default permission catalogue, and the seven HR roles:
+### Frontend (Next.js)
 
 ```sh
-docker compose exec backend python -m app.scripts.seed_hr
+cd frontend
+npm install
+cp .env.example .env.local                 # set NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+npm run dev
 ```
 
-Login at <http://localhost:3000/admin/login> with the credentials printed by the script (the default is `admin@parisunited.example` / a per‑install random password; the script logs it once at the end of stdout).
+| Service | URL |
+|---|---|
+| Frontend | <http://localhost:3000> |
+| Backend | <http://localhost:8000> |
+| OpenAPI docs | <http://localhost:8000/docs> (when `APP_ENV=development`) |
+| Health | <http://localhost:8000/api/v1/health> |
 
-### Common operations
+---
+
+## Testing
 
 ```sh
-# Drop into a backend shell
-docker compose exec backend bash
+# Backend — from backend/ with the venv
+.venv/bin/pytest -x -q
 
-# Drop into a psql session
-docker compose exec postgres psql -U pug_user -d pug_holding
-
-# Run the test suite inside the container
-docker compose exec backend pytest -x -q
-
-# Frontend type-check + lint
-docker compose exec frontend npm run type-check
-docker compose exec frontend npm run lint
-
-# Stop everything but keep data
-docker compose down
-
-# Nuke postgres + redis volumes too (fresh DB next boot)
-docker compose down -v
+# Frontend — from frontend/
+npm run type-check     # tsc --noEmit
+npm run lint           # next lint
+npm test               # vitest run
 ```
 
-### Hot reload
+Run `npm run type-check` + `npm run lint` (frontend) and `pytest` (backend) before declaring work done — see `CLAUDE.md`.
 
-The compose file bind-mounts `./backend` → `/app` and `./frontend` → `/app` so saves on the host trigger reloads in the containers:
+---
 
-* **Backend**: `uvicorn --reload --reload-dir /app/app`
-* **Frontend**: `next dev` (Webpack watcher)
+## Production deployment — Proxmox LXC (no Docker)
 
-Frontend `node_modules` and `.next` are kept in anonymous volumes — the container builds them once at first start, and the host's bind-mount can't overwrite them. This matters when the host is macOS / arm64 and the container is linux/amd64.
+The corporate site is **CT 112 (`pugweb`)** in the Proxmox cluster: Next.js, FastAPI, PostgreSQL 17 and Redis all run as **native processes under `systemd`** inside one unprivileged LXC. TLS terminates on a separate **edge-nginx LXC (CT 111)**, which is reached through a **Cloudflare Tunnel** — so no router ports are forwarded anywhere. (The full multi-container build — the Cloudflare Tunnel CT, the edge nginx, and the sibling Housing / Finance apps — is covered by the Proxmox deployment guide; the corporate-site essentials are below.)
 
-### Production builds
+| | CT 112 |
+|---|---|
+| Hostname | `pugweb` |
+| Resources | 4 vCPU · 4 GB RAM · 40 GB disk |
+| Internal IP | `192.168.100.51` |
+| Listens on | `:3000` (Next.js) · `:8000` (FastAPI) |
+| App root | `/opt/pugweb` (owned by the `pugweb` system user) |
+| Database | PostgreSQL 17 — `pug_holding` / `pug_user`, on `localhost` |
+| Cache | Redis, on `localhost` |
 
-The Dockerfiles' `runner` stages are production-shaped (Alembic + uvicorn for the backend, `next start` for the frontend). Build either explicitly:
+### Provision once
+
+Inside the container (as `root`), the one-time setup is: install Python 3.11 / Node 20 / PostgreSQL 17 / Redis → create the `pug_holding` DB and `pugweb` app user → `git clone` into `/opt/pugweb` → backend venv + `.env` + `alembic upgrade head` → frontend `.env.production` (with the public `NEXT_PUBLIC_API_BASE_URL`) + `npm ci && npm run build` → install the two `systemd` units. The step-by-step commands live in the Proxmox deployment guide.
+
+### Services
+
+Two `systemd` units run the app; both bind `0.0.0.0` because the edge nginx is a *separate* container:
+
+* **`pugweb-backend`** — `gunicorn app.main:app` with `uvicorn` workers on `:8000`
+* **`pugweb-frontend`** — `npm run start` (`next start`) on `:3000`
+* *(optional)* a background-jobs worker via `.venv/bin/python worker_runner.py`, if you enable ARQ
 
 ```sh
-docker build --target runner -t pug-backend:prod -f backend/Dockerfile .
-docker build --target runner -t pug-frontend:prod -f frontend/Dockerfile .
+systemctl status pugweb-backend pugweb-frontend
+journalctl -u pugweb-backend -f          # live backend log
 ```
 
-CI / production deployment lives outside this file — see `deploy/` for the Nginx + systemd configs the production server uses today, and `.github/workflows/` (added in Phase B-6) for the pipeline.
+The reference unit files, the nginx server block, and the logrotate config live in [`deploy/`](./deploy).
 
-### Troubleshooting
+### Redeploy after a git push
+
+Pull, install, migrate, rebuild, restart — app-level commands as the `pugweb` user, `systemctl` with `sudo`:
+
+```sh
+sudo -u pugweb bash -lc 'cd /opt/pugweb && git pull \
+  && cd backend   && .venv/bin/pip install -r requirements.txt && .venv/bin/alembic upgrade head \
+  && cd ../frontend && npm ci && npm run build'
+
+sudo systemctl restart pugweb-backend pugweb-frontend
+```
+
+`alembic upgrade head` is idempotent and safe on every deploy. Migrations are additive (never destructive) per `CLAUDE.md`, so a rollback is `git checkout <prev-sha>` → `.venv/bin/alembic downgrade -1` → rebuild. Snapshot the CT first for an instant rollback: `pct snapshot 112 pre-update` on the Proxmox host.
+
+> **WebSocket note:** the HR consoles hold a live WebSocket at `/api/v1/ws/hr` for realtime multi-operator sync. The edge-nginx `location /api/v1/` must forward the `Upgrade` / `Connection "upgrade"` headers (a dedicated `location /api/v1/ws/` block is cleanest) or realtime updates won't connect.
+
+---
+
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `backend` keeps restarting with `connection refused` | postgres is still warming up | wait — `depends_on: condition: service_healthy` makes this self-correct in ~5–10 s |
-| `frontend` runs but pages can't reach the API | host's `.env.local` overrides the compose `environment:` block with a host-machine URL | unset `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local` or set it to `http://localhost:8000/api/v1` |
-| `alembic` fails on first boot with "relation already exists" | a previous `docker compose down` left postgres data behind | `docker compose down -v` then `up -d` |
-| Permission errors on bind-mounted files | UID mismatch between host + container | rebuild with `--build-arg HOST_UID=$(id -u)` (not yet implemented) or `chmod -R 777 backend/app/uploads` |
+| `pugweb-backend` won't start — `connection refused` to Postgres | Postgres/Redis not up yet | `systemctl status postgresql redis-server`; the unit's `After=`/`Wants=` ordering self-corrects on boot |
+| Frontend loads but API calls fail (404 / CORS) | `NEXT_PUBLIC_API_BASE_URL` baked wrong at build time | set it in `frontend/.env.production` **before** `npm run build`, then rebuild |
+| `next build` gets killed (OOM) | 4 GB CT is tight for a large build | raise CT RAM temporarily, or `NODE_OPTIONS=--max-old-space-size=3072 npm run build` |
+| HR consoles don't live-update across operators | edge nginx isn't upgrading the `/api/v1/ws/hr` WebSocket | add the `Upgrade`/`Connection` headers on the edge nginx (see note above) |
+| `alembic upgrade head` fails on a CHECK constraint | existing rows violate a newly-added constraint | the migration rolls back cleanly — fix the offending rows, then re-run |
