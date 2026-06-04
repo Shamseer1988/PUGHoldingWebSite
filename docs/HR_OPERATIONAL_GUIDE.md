@@ -2,9 +2,7 @@
 
 End-to-end workflow guide for the advanced HR ATS module: who does what,
 when each email fires, and how to enable the optional Google Calendar /
-Meet integration. Companion document to
-[`HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt`](./HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt)
-(the build spec).
+Meet integration.
 
 ---
 

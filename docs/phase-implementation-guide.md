@@ -1,9 +1,7 @@
 # Phase Implementation Guide
 
 This document tracks the 20-phase delivery plan for the Paris United
-Group Holding website and HR ATS portal. The full project master prompt
-lives at the repo root in
-[`PUG_Dynamic_Website_HR_ATS_Phase_Prompt.txt`](../PUG_Dynamic_Website_HR_ATS_Phase_Prompt.txt).
+Group Holding website and HR ATS portal.
 
 ## Workflow
 

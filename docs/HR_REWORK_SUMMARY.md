@@ -30,7 +30,7 @@ Backend test suite: **577 passing** at completion (511 pre-existing
 
 Total new acceptance tests across the rework: **133**.
 
-### Advanced module (separate roadmap — see ``HR_ADVANCED_MODULE_CLAUDE_PROMPT.txt``)
+### Advanced module (separate roadmap)
 
 | AM-Phase | Theme | Commits | Tests added |
 |---:|---|---|---:|
