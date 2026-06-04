@@ -7,6 +7,7 @@ middleware that every later phase will rely on.
 """
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -76,10 +77,31 @@ async def lifespan(app: FastAPI):
     else:
         app.state.arq_pool = None
 
+    # Phase C-2b: per-worker consumer of the cross-worker WebSocket channel
+    # so a broadcast on any gunicorn worker reaches every console. No-op when
+    # WS_PUBSUB_ENABLED=false (tests / single-worker dev).
+    from app.core.ws_manager import pubsub_enabled, run_pubsub_listener
+
+    if pubsub_enabled():
+        app.state.ws_pubsub_task = asyncio.create_task(run_pubsub_listener())
+        logger.info("WS cross-worker fan-out enabled")
+    else:
+        app.state.ws_pubsub_task = None
+
     try:
         yield
     finally:
         shutdown_scheduler()
+        # Phase C-2b: stop the cross-worker WebSocket listener.
+        ws_task = getattr(app.state, "ws_pubsub_task", None)
+        if ws_task is not None:
+            ws_task.cancel()
+            try:
+                await ws_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.exception("WS listener raised during shutdown")
         # Phase B-3: close the ARQ pool first; close_redis below is
         # the singleton from B-2 and is separate.
         pool = getattr(app.state, "arq_pool", None)
