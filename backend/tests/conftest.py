@@ -14,6 +14,11 @@ import os
 # in with monkeypatch.setenv.
 os.environ.setdefault("SCHEDULER_ENABLED", "false")
 
+# Keep cross-worker WebSocket fan-out off in tests so the suite stays purely
+# in-process (no Redis pub/sub listener, no publish). Feature tests opt back
+# in with ``monkeypatch.setenv("WS_PUBSUB_ENABLED", "true")``.
+os.environ.setdefault("WS_PUBSUB_ENABLED", "false")
+
 # Phase A-3: ``Settings.secret_key`` no longer carries an insecure
 # placeholder default. Tests still need *something* to sign JWTs with
 # (the auth fixtures hit /admin/auth/login and /hr/auth/login).
