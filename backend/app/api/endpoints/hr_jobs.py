@@ -245,13 +245,37 @@ def create_job(
         remarks="Job draft created",
     )
 
+    # Approval bypass — when the global "require job approval" setting is off,
+    # or this user's role holds hr:jobs:post_direct, submit + approve + publish
+    # in one shot so the job goes live immediately (no pending step).
+    auto_approved = not approval.should_require_approval(db, user)
+    if auto_approved:
+        approval.submit_for_approval(
+            db,
+            job=job,
+            actor=user,
+            remarks="Auto-submitted (approval not required)",
+        )
+        approval.approve_job(
+            db,
+            job=job,
+            actor=user,
+            remarks="Auto-approved (approval not required for this role)",
+            auto_publish=True,
+        )
+
     _audit(
         db,
         user,
         request,
         action="hr.job.create",
         target_id=job.id,
-        details={"slug": job.slug, "title": job.title, "status": job.status},
+        details={
+            "slug": job.slug,
+            "title": job.title,
+            "status": job.status,
+            "auto_approved": auto_approved,
+        },
     )
     db.commit()
     db.refresh(job)

@@ -603,6 +603,30 @@ def get_pending_revision(
     )
 
 
+def should_require_approval(db: Session, actor: User) -> bool:
+    """Whether ``actor``'s new job must go through the approval workflow.
+
+    Approval is required when the global ``job_approval_required`` setting is
+    on AND the actor's role set does not grant ``hr:jobs:post_direct``.
+    Flipping the global setting off makes every new job publish straight on
+    create.
+
+    The bypass is checked against ``permission_keys`` (the explicit,
+    role-granted set) rather than ``has_permission`` — so being a superuser
+    does NOT implicitly skip approval. Bypassing approval is an audited
+    per-role choice the Super Admin makes in the role matrix.
+    """
+    from app.auth.permissions import PERM_HR_JOBS_POST_DIRECT
+    from app.services.email import EmailService
+
+    settings = EmailService.get_or_create_settings(db)
+    if not settings.job_approval_required:
+        return False
+    if PERM_HR_JOBS_POST_DIRECT in actor.permission_keys:
+        return False
+    return True
+
+
 def is_publicly_visible(job: JobOpening) -> bool:
     return _public_visible(job)
 
