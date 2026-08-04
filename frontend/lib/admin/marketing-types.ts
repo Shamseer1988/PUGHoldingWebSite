@@ -20,6 +20,11 @@ export interface OfferCampaign {
   description: string | null;
   banner_image_url: string | null;
   theme_color: string | null;
+  /** Structured branch link. ``null`` = all branches. */
+  division_id: number | null;
+  /** Resolved branch name, supplied by the API so lists need no join. */
+  division_name: string | null;
+  /** Legacy free-text label kept for pre-migration rows. */
   branch: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -42,6 +47,8 @@ export interface OfferCampaignCreate {
   description?: string | null;
   banner_image_url?: string | null;
   theme_color?: string | null;
+  /** Branch id, or ``ALL_BRANCHES`` (0) to clear it. */
+  division_id?: number | null;
   branch?: string | null;
   start_date?: string | null;
   end_date?: string | null;
@@ -72,6 +79,9 @@ export interface CataloguePage {
 export interface Catalogue {
   id: number;
   campaign_id: number | null;
+  /** Branch link, independent of the campaign's. ``null`` = all branches. */
+  division_id: number | null;
+  division_name: string | null;
   slug: string;
   title: string;
   description: string | null;
@@ -102,6 +112,8 @@ export interface CatalogueUpdate {
   title?: string;
   description?: string | null;
   campaign_id?: number | null;
+  /** Branch id, or ``ALL_BRANCHES`` (0) to clear it. */
+  division_id?: number | null;
   is_active?: boolean;
   is_featured?: boolean;
   sort_order?: number;

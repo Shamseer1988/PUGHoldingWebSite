@@ -79,7 +79,21 @@ interface DivisionRead {
   logo_url: string | null;
   fallback_url: string | null;
   is_active: boolean;
+  is_public: boolean;
   sort_order: number;
+  hero_image_url: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  whatsapp: string | null;
+  opening_hours: string | null;
+  maps_url: string | null;
+  facebook_url: string | null;
+  instagram_url: string | null;
+  tiktok_url: string | null;
+  youtube_url: string | null;
+  snapchat_url: string | null;
+  x_url: string | null;
   created_at: string;
   updated_at: string;
   qr_codes: QrCodeRead[];
@@ -813,18 +827,54 @@ function DivisionForm({
   const [name, setName] = React.useState(division?.name ?? "");
   const [city, setCity] = React.useState(division?.city ?? "");
   const [logoUrl, setLogoUrl] = React.useState(division?.logo_url ?? "");
+  const [heroUrl, setHeroUrl] = React.useState(division?.hero_image_url ?? "");
   const [fallbackUrl, setFallbackUrl] = React.useState(division?.fallback_url ?? "");
+  const [isPublic, setIsPublic] = React.useState(division?.is_public ?? true);
+
+  const [address, setAddress] = React.useState(division?.address ?? "");
+  const [phone, setPhone] = React.useState(division?.phone ?? "");
+  const [email, setEmail] = React.useState(division?.email ?? "");
+  const [whatsapp, setWhatsapp] = React.useState(division?.whatsapp ?? "");
+  const [hours, setHours] = React.useState(division?.opening_hours ?? "");
+  const [mapsUrl, setMapsUrl] = React.useState(division?.maps_url ?? "");
+
+  const [facebook, setFacebook] = React.useState(division?.facebook_url ?? "");
+  const [instagram, setInstagram] = React.useState(division?.instagram_url ?? "");
+  const [tiktok, setTiktok] = React.useState(division?.tiktok_url ?? "");
+  const [youtube, setYoutube] = React.useState(division?.youtube_url ?? "");
+  const [snapchat, setSnapchat] = React.useState(division?.snapchat_url ?? "");
+  const [x, setX] = React.useState(division?.x_url ?? "");
+
   const [busy, setBusy] = React.useState(false);
+  const [tab, setTab] = React.useState<"branch" | "storefront">("branch");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
+      // Blank inputs are sent as null, not "". The operator clearing a
+      // field means "remove this", and the public page decides what to
+      // render by null-checking each value.
+      const clean = (v: string) => v.trim() || null;
       const body: Record<string, unknown> = {
         name: name.trim(),
-        city: city.trim() || null,
-        logo_url: logoUrl.trim() || null,
-        fallback_url: fallbackUrl.trim() || null,
+        city: clean(city),
+        logo_url: clean(logoUrl),
+        hero_image_url: clean(heroUrl),
+        fallback_url: clean(fallbackUrl),
+        is_public: isPublic,
+        address: clean(address),
+        phone: clean(phone),
+        email: clean(email),
+        whatsapp: clean(whatsapp),
+        opening_hours: clean(hours),
+        maps_url: clean(mapsUrl),
+        facebook_url: clean(facebook),
+        instagram_url: clean(instagram),
+        tiktok_url: clean(tiktok),
+        youtube_url: clean(youtube),
+        snapchat_url: clean(snapchat),
+        x_url: clean(x),
       };
       if (isEdit) {
         await adminApi.patch(`${DIVISIONS}/${division!.id}`, body);
@@ -838,6 +888,8 @@ function DivisionForm({
       setBusy(false);
     }
   }
+
+  const branchSlug = division?.slug;
 
   return (
     <form
@@ -860,57 +912,220 @@ function DivisionForm({
         </Button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="division-name">Branch name</Label>
-          <Input
-            id="division-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Paris Hyper Market Al Atiyah"
-            required
-            minLength={2}
-            disabled={busy}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="division-city">City / area (optional)</Label>
-          <Input
-            id="division-city"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder="Doha"
-            disabled={busy}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="division-logo">Logo URL (optional)</Label>
-          <Input
-            id="division-logo"
-            value={logoUrl}
-            onChange={(e) => setLogoUrl(e.target.value)}
-            placeholder="Pick from Media library — stamped into the QR centre"
-            disabled={busy}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="division-fallback">Fallback link (optional)</Label>
-          <Input
-            id="division-fallback"
-            type="url"
-            value={fallbackUrl}
-            onChange={(e) => setFallbackUrl(e.target.value)}
-            placeholder="https://pug.qa/offers"
-            disabled={busy}
-          />
-          <p className="text-[11px] text-muted-foreground">
-            Where scans go if a code here is disabled or has no link — stops
-            printed codes dead-ending on a 404.
-          </p>
-        </div>
+      {/* Two tabs so the required identity fields aren't buried under a
+          long contact/social block the operator can fill in later. */}
+      <div className="mb-3 flex gap-1 border-b border-border/60">
+        {(
+          [
+            ["branch", "Branch"],
+            ["storefront", "Public page"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
+              tab === key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      <div className="mt-3 flex justify-end">
+      {tab === "branch" && (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="division-name">Branch name</Label>
+            <Input
+              id="division-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Paris Hyper Market Al Attiya"
+              required
+              minLength={2}
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="division-city">City / area</Label>
+            <Input
+              id="division-city"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="Industrial Area"
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="division-logo">Logo URL</Label>
+            <Input
+              id="division-logo"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="Stamped into the QR centre + page header"
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="division-fallback">Fallback link</Label>
+            <Input
+              id="division-fallback"
+              type="url"
+              value={fallbackUrl}
+              onChange={(e) => setFallbackUrl(e.target.value)}
+              placeholder="Leave blank to use this branch's offers page"
+              disabled={busy}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Where scans go if a code here is disabled or has no link. Left
+              blank, they land on this branch&apos;s own offers page
+              {branchSlug ? ` (/offers/${branchSlug})` : ""} — which is
+              usually what you want.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {tab === "storefront" && (
+        <div className="space-y-4">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              Publish this branch&apos;s offers page
+              {branchSlug && (
+                <code className="ml-1 font-mono text-xs text-muted-foreground">
+                  /offers/{branchSlug}
+                </code>
+              )}
+              <span className="block text-[11px] text-muted-foreground">
+                Turn off for a branch that exists only for QR routing. Its
+                codes then fall through to the group offers page instead.
+              </span>
+            </span>
+          </label>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="division-hero">Hero image URL</Label>
+              <Input
+                id="division-hero"
+                value={heroUrl}
+                onChange={(e) => setHeroUrl(e.target.value)}
+                placeholder="Wide banner across the top of the branch page"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="division-address">Address</Label>
+              <Input
+                id="division-address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Street 12, Industrial Area, Doha, Qatar"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="division-phone">Phone</Label>
+              <Input
+                id="division-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+974 4000 0000"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="division-whatsapp">WhatsApp</Label>
+              <Input
+                id="division-whatsapp"
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(e.target.value)}
+                placeholder="+974 5000 0000"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="division-email">Email</Label>
+              <Input
+                id="division-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="alattiya@parisunitedgroup.com"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="division-maps">Google Maps link</Label>
+              <Input
+                id="division-maps"
+                type="url"
+                value={mapsUrl}
+                onChange={(e) => setMapsUrl(e.target.value)}
+                placeholder="https://maps.app.goo.gl/…"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="division-hours">Opening hours</Label>
+              <Input
+                id="division-hours"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                placeholder="Sat–Thu 8:00–24:00 · Fri 8:00–11:30, 13:00–24:00"
+                disabled={busy}
+              />
+            </div>
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Social links
+            </h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              {(
+                [
+                  ["Instagram", instagram, setInstagram, "https://instagram.com/…"],
+                  ["Facebook", facebook, setFacebook, "https://facebook.com/…"],
+                  ["TikTok", tiktok, setTiktok, "https://tiktok.com/@…"],
+                  ["YouTube", youtube, setYoutube, "https://youtube.com/@…"],
+                  ["Snapchat", snapchat, setSnapchat, "https://snapchat.com/add/…"],
+                  ["X (Twitter)", x, setX, "https://x.com/…"],
+                ] as const
+              ).map(([label, value, setter, placeholder]) => (
+                <div key={label} className="space-y-1.5">
+                  <Label htmlFor={`division-${label}`}>{label}</Label>
+                  <Input
+                    id={`division-${label}`}
+                    type="url"
+                    value={value}
+                    onChange={(e) => setter(e.target.value)}
+                    placeholder={placeholder}
+                    disabled={busy}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Only the links you fill in appear in the page footer.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end">
         <Button type="submit" disabled={busy || name.trim().length < 2}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
           {isEdit ? "Save changes" : "Create division"}

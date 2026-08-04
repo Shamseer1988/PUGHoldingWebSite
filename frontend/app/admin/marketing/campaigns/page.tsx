@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
+import { ALL_BRANCHES, useDivisions } from "@/lib/admin/use-divisions";
 import type {
   OfferCampaign,
   OfferCampaignCreate,
@@ -118,12 +119,11 @@ export default function CampaignsPage() {
 
   // The 4 boolean flags surface in tiny chips so the operator can see at
   // a glance whether each campaign is active/featured/killer/flash.
-  const branchOptions = React.useMemo(() => {
-    if (rows === null) return [];
-    return Array.from(
-      new Set(rows.map((r) => r.branch).filter(Boolean) as string[])
-    ).sort();
-  }, [rows]);
+  // Filter options come from the branches table, not from labels
+  // already present in the result set — otherwise a branch with no
+  // campaigns yet couldn't be filtered for (and "no results" would be
+  // indistinguishable from "not an option").
+  const { divisions: filterDivisions } = useDivisions();
 
   return (
     <AdminShell
@@ -166,9 +166,9 @@ export default function CampaignsPage() {
             onChange={(e) => setBranch(e.target.value)}
           >
             <option value="">All branches</option>
-            {branchOptions.map((b) => (
-              <option key={b} value={b}>
-                {b}
+            {filterDivisions.map((d) => (
+              <option key={d.id} value={d.slug}>
+                {d.name}
               </option>
             ))}
           </Select>
@@ -268,7 +268,7 @@ export default function CampaignsPage() {
                     )}
                   </TableCell>
                   <TableCell className="hidden md:table-cell text-xs">
-                    {row.branch || "—"}
+                    {row.division_name ?? row.branch ?? "All branches"}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -371,7 +371,6 @@ export default function CampaignsPage() {
       {(creating || editing) && (
         <CampaignDrawer
           editing={editing}
-          branchSuggestions={branchOptions}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -400,16 +399,11 @@ export default function CampaignsPage() {
 
 function CampaignDrawer({
   editing,
-  branchSuggestions,
   onClose,
   onSaved,
   onError,
 }: {
   editing: OfferCampaign | null;
-  /** Distinct branch values already used by other campaigns. Powers
-   *  the branch autocomplete — the operator can type a fresh value
-   *  or pick one of the existing ones from the native dropdown. */
-  branchSuggestions: string[];
   onClose: () => void;
   onSaved: (title: string, mode: "create" | "edit") => void;
   onError: (msg: string) => void;
@@ -419,7 +413,13 @@ function CampaignDrawer({
   const [description, setDescription] = React.useState(
     () => editing?.description ?? ""
   );
-  const [branch, setBranch] = React.useState(() => editing?.branch ?? "");
+  // Legacy free-text value, shown read-only so the operator can see
+  // what a pre-migration campaign used to target before they replace it.
+  const legacyBranch = editing?.division_id ? null : editing?.branch ?? null;
+  const [divisionId, setDivisionId] = React.useState<number>(
+    () => editing?.division_id ?? ALL_BRANCHES,
+  );
+  const { divisions, loading: divisionsLoading } = useDivisions();
   const [themeColor, setThemeColor] = React.useState(
     () => editing?.theme_color ?? "#17382f"
   );
@@ -486,7 +486,8 @@ function CampaignDrawer({
         description: description.trim() || null,
         banner_image_url: bannerUrl.trim() || null,
         theme_color: themeColor.trim() || null,
-        branch: branch.trim() || null,
+        // 0 is the API's explicit "back to all branches" sentinel.
+        division_id: divisionId,
         start_date: startDate || null,
         end_date: endDate || null,
         is_active: isActive,
@@ -690,27 +691,41 @@ function CampaignDrawer({
           <Section title="Targeting + window">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="c-branch">Branch</Label>
-                <Input
-                  id="c-branch"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  disabled={saving}
-                  placeholder="Doha / Lusail / All"
-                  list="c-branch-suggestions"
-                  autoComplete="off"
-                />
-                {/* Native datalist — the design system stays untouched
-                    (same shadcn ``Input``), the browser draws a small
-                    dropdown of previously-used branches when the field
-                    focuses, and the operator can still type any fresh
-                    value. Empty list is fine — browsers just show no
-                    dropdown. */}
-                <datalist id="c-branch-suggestions">
-                  {branchSuggestions.map((b) => (
-                    <option key={b} value={b} />
+                <Label htmlFor="c-division">Branch</Label>
+                {/* Real branch list from Marketing -> QR Codes, not a
+                    free-text field. Typo-proof, and it guarantees the
+                    campaign lands on a branch page that actually
+                    exists. "All branches" is the default and the
+                    common case for group-wide promotions. */}
+                <Select
+                  id="c-division"
+                  value={String(divisionId)}
+                  onChange={(e) => setDivisionId(Number(e.target.value))}
+                  disabled={saving || divisionsLoading}
+                >
+                  <option value={ALL_BRANCHES}>All branches</option>
+                  {divisions.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                      {d.city ? ` — ${d.city}` : ""}
+                    </option>
                   ))}
-                </datalist>
+                </Select>
+                {divisionId === ALL_BRANCHES ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Shows on every branch&apos;s offers page.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Only on this branch&apos;s page.
+                  </p>
+                )}
+                {legacyBranch && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                    Previously targeted by text: &ldquo;{legacyBranch}&rdquo;.
+                    Saving replaces it with the branch selected above.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="c-start">Start date</Label>

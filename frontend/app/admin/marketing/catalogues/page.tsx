@@ -38,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminApi, AdminApiError } from "@/lib/admin/api";
+import { ALL_BRANCHES, useDivisions } from "@/lib/admin/use-divisions";
 import type {
   Catalogue,
   CatalogueAnalytics,
@@ -543,6 +544,8 @@ function UploadDialog({
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [campaignId, setCampaignId] = React.useState<string>("");
+  const [divisionId, setDivisionId] = React.useState<number>(ALL_BRANCHES);
+  const { divisions, loading: divisionsLoading } = useDivisions();
   const [isActive, setIsActive] = React.useState(true);
   const [isFeatured, setIsFeatured] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -573,6 +576,9 @@ function UploadDialog({
       fd.append("title", title.trim());
       if (description.trim()) fd.append("description", description.trim());
       if (campaignId) fd.append("campaign_id", campaignId);
+      // Always sent: 0 means "all branches", which is a real choice
+      // rather than an omission.
+      fd.append("division_id", String(divisionId));
       fd.append("is_active", String(isActive));
       fd.append("is_featured", String(isFeatured));
       await adminApi.postMultipart<CatalogueDetail>(BASE, fd);
@@ -707,6 +713,32 @@ function UploadDialog({
             </Select>
           </div>
 
+          <div className="space-y-1.5">
+            <Label htmlFor="up-division">Branch</Label>
+            {/* Independent of the campaign above: the same campaign
+                often runs group-wide while each branch gets its own
+                flyer, so this catalogue needs to name its own branch. */}
+            <Select
+              id="up-division"
+              value={String(divisionId)}
+              onChange={(e) => setDivisionId(Number(e.target.value))}
+              disabled={uploading || divisionsLoading}
+            >
+              <option value={ALL_BRANCHES}>All branches</option>
+              {divisions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.city ? ` — ${d.city}` : ""}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              {divisionId === ALL_BRANCHES
+                ? "Appears on every branch's offers page."
+                : "Appears only on this branch's offers page."}
+            </p>
+          </div>
+
           <div className="flex gap-4">
             <label className="inline-flex items-center gap-2 text-sm">
               <input
@@ -773,6 +805,10 @@ function EditMetadataDialog({
   const [campaignId, setCampaignId] = React.useState<string>(
     row.campaign_id != null ? String(row.campaign_id) : ""
   );
+  const [divisionId, setDivisionId] = React.useState<number>(
+    row.division_id ?? ALL_BRANCHES,
+  );
+  const { divisions, loading: divisionsLoading } = useDivisions();
   const [isActive, setIsActive] = React.useState(row.is_active);
   const [isFeatured, setIsFeatured] = React.useState(row.is_featured);
   const [sortOrder, setSortOrder] = React.useState(row.sort_order);
@@ -827,6 +863,7 @@ function EditMetadataDialog({
         title: title.trim(),
         description: description.trim() || null,
         campaign_id: campaignId ? Number(campaignId) : null,
+        division_id: divisionId,
         is_active: isActive,
         is_featured: isFeatured,
         sort_order: Number(sortOrder) || 0,
@@ -908,6 +945,22 @@ function EditMetadataDialog({
               {campaigns.map((c) => (
                 <option key={c.id} value={String(c.id)}>
                   {c.title}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Branch</Label>
+            <Select
+              value={String(divisionId)}
+              onChange={(e) => setDivisionId(Number(e.target.value))}
+              disabled={saving || divisionsLoading}
+            >
+              <option value={ALL_BRANCHES}>All branches</option>
+              {divisions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.city ? ` — ${d.city}` : ""}
                 </option>
               ))}
             </Select>
