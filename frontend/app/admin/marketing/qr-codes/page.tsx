@@ -319,7 +319,12 @@ function DivisionCard({
           <Button size="sm" variant="ghost" onClick={() => setAddingQr(true)} title="Add QR code">
             <Plus className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(true)} title="Edit division">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(true)}
+            title="Edit branch details (not the QR links)"
+          >
             <Pencil className="h-4 w-4" />
           </Button>
           <Button
@@ -474,7 +479,15 @@ function QrRow({
   }
 
   return (
-    <div className="p-4">
+    <div
+      className={cn(
+        "p-4 transition-colors",
+        // Highlight the row whose editor is open. With several codes
+        // stacked under one division, an unanchored form panel leaves
+        // "which code am I editing?" ambiguous.
+        editing && "bg-primary/[0.04] ring-1 ring-inset ring-primary/30",
+      )}
+    >
       <div className="flex flex-wrap items-start gap-4">
         <QrPreview qrId={qr.id} slug={qr.slug} />
 
@@ -534,9 +547,14 @@ function QrRow({
         </div>
 
         <div className="flex flex-col items-stretch gap-2">
-          <Button size="sm" onClick={() => setEditing((v) => !v)}>
+          <Button
+            size="sm"
+            variant={editing ? "outline" : "default"}
+            onClick={() => setEditing((v) => !v)}
+            title={`Edit "${qr.label}" — link, type, label and fallback`}
+          >
             <Pencil className="h-3.5 w-3.5" />
-            Update link
+            {editing ? "Close editor" : "Update link"}
           </Button>
           <div className="flex items-center gap-1">
             <Select
@@ -833,7 +851,7 @@ function DivisionForm({
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {isEdit
-              ? "Renaming a division never changes its QR codes — printed artwork stays valid."
+              ? "Branch details only — renaming never changes its QR codes, so printed artwork stays valid. To change where a code points, use Update link on that code below."
               : "A permanent \"Primary\" QR code is created automatically. You can point it at a link now or later."}
           </p>
         </div>
@@ -1041,7 +1059,12 @@ function QrEditForm({
     <form onSubmit={submit} className="rounded-xl border border-primary/30 bg-primary/[0.04] p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
-          <h4 className="text-sm font-semibold">Update link</h4>
+          {/* Name the code being edited. Several codes stack under one
+              division, so a bare "Update link" heading leaves the
+              operator guessing which one this panel belongs to. */}
+          <h4 className="text-sm font-semibold">
+            Editing <span className="text-primary">{qr.label}</span>
+          </h4>
           <p className="mt-0.5 text-xs text-muted-foreground">
             The QR image and its URL{" "}
             <code className="font-mono">{qrUrlDisplay(qr.slug)}</code> stay
