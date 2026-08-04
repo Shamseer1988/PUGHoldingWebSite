@@ -58,6 +58,11 @@ from app.models.marketing import (
     CatalogueViewEvent,
     OfferCampaign,
 )
+from app.models.marketing_qr import (
+    MarketingDivision,
+    MarketingQrCode,
+    MarketingQrScanEvent,
+)
 from app.models.seo import (
     SeoSetting,
     SeoVerification,
@@ -116,6 +121,10 @@ __all__ = [
     "CataloguePage",
     "CatalogueViewEvent",
     "OfferCampaign",
+    # Marketing — Divisions & branch QR codes
+    "MarketingDivision",
+    "MarketingQrCode",
+    "MarketingQrScanEvent",
     # SEO
     "SeoSetting",
     "SeoVerification",

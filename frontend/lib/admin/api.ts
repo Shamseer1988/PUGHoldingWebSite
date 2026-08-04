@@ -136,6 +136,37 @@ async function downloadFile(
   URL.revokeObjectURL(objectUrl);
 }
 
+/**
+ * Fetch a binary admin endpoint and return an object URL for it.
+ *
+ * Needed because admin endpoints authenticate with a Bearer header,
+ * and a plain ``<img src="/api/…">`` can't send one. Callers render
+ * the returned string as an image source and MUST call
+ * ``URL.revokeObjectURL`` when the image unmounts or the URL changes —
+ * object URLs are held by the document until revoked, so a page that
+ * re-fetches previews without revoking leaks a blob per render.
+ */
+async function fetchObjectUrl(path: string): Promise<string> {
+  const session = loadSession("admin");
+  if (!session) throw new AdminApiError("Not authenticated", 401);
+  const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* swallow — binary endpoints don't always return JSON errors */
+    }
+    throw new AdminApiError(detail, response.status);
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 export interface UploadedImage {
   url: string;
   filename: string;
@@ -198,6 +229,7 @@ export const adminApi = {
    * as a downloadable file. The browser saves it via an anchor click.
    */
   downloadFile,
+  fetchObjectUrl,
   /** Generic JSON-returning multipart POST (e.g. restore upload). */
   postMultipart<T>(path: string, fd: FormData) {
     return postMultipart<T>(path, fd);
