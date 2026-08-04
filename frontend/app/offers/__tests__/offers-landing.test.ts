@@ -1,9 +1,24 @@
+/**
+ * Public offers filtering.
+ *
+ * The branch rule is the one worth pinning: a campaign or catalogue
+ * with no branch of its own runs group-wide, so selecting a branch
+ * must still show it. Filtering strictly by branch would hide the main
+ * weekly flyer the moment a shopper picks their store — which is
+ * exactly the failure mode that made this page look empty.
+ */
 import { describe, expect, it } from "vitest";
 
-import type { OfferIndexCampaign } from "@/lib/public-offers";
+import type {
+  OfferIndexCampaign,
+  OffersIndexCatalogue,
+} from "@/lib/public-offers";
 
-import { filterCampaigns, type CampaignFilterState } from "../offers-landing";
-
+import {
+  filterCampaigns,
+  filterCatalogues,
+  type CampaignFilterState,
+} from "../offers-landing";
 
 function mk(over: Partial<OfferIndexCampaign>): OfferIndexCampaign {
   return {
@@ -24,100 +39,122 @@ function mk(over: Partial<OfferIndexCampaign>): OfferIndexCampaign {
   };
 }
 
+function mkCat(
+  over: Partial<OffersIndexCatalogue>,
+): OffersIndexCatalogue {
+  return {
+    slug: over.slug ?? "c",
+    title: over.title ?? "Flyer",
+    description: over.description ?? null,
+    cover_image_url: over.cover_image_url ?? null,
+    page_count: over.page_count ?? 8,
+    branch_name: over.branch_name ?? null,
+    is_featured: over.is_featured ?? false,
+    created_at: over.created_at ?? null,
+  };
+}
 
 const empty: CampaignFilterState = {
-  branch: "",
+  branchName: null,
   query: "",
-  types: [],
-  statuses: [],
+  flags: [],
 };
 
-
 describe("filterCampaigns — branch", () => {
-  it("returns everything when branch is empty", () => {
-    const a = mk({ slug: "a", branch: "Doha" });
-    const b = mk({ slug: "b", branch: "Lusail" });
-    expect(filterCampaigns([a, b], { ...empty })).toEqual([a, b]);
+  it("returns everything when no branch is selected", () => {
+    const a = mk({ slug: "a", branch: "Al Khor" });
+    const b = mk({ slug: "b", branch: "Al Wakra" });
+    expect(filterCampaigns([a, b], empty)).toEqual([a, b]);
   });
 
-  it("filters strictly by exact branch match", () => {
-    const a = mk({ slug: "a", branch: "Doha" });
-    const b = mk({ slug: "b", branch: "Lusail" });
-    expect(filterCampaigns([a, b], { ...empty, branch: "Doha" })).toEqual([a]);
+  it("keeps group-wide campaigns when a branch is selected", () => {
+    // The load-bearing case: a campaign with no branch belongs to
+    // every branch, so it must survive the filter.
+    const groupWide = mk({ slug: "weekly", branch: null });
+    const alKhor = mk({ slug: "khor", branch: "Al Khor" });
+    const alWakra = mk({ slug: "wakra", branch: "Al Wakra" });
+    expect(
+      filterCampaigns([groupWide, alKhor, alWakra], {
+        ...empty,
+        branchName: "Al Khor",
+      }),
+    ).toEqual([groupWide, alKhor]);
   });
 
-  it("trims whitespace on the branch param", () => {
-    const a = mk({ slug: "a", branch: "Doha" });
-    expect(filterCampaigns([a], { ...empty, branch: "  Doha  " })).toEqual([a]);
+  it("matches branch case-insensitively and ignores stray whitespace", () => {
+    const a = mk({ slug: "a", branch: "  al khor " });
+    expect(
+      filterCampaigns([a], { ...empty, branchName: "Al Khor" }),
+    ).toEqual([a]);
   });
 });
 
-
-describe("filterCampaigns — offer type", () => {
+describe("filterCampaigns — promo flags", () => {
   const killer = mk({ slug: "k", is_killer_offer: true });
   const featured = mk({ slug: "f", is_featured: true });
   const flash = mk({ slug: "z", is_flash_sale: true });
   const plain = mk({ slug: "p" });
   const all = [killer, featured, flash, plain];
 
-  it("empty type list = no filter", () => {
-    expect(filterCampaigns(all, { ...empty }).length).toBe(4);
+  it("no flags = no narrowing", () => {
+    expect(filterCampaigns(all, empty)).toHaveLength(4);
   });
 
-  it("single type returns only matching rows", () => {
-    expect(filterCampaigns(all, { ...empty, types: ["killer"] })).toEqual([
+  it("a single flag returns only matching rows", () => {
+    expect(filterCampaigns(all, { ...empty, flags: ["killer"] })).toEqual([
       killer,
     ]);
   });
 
-  it("multi-select is OR (killer OR featured returns both)", () => {
+  it("multiple promo flags OR together", () => {
     expect(
-      filterCampaigns(all, { ...empty, types: ["killer", "featured"] }),
+      filterCampaigns(all, { ...empty, flags: ["killer", "featured"] }),
     ).toEqual([killer, featured]);
   });
 
-  it("a campaign with two flags matches when either is selected", () => {
+  it("a row with two flags matches when either is selected", () => {
     const both = mk({ slug: "both", is_killer_offer: true, is_featured: true });
     expect(
-      filterCampaigns([both, plain], { ...empty, types: ["featured"] }),
+      filterCampaigns([both, plain], { ...empty, flags: ["featured"] }),
     ).toEqual([both]);
     expect(
-      filterCampaigns([both, plain], { ...empty, types: ["killer"] }),
+      filterCampaigns([both, plain], { ...empty, flags: ["killer"] }),
     ).toEqual([both]);
   });
 });
 
-
-describe("filterCampaigns — status", () => {
+describe("filterCampaigns — ended", () => {
   const live = mk({ slug: "live", is_expired: false });
   const dead = mk({ slug: "dead", is_expired: true });
 
-  it("empty status list = no filter", () => {
-    expect(filterCampaigns([live, dead], { ...empty })).toEqual([live, dead]);
+  it("hides ended campaigns by default", () => {
+    expect(filterCampaigns([live, dead], empty)).toEqual([live]);
   });
 
-  it("running only excludes expired", () => {
+  it("includes them once Ended is ticked", () => {
     expect(
-      filterCampaigns([live, dead], { ...empty, statuses: ["running"] }),
-    ).toEqual([live]);
-  });
-
-  it("expired only excludes running", () => {
-    expect(
-      filterCampaigns([live, dead], { ...empty, statuses: ["expired"] }),
-    ).toEqual([dead]);
-  });
-
-  it("both statuses selected = no filter (they cancel out)", () => {
-    expect(
-      filterCampaigns([live, dead], {
-        ...empty,
-        statuses: ["running", "expired"],
-      }),
+      filterCampaigns([live, dead], { ...empty, flags: ["expired"] }),
     ).toEqual([live, dead]);
   });
-});
 
+  it("Ended is a state, not another OR term alongside promo flags", () => {
+    // Killer + Ended means "killer offers, including finished ones" —
+    // not "killer offers OR anything that ended".
+    const endedKiller = mk({
+      slug: "ek",
+      is_killer_offer: true,
+      is_expired: true,
+    });
+    const endedPlain = mk({ slug: "ep", is_expired: true });
+    const liveKiller = mk({ slug: "lk", is_killer_offer: true });
+    expect(
+      filterCampaigns([endedKiller, endedPlain, liveKiller], {
+        ...empty,
+        flags: ["killer", "expired"],
+      }),
+    ).toEqual([endedKiller, liveKiller]);
+  });
+});
 
 describe("filterCampaigns — free-text search", () => {
   const summer = mk({
@@ -129,13 +166,13 @@ describe("filterCampaigns — free-text search", () => {
     slug: "eid",
     title: "Eid Mubarak",
     description: "Family promotions",
-    branch: "Lusail",
+    branch: "Al Wakra",
   });
 
   it("matches title", () => {
-    expect(
-      filterCampaigns([summer, eid], { ...empty, query: "Summer" }),
-    ).toEqual([summer]);
+    expect(filterCampaigns([summer, eid], { ...empty, query: "Summer" })).toEqual(
+      [summer],
+    );
   });
 
   it("matches description", () => {
@@ -144,58 +181,55 @@ describe("filterCampaigns — free-text search", () => {
     ).toEqual([eid]);
   });
 
-  it("matches branch", () => {
+  it("matches branch label", () => {
     expect(
-      filterCampaigns([summer, eid], { ...empty, query: "Lusail" }),
+      filterCampaigns([summer, eid], { ...empty, query: "Wakra" }),
     ).toEqual([eid]);
   });
 
-  it("is case-insensitive", () => {
-    expect(filterCampaigns([summer, eid], { ...empty, query: "SWIM" })).toEqual(
+  it("is case-insensitive and trims the query", () => {
+    expect(filterCampaigns([summer, eid], { ...empty, query: "  SWIM " })).toEqual(
       [summer],
     );
   });
-
-  it("ignores surrounding whitespace", () => {
-    expect(
-      filterCampaigns([summer, eid], { ...empty, query: "  eid  " }),
-    ).toEqual([eid]);
-  });
 });
 
+describe("filterCatalogues", () => {
+  const groupWide = mkCat({ slug: "weekly", branch_name: null });
+  const khor = mkCat({ slug: "khor", branch_name: "Al Khor" });
+  const wakra = mkCat({ slug: "wakra", branch_name: "Al Wakra" });
 
-describe("filterCampaigns — combined", () => {
-  it("branch + type + status compose with AND across filter axes", () => {
-    const a = mk({
-      slug: "a",
-      branch: "Doha",
-      is_killer_offer: true,
-      is_expired: false,
-    });
-    const b = mk({
-      slug: "b",
-      branch: "Doha",
-      is_killer_offer: true,
-      is_expired: true,
-    });
-    const c = mk({
-      slug: "c",
-      branch: "Lusail",
-      is_killer_offer: true,
-      is_expired: false,
-    });
-    const d = mk({
-      slug: "d",
-      branch: "Doha",
-      is_featured: true,
-      is_expired: false,
-    });
-    const result = filterCampaigns([a, b, c, d], {
-      branch: "Doha",
-      query: "",
-      types: ["killer"],
-      statuses: ["running"],
-    });
-    expect(result).toEqual([a]);
+  it("keeps group-wide flyers under a branch filter", () => {
+    expect(
+      filterCatalogues([groupWide, khor, wakra], {
+        ...empty,
+        branchName: "Al Khor",
+      }),
+    ).toEqual([groupWide, khor]);
+  });
+
+  it("narrows to featured when that flag is on", () => {
+    const feat = mkCat({ slug: "f", is_featured: true });
+    expect(
+      filterCatalogues([feat, groupWide], { ...empty, flags: ["featured"] }),
+    ).toEqual([feat]);
+  });
+
+  it("promo flags do not narrow catalogues", () => {
+    // Killer/flash are campaign-level concepts; a catalogue has no
+    // such field, so these must not silently empty the flyer grid.
+    expect(
+      filterCatalogues([groupWide, khor], {
+        ...empty,
+        flags: ["killer", "flash"],
+      }),
+    ).toEqual([groupWide, khor]);
+  });
+
+  it("searches title and description", () => {
+    const ramadan = mkCat({ slug: "r", title: "Ramadan Flyer" });
+    expect(
+      filterCatalogues([ramadan, groupWide], { ...empty, query: "ramadan" }),
+    ).toEqual([ramadan]);
   });
 });

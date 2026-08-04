@@ -5,7 +5,8 @@ import { ArrowLeft, BookOpen, Clock, MapPin } from "lucide-react";
 
 import type { Catalogue } from "@/lib/admin/marketing-types";
 import { resolveAssetUrl } from "@/lib/public-api";
-import { getCampaignBySlug } from "@/lib/public-offers";
+import { getBranchPage, getCampaignBySlug } from "@/lib/public-offers";
+import { BranchStorefront } from "@/app/offers/branch-storefront";
 import { cn } from "@/lib/utils";
 
 
@@ -21,7 +22,28 @@ export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const campaign = await getCampaignBySlug(params.slug);
-  if (!campaign) return { title: "Campaign not found" };
+  if (!campaign) {
+    // Not a campaign — it may be a branch storefront sharing this
+    // route. See the resolution order note on the page component.
+    const branch = await getBranchPage(params.slug);
+    if (branch) {
+      const where = branch.city ? `${branch.name}, ${branch.city}` : branch.name;
+      return {
+        title: `${branch.name} — Offers & Catalogues`,
+        description:
+          branch.description ||
+          `Latest offers, catalogues and flyers at ${where}.`,
+        openGraph: {
+          title: `${branch.name} — Offers & Catalogues`,
+          description: branch.description || undefined,
+          images: branch.hero_image_url
+            ? [{ url: branch.hero_image_url }]
+            : undefined,
+        },
+      };
+    }
+    return { title: "Not found" };
+  }
   return {
     title:
       campaign.meta_title ||
@@ -44,9 +66,21 @@ export async function generateMetadata({
 }
 
 
+/**
+ * ``/offers/{slug}`` serves two things: a campaign, or a branch
+ * storefront.
+ *
+ * Resolution order is campaign-first, which preserves every existing
+ * campaign URL. The collision that order implies — a campaign slug
+ * shadowing a branch page — is blocked at write time by the admin API
+ * (creating such a campaign is a 409), so a branch page can never be
+ * silently hidden by an editor picking the wrong slug.
+ */
 export default async function CampaignDetailPage({ params }: PageProps) {
   const campaign = await getCampaignBySlug(params.slug);
   if (!campaign) {
+    const branch = await getBranchPage(params.slug);
+    if (branch) return <BranchStorefront branch={branch} />;
     notFound();
   }
 

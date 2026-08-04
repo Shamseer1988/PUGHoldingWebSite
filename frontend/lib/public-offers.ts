@@ -42,12 +42,51 @@ export interface OfferIndexCampaign {
   cover_image_url: string | null;
 }
 
+export interface BranchSummary {
+  slug: string;
+  name: string;
+  city: string | null;
+}
+
+export interface BranchSocialLinks {
+  facebook: string | null;
+  instagram: string | null;
+  tiktok: string | null;
+  youtube: string | null;
+  snapchat: string | null;
+  x: string | null;
+}
+
+/** Payload for a branch storefront — ``/offers/{branch-slug}``. */
+export interface BranchPage {
+  slug: string;
+  name: string;
+  city: string | null;
+  description: string | null;
+  logo_url: string | null;
+  hero_image_url: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  whatsapp: string | null;
+  opening_hours: string | null;
+  maps_url: string | null;
+  social: BranchSocialLinks;
+  campaigns: OfferIndexCampaign[];
+  catalogues: OffersIndexCatalogue[];
+  other_branches: BranchSummary[];
+}
+
 export interface OffersIndexCatalogue {
   slug: string;
   title: string;
   description: string | null;
   cover_image_url: string | null;
   page_count: number;
+  /** Branch label for the tile chip. ``null`` = all branches. */
+  branch_name: string | null;
+  is_featured: boolean;
+  created_at: string | null;
 }
 
 export interface OffersIndex {
@@ -56,7 +95,7 @@ export interface OffersIndex {
   flash_sales: OfferIndexCampaign[];
   all_campaigns: OfferIndexCampaign[];
   all_catalogues: OffersIndexCatalogue[];
-  branches: string[];
+  branches: BranchSummary[];
 }
 
 export interface CampaignPublicDetail {
@@ -109,21 +148,65 @@ async function fetchPublic<T>(
   }
 }
 
-export async function getOffersIndex(query?: {
+export interface OffersQuery {
   branch?: string;
   q?: string;
-}): Promise<OffersIndex> {
-  const data = await fetchPublic<OffersIndex>("/offers", query);
-  return (
-    data ?? {
-      featured: [],
-      killer_offers: [],
-      flash_sales: [],
-      all_campaigns: [],
-      all_catalogues: [],
-      branches: [],
-    }
+  killer?: boolean;
+  featured?: boolean;
+  flash?: boolean;
+  include_expired?: boolean;
+}
+
+/**
+ * Landing payload, with a flag distinguishing "no offers right now"
+ * from "we couldn't reach the API".
+ *
+ * Those two states used to be indistinguishable: a failed fetch fell
+ * back to an empty index and the page rendered a cheerful "no offers"
+ * — so an outage looked like an editorial decision. ``unavailable``
+ * lets the page say something honest instead.
+ */
+export type OffersIndexResult = OffersIndex & { unavailable?: boolean };
+
+const EMPTY_INDEX: OffersIndex = {
+  featured: [],
+  killer_offers: [],
+  flash_sales: [],
+  all_campaigns: [],
+  all_catalogues: [],
+  branches: [],
+};
+
+export async function getOffersIndex(
+  query?: OffersQuery
+): Promise<OffersIndexResult> {
+  const params: Record<string, string> = {};
+  if (query?.branch) params.branch = query.branch;
+  if (query?.q) params.q = query.q;
+  // Only send the flags that are on — the API defaults them to false,
+  // and an all-false query string is noise in the CDN cache key.
+  if (query?.killer) params.killer = "true";
+  if (query?.featured) params.featured = "true";
+  if (query?.flash) params.flash = "true";
+  if (query?.include_expired === false) params.include_expired = "false";
+
+  const data = await fetchPublic<OffersIndex>("/offers", params);
+  if (data === null) return { ...EMPTY_INDEX, unavailable: true };
+  return data;
+}
+
+/** One branch storefront. ``null`` when the branch isn't published. */
+export async function getBranchPage(
+  slug: string
+): Promise<BranchPage | null> {
+  return fetchPublic<BranchPage>(
+    `/offers/branch/${encodeURIComponent(slug)}`
   );
+}
+
+/** Branch picker options, for pages that don't need the full index. */
+export async function getBranches(): Promise<BranchSummary[]> {
+  return (await fetchPublic<BranchSummary[]>("/offers/branches")) ?? [];
 }
 
 export async function getCampaignBySlug(

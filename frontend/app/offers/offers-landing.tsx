@@ -1,663 +1,368 @@
 "use client";
 
+/**
+ * Public offers landing — every branch, every campaign, every flyer.
+ *
+ * Two things this deliberately fixes from the previous version:
+ *
+ * 1. It renders ``all_catalogues``. The API has always returned every
+ *    active + rendered catalogue regardless of campaign attachment,
+ *    precisely so this page can't look empty while flyers exist — but
+ *    the old landing rendered only campaigns, so a catalogue with no
+ *    campaign (or whose campaign fell outside its date window) was
+ *    invisible. That is what left this page blank in production.
+ *
+ * 2. It distinguishes "nothing published" from "couldn't reach the
+ *    API". The fetch layer collapses errors into an empty index, which
+ *    used to render a confident "no offers yet" during an outage.
+ *
+ * Filtering runs client-side over the already-fetched payload: the
+ * index is one small JSON document, so filtering locally is instant
+ * and lets the page stay fully cacheable at the CDN.
+ */
+
 import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowRight,
-  Clock,
-  Filter,
+  AlertTriangle,
+  BookOpen,
   Flame,
   MapPin,
   Search,
   Sparkles,
-  Tag,
+  Store,
   X,
   Zap,
 } from "lucide-react";
 
-import { PageHero } from "@/components/site/page-hero";
 import type {
   OfferIndexCampaign,
-  OffersIndex,
+  OffersIndexCatalogue,
+  OffersIndexResult,
 } from "@/lib/public-offers";
-import { resolveAssetUrl } from "@/lib/public-api";
 import { cn } from "@/lib/utils";
 
+import { CampaignCard, CatalogueCard, SectionHeading } from "./offer-cards";
 
-// Banner image for the offers landing hero. CSP allows ``https:``
-// img-src (see ``frontend/next.config.mjs``) so a CDN URL works
-// out of the box; swap with a CMS-managed value once the
-// ``site_settings`` table grows an ``offers_banner_image_url`` key.
-const OFFERS_BANNER_IMAGE =
-  "https://images.unsplash.com/photo-1607082352121-fa243f3dde32?auto=format&fit=crop&w=1920&q=80";
+type FlagFilter = "killer" | "featured" | "flash" | "expired";
 
-
-// ---------------------------------------------------------------------------
-// Filter types — all derive from existing OfferCampaign fields, no new DB
-// columns required. Multi-select shape so the operator can combine "Killer
-// + Featured" or "Running + Expired" the same way as the branch facet.
-// ---------------------------------------------------------------------------
-
-type OfferType = "killer" | "featured" | "flash";
-type Status = "running" | "expired";
-
-const OFFER_TYPES: OfferType[] = ["killer", "featured", "flash"];
-const STATUSES: Status[] = ["running", "expired"];
-
-
-interface Props {
-  index: OffersIndex;
-  initialBranch?: string;
-  initialQuery?: string;
-}
-
-
-export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
-  const router = useRouter();
-  const params = useSearchParams();
-
-  // Filter state — initialised from URL params so an external link to
-  // ``/offers?type=killer,featured&status=running`` opens with those
-  // chips already toggled. Subsequent toggles update state + push the
-  // URL via ``router.replace`` so navigation stays shareable AND the
-  // filtering itself happens in-memory (no server round-trip on every
-  // chip click).
-  const [branch, setBranch] = React.useState<string>(initialBranch ?? "");
-  const [query, setQuery] = React.useState<string>(initialQuery ?? "");
-  const [searchInput, setSearchInput] = React.useState<string>(
-    initialQuery ?? "",
-  );
-  const [types, setTypes] = React.useState<OfferType[]>(() =>
-    parseCsvParam<OfferType>(params?.get("type"), OFFER_TYPES),
-  );
-  const [statuses, setStatuses] = React.useState<Status[]>(() =>
-    parseCsvParam<Status>(params?.get("status"), STATUSES),
-  );
-
-  // Sync state → URL whenever a filter changes. ``scroll: false`` keeps
-  // the user's scroll position when they tap a chip mid-page.
-  React.useEffect(() => {
-    const sp = new URLSearchParams();
-    if (branch) sp.set("branch", branch);
-    if (query) sp.set("q", query);
-    if (types.length > 0) sp.set("type", types.join(","));
-    if (statuses.length > 0) sp.set("status", statuses.join(","));
-    const qs = sp.toString();
-    router.replace(qs ? `/offers?${qs}` : "/offers", { scroll: false });
-  }, [branch, query, types, statuses, router]);
-
-  function toggleType(t: OfferType) {
-    setTypes((cur) =>
-      cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t],
-    );
-  }
-
-  function toggleStatus(s: Status) {
-    setStatuses((cur) =>
-      cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s],
-    );
-  }
-
-  function clearAll() {
-    setBranch("");
-    setQuery("");
-    setSearchInput("");
-    setTypes([]);
-    setStatuses([]);
-  }
-
-  function onSubmitSearch(e: React.FormEvent) {
-    e.preventDefault();
-    setQuery(searchInput.trim());
-  }
-
-  const activeFilterCount =
-    (branch ? 1 : 0) +
-    (query ? 1 : 0) +
-    types.length +
-    statuses.length;
-
-  // ----- Filtered + sorted view ------------------------------------------
-  //
-  // All filtering runs client-side on the already-fetched index. Active
-  // campaigns sort above expired ones; within each group the backend's
-  // server-side order (sort_order + created_at desc, see
-  // ``app/api/endpoints/marketing_public.py``) is preserved.
-  const filtered = React.useMemo(
-    () =>
-      filterCampaigns(index.all_campaigns, {
-        branch,
-        query,
-        types,
-        statuses,
-      }),
-    [index.all_campaigns, branch, query, types, statuses],
-  );
-
-  return (
-    <main className="min-h-screen bg-background">
-      {/* ----- Hero banner -----
-          ``size="compact"`` is the offers-specific variant — the
-          filter bar + results grid below the hero are the page's
-          working surface, so the operator wants the hero to occupy
-          less of the first scroll-fold than it does on
-          companies / careers / news / about / contact / etc. The
-          default ``size`` matches the existing 16/20/24 padding so
-          other consumers of ``<PageHero>`` are unaffected. */}
-      <PageHero
-        size="compact"
-        eyebrow="Paris United Group"
-        title="Live offers across every branch."
-        description="Browse the latest campaigns from our retail partners — flash sales, killer deals and the seasonal catalogues that go with them. Tap a campaign to open its catalogue collection."
-        imageUrl={OFFERS_BANNER_IMAGE}
-      />
-
-      {/* ----- Filter bar ----- */}
-      <section className="border-b border-border/60 bg-background">
-        <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            {/* Search */}
-            <form
-              onSubmit={onSubmitSearch}
-              role="search"
-              className="flex w-full items-center gap-1 rounded-full border border-border/70 bg-card p-1 sm:max-w-md"
-            >
-              <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-              <input
-                type="search"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onBlur={() => setQuery(searchInput.trim())}
-                placeholder="Search campaigns…"
-                aria-label="Search offers"
-                className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-              />
-              {searchInput && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchInput("");
-                    setQuery("");
-                  }}
-                  aria-label="Clear search"
-                  className="rounded-full p-1 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <button
-                type="submit"
-                className="rounded-full bg-pug-gold-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-pug-green-900 transition-colors hover:bg-pug-gold-400"
-              >
-                Search
-              </button>
-            </form>
-
-            {/* Branch dropdown — kept as a native select so the
-                design system stays untouched and mobile gets the OS
-                picker for free. Empty = all branches. */}
-            <label className="flex w-full items-center gap-2 sm:w-auto">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Branch
-              </span>
-              <select
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                aria-label="Filter by branch"
-                className="min-w-0 flex-1 rounded-full border border-border/70 bg-card px-3 py-1.5 text-sm outline-none focus:border-pug-gold-400 sm:flex-initial"
-              >
-                <option value="">All branches</option>
-                {index.branches.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {activeFilterCount > 0 && (
-              <button
-                type="button"
-                onClick={clearAll}
-                className="inline-flex items-center gap-1 self-start rounded-full border border-border/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:border-foreground/40 hover:text-foreground sm:self-auto"
-              >
-                <X className="h-3 w-3" />
-                Clear ({activeFilterCount})
-              </button>
-            )}
-          </div>
-
-          {/* Chip rows — types + status. Both are independent multi-
-              selects. Visually grouped under a small "Filter" label
-              so the operator scans the page top-down. */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              <Filter className="h-3 w-3" />
-              Type
-            </span>
-            <TypeChip
-              kind="killer"
-              active={types.includes("killer")}
-              onClick={() => toggleType("killer")}
-            />
-            <TypeChip
-              kind="featured"
-              active={types.includes("featured")}
-              onClick={() => toggleType("featured")}
-            />
-            <TypeChip
-              kind="flash"
-              active={types.includes("flash")}
-              onClick={() => toggleType("flash")}
-            />
-
-            <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Status
-            </span>
-            <StatusChip
-              kind="running"
-              active={statuses.includes("running")}
-              onClick={() => toggleStatus("running")}
-            />
-            <StatusChip
-              kind="expired"
-              active={statuses.includes("expired")}
-              onClick={() => toggleStatus("expired")}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* ----- Results grid ----- */}
-      <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
-        {filtered.length > 0 ? (
-          <>
-            <header className="mb-5 flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                {filtered.length} campaign
-                {filtered.length === 1 ? "" : "s"}
-              </h2>
-            </header>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {filtered.map((c) => (
-                <CampaignCard key={c.slug} campaign={c} />
-              ))}
-            </div>
-          </>
-        ) : (
-          <EmptyState
-            hasFilters={activeFilterCount > 0}
-            onClear={clearAll}
-          />
-        )}
-      </section>
-    </main>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
-// Filtering — pure, exported for vitest
-// ---------------------------------------------------------------------------
-
-
+/**
+ * Filter inputs, resolved to plain values so the logic below is pure
+ * and unit-testable without rendering anything.
+ *
+ * ``branchName`` is the branch's display NAME, not its slug: campaign
+ * and catalogue rows carry a branch label, so resolving slug → name
+ * happens once in the component rather than inside every comparison.
+ */
 export interface CampaignFilterState {
-  branch: string;
+  branchName: string | null;
   query: string;
-  types: OfferType[];
-  statuses: Status[];
+  flags: FlagFilter[];
 }
 
+/** Case-insensitive "does this row belong to the selected branch?".
+ *
+ * A row with no branch of its own runs group-wide and therefore
+ * belongs to EVERY branch — excluding it would hide the main weekly
+ * flyer the moment a shopper picks their store.
+ */
+function branchMatches(
+  rowBranch: string | null | undefined,
+  branchName: string | null,
+): boolean {
+  if (!branchName) return true;
+  if (!rowBranch) return true;
+  return rowBranch.trim().toLowerCase() === branchName.trim().toLowerCase();
+}
+
+function textMatches(haystack: string, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return haystack.toLowerCase().includes(needle);
+}
 
 export function filterCampaigns(
-  campaigns: OfferIndexCampaign[],
+  rows: OfferIndexCampaign[],
   state: CampaignFilterState,
 ): OfferIndexCampaign[] {
-  const needle = state.query.trim().toLowerCase();
-  const branchNorm = state.branch.trim();
-  const wantRunning = state.statuses.includes("running");
-  const wantExpired = state.statuses.includes("expired");
-
-  return campaigns.filter((c) => {
-    if (branchNorm && c.branch !== branchNorm) return false;
-
-    if (state.types.length > 0) {
-      const matches =
-        (state.types.includes("killer") && c.is_killer_offer) ||
-        (state.types.includes("featured") && c.is_featured) ||
-        (state.types.includes("flash") && c.is_flash_sale);
-      if (!matches) return false;
+  const promo = state.flags.filter((f) => f !== "expired");
+  const showExpired = state.flags.includes("expired");
+  return rows.filter((c) => {
+    if (!branchMatches(c.branch, state.branchName)) return false;
+    if (!textMatches(`${c.title} ${c.description ?? ""} ${c.branch ?? ""}`, state.query)) {
+      return false;
     }
-
-    // Status: empty selection = no filter; single = filter strictly;
-    // both selected = no filter (they cancel out).
-    if (state.statuses.length === 1) {
-      if (wantRunning && c.is_expired) return false;
-      if (wantExpired && !c.is_expired) return false;
+    // Promo flags OR together — ticking Killer + Flash means "either",
+    // which is how a row of filter chips reads to a shopper.
+    if (promo.length > 0) {
+      const hit = promo.some(
+        (f) =>
+          (f === "killer" && c.is_killer_offer) ||
+          (f === "featured" && c.is_featured) ||
+          (f === "flash" && c.is_flash_sale),
+      );
+      if (!hit) return false;
     }
-
-    if (needle) {
-      const haystack = `${c.title} ${c.description ?? ""} ${c.branch ?? ""}`.toLowerCase();
-      if (!haystack.includes(needle)) return false;
-    }
-
+    // "Ended" is a state, not a promo type: unticked hides expired
+    // campaigns outright rather than acting as another OR term.
+    if (!showExpired && c.is_expired) return false;
     return true;
   });
 }
 
-
-function parseCsvParam<T extends string>(
-  raw: string | null | undefined,
-  allowed: readonly T[],
-): T[] {
-  if (!raw) return [];
-  const parts = raw
-    .split(",")
-    .map((v) => v.trim().toLowerCase())
-    .filter(Boolean);
-  return parts.filter((v): v is T => (allowed as readonly string[]).includes(v));
+export function filterCatalogues(
+  rows: OffersIndexCatalogue[],
+  state: CampaignFilterState,
+): OffersIndexCatalogue[] {
+  return rows.filter((c) => {
+    if (!branchMatches(c.branch_name, state.branchName)) return false;
+    if (!textMatches(`${c.title} ${c.description ?? ""}`, state.query)) {
+      return false;
+    }
+    // Catalogues carry only the "featured" flag; the promo flags are a
+    // campaign-level concept, so they don't narrow this list.
+    if (state.flags.includes("featured") && !c.is_featured) return false;
+    return true;
+  });
 }
 
+const FLAGS: { key: FlagFilter; label: string; Icon: typeof Flame }[] = [
+  { key: "killer", label: "Killer offers", Icon: Flame },
+  { key: "featured", label: "Featured", Icon: Sparkles },
+  { key: "flash", label: "Flash sales", Icon: Zap },
+  { key: "expired", label: "Ended", Icon: BookOpen },
+];
 
-// ---------------------------------------------------------------------------
-// Chips
-// ---------------------------------------------------------------------------
-
-
-function TypeChip({
-  kind,
-  active,
-  onClick,
-}: {
-  kind: OfferType;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const meta = TYPE_CHIP_META[kind];
-  const Icon = meta.icon;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider transition-colors",
-        active ? meta.activeClass : meta.inactiveClass,
-      )}
-    >
-      <Icon className="h-3 w-3" />
-      {meta.label}
-    </button>
-  );
+interface Props {
+  index: OffersIndexResult;
+  initialBranch?: string;
+  initialQuery?: string;
 }
 
+export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
+  const [branch, setBranch] = React.useState(initialBranch ?? "");
+  const [query, setQuery] = React.useState(initialQuery ?? "");
+  const [flags, setFlags] = React.useState<Set<FlagFilter>>(new Set());
 
-const TYPE_CHIP_META: Record<
-  OfferType,
-  {
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    activeClass: string;
-    inactiveClass: string;
+  function toggleFlag(f: FlagFilter) {
+    setFlags((prev) => {
+      const next = new Set(prev);
+      if (next.has(f)) next.delete(f);
+      else next.add(f);
+      return next;
+    });
   }
-> = {
-  killer: {
-    label: "Killer",
-    icon: Flame,
-    activeClass: "border-rose-500 bg-rose-500 text-white",
-    inactiveClass:
-      "border-rose-500/30 bg-rose-500/5 text-rose-700 hover:border-rose-500/60 dark:text-rose-300",
-  },
-  featured: {
-    label: "Featured",
-    icon: Sparkles,
-    activeClass: "border-pug-gold-500 bg-pug-gold-500 text-pug-green-900",
-    inactiveClass:
-      "border-pug-gold-500/30 bg-pug-gold-500/5 text-pug-gold-700 hover:border-pug-gold-500/60 dark:text-pug-gold-300",
-  },
-  flash: {
-    label: "Flash",
-    icon: Zap,
-    activeClass: "border-sky-500 bg-sky-500 text-white",
-    inactiveClass:
-      "border-sky-500/30 bg-sky-500/5 text-sky-700 hover:border-sky-500/60 dark:text-sky-300",
-  },
-};
 
-
-function StatusChip({
-  kind,
-  active,
-  onClick,
-}: {
-  kind: Status;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const isExpired = kind === "expired";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider transition-colors",
-        active
-          ? isExpired
-            ? "border-foreground bg-foreground text-background"
-            : "border-emerald-500 bg-emerald-500 text-white"
-          : isExpired
-            ? "border-border/70 bg-card text-muted-foreground hover:border-foreground/40"
-            : "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 hover:border-emerald-500/60 dark:text-emerald-300",
-      )}
-    >
-      {isExpired ? <Clock className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
-      {isExpired ? "Expired" : "Running"}
-    </button>
+  const selectedBranch = React.useMemo(
+    () => index.branches.find((b) => b.slug === branch) ?? null,
+    [index.branches, branch],
   );
-}
 
-
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-
-function EmptyState({
-  hasFilters,
-  onClear,
-}: {
-  hasFilters: boolean;
-  onClear: () => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-dashed border-border/60 bg-card p-12 text-center">
-      <Tag className="mx-auto mb-3 h-8 w-8 text-muted-foreground/60" />
-      <p className="text-base font-semibold">
-        {hasFilters ? "No campaigns match these filters." : "No campaigns yet."}
-      </p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {hasFilters
-          ? "Loosen a chip or clear them all to see everything."
-          : "Check back soon — new campaigns go up every week."}
-      </p>
-      {hasFilters && (
-        <button
-          type="button"
-          onClick={onClear}
-          className="mt-4 inline-flex items-center gap-1 rounded-full border border-border/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider hover:border-foreground/40"
-        >
-          <X className="h-3 w-3" />
-          Clear filters
-        </button>
-      )}
-    </div>
+  const filterState: CampaignFilterState = React.useMemo(
+    () => ({
+      branchName: selectedBranch?.name ?? null,
+      query,
+      flags: [...flags],
+    }),
+    [selectedBranch, query, flags],
   );
-}
 
+  const campaigns = React.useMemo(
+    () => filterCampaigns(index.all_campaigns, filterState),
+    [index.all_campaigns, filterState],
+  );
+  const catalogues = React.useMemo(
+    () => filterCatalogues(index.all_catalogues, filterState),
+    [index.all_catalogues, filterState],
+  );
 
-// ---------------------------------------------------------------------------
-// Campaign card — preserved from the previous design with an extra
-// "emphasis ring" for Killer + Featured rows so they read louder than
-// regular campaigns inside the same grid.
-// ---------------------------------------------------------------------------
-
-
-function CampaignCard({ campaign }: { campaign: OfferIndexCampaign }) {
-  const cover = campaign.cover_image_url ?? campaign.banner_image_url;
-  const expired = campaign.is_expired;
-  const emphasis = expired
-    ? null
-    : campaign.is_killer_offer
-      ? "killer"
-      : campaign.is_featured
-        ? "featured"
-        : null;
+  const hasFilters = Boolean(branch || query.trim() || flags.size);
+  const nothingToShow = campaigns.length === 0 && catalogues.length === 0;
 
   return (
-    <Link
-      href={`/offers/${campaign.slug}`}
-      aria-label={
-        expired ? `${campaign.title} (expired campaign)` : campaign.title
-      }
-      className={cn(
-        "group block overflow-hidden rounded-2xl border bg-card shadow-sm transition-all hover:shadow-lg",
-        expired && "border-border/60 opacity-80 hover:opacity-100",
-        !expired && !emphasis && "border-border/60",
-        emphasis === "killer" &&
-          "border-rose-500/40 ring-1 ring-rose-500/20 hover:ring-rose-500/40",
-        emphasis === "featured" &&
-          "border-pug-gold-500/40 ring-1 ring-pug-gold-500/20 hover:ring-pug-gold-500/40",
-      )}
-      style={
-        !expired && campaign.theme_color && !emphasis
-          ? { boxShadow: `0 1px 0 ${campaign.theme_color}22 inset` }
-          : undefined
-      }
-    >
-      <div
-        className="relative aspect-[3/4] overflow-hidden bg-muted"
-        style={{
-          background: campaign.theme_color
-            ? `${campaign.theme_color}10`
-            : undefined,
-        }}
-      >
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={resolveAssetUrl(cover) ?? ""}
-            alt={campaign.title}
-            loading="lazy"
-            className={cn(
-              "h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]",
-              expired && "grayscale-[40%]",
-            )}
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-            <Tag className="h-8 w-8 opacity-40" />
-          </div>
-        )}
-        {expired && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 bg-foreground/15"
-          />
-        )}
-        {/* Flag chips */}
-        <div className="absolute left-3 top-3 flex flex-wrap gap-1">
-          {expired && (
-            <Pill tone="dark" icon={Clock} label="Expired" />
-          )}
-          {!expired && campaign.is_killer_offer && (
-            <Pill tone="rose" icon={Flame} label="Killer" />
-          )}
-          {!expired && campaign.is_flash_sale && (
-            <Pill tone="sky" icon={Zap} label="Flash" />
-          )}
-          {!expired && campaign.is_featured && (
-            <Pill tone="gold" icon={Sparkles} label="Featured" />
+    <div className="min-h-screen bg-[#f7f5f0] dark:bg-[#0f1512]">
+      <header className="bg-[#17382f] text-white">
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">
+            Offers &amp; Catalogues
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm text-white/70 sm:text-base">
+            The latest hypermarket flyers, killer offers and flash sales from
+            Paris United Group — refreshed weekly across every branch.
+          </p>
+
+          {index.branches.length > 0 && (
+            <div className="mt-8">
+              <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/45">
+                Shop by branch
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {index.branches.map((b) => (
+                  <Link
+                    key={b.slug}
+                    href={`/offers/${b.slug}`}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3.5 py-2 text-xs text-white/85 transition-colors hover:border-[#b89c5c] hover:bg-[#b89c5c]/15 hover:text-white"
+                  >
+                    <Store className="h-3.5 w-3.5 text-[#b89c5c]" aria-hidden />
+                    {b.name}
+                  </Link>
+                ))}
+              </div>
+            </div>
           )}
         </div>
-      </div>
-      <div className="space-y-1 p-4">
-        {campaign.branch && (
-          <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <MapPin className="h-3 w-3" />
-            {campaign.branch}
-          </p>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        {index.unavailable && (
+          <div
+            role="alert"
+            className="mb-8 flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-200"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <div>
+              <p className="font-medium">Offers are temporarily unavailable</p>
+              <p className="mt-0.5 text-amber-800/80 dark:text-amber-200/70">
+                We couldn&apos;t load the latest catalogues just now. Please
+                refresh in a moment.
+              </p>
+            </div>
+          </div>
         )}
-        <h3
-          className={cn(
-            "line-clamp-2 text-base font-semibold leading-snug",
-            expired && "text-muted-foreground",
+
+        <div className="mb-8 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 dark:bg-white/[0.04] dark:ring-white/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35 dark:text-white/35"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search offers and catalogues"
+                aria-label="Search offers and catalogues"
+                className="w-full rounded-xl border border-black/10 bg-[#f7f5f0] py-2.5 pl-9 pr-3 text-sm text-[#17382f] outline-none transition-colors placeholder:text-black/35 focus:border-[#b89c5c] dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-white/35"
+              />
+            </div>
+
+            <div className="relative sm:w-56">
+              <MapPin
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35 dark:text-white/35"
+                aria-hidden
+              />
+              <select
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                aria-label="Filter by branch"
+                className="w-full appearance-none rounded-xl border border-black/10 bg-[#f7f5f0] py-2.5 pl-9 pr-8 text-sm text-[#17382f] outline-none transition-colors focus:border-[#b89c5c] dark:border-white/10 dark:bg-white/5 dark:text-white"
+              >
+                <option value="">All branches</option>
+                {index.branches.map((b) => (
+                  <option key={b.slug} value={b.slug}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {FLAGS.map(({ key, label, Icon }) => {
+              const on = flags.has(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleFlag(key)}
+                  aria-pressed={on}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    on
+                      ? "border-[#17382f] bg-[#17382f] text-white dark:border-[#b89c5c] dark:bg-[#b89c5c] dark:text-[#17382f]"
+                      : "border-black/10 bg-transparent text-black/60 hover:border-[#b89c5c] hover:text-[#17382f] dark:border-white/15 dark:text-white/60 dark:hover:text-white",
+                  )}
+                >
+                  <Icon className="h-3 w-3" aria-hidden />
+                  {label}
+                </button>
+              );
+            })}
+
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBranch("");
+                  setQuery("");
+                  setFlags(new Set());
+                }}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs text-black/45 underline-offset-2 hover:underline dark:text-white/45"
+              >
+                <X className="h-3 w-3" aria-hidden />
+                Clear
+              </button>
+            )}
+          </div>
+
+          {selectedBranch && (
+            <p className="mt-3 text-xs text-black/50 dark:text-white/50">
+              Showing {selectedBranch.name} plus group-wide offers.{" "}
+              <Link
+                href={`/offers/${selectedBranch.slug}`}
+                className="font-medium text-[#17382f] underline underline-offset-2 dark:text-[#d8c9a3]"
+              >
+                Open the {selectedBranch.name} page
+              </Link>
+            </p>
           )}
-        >
-          {campaign.title}
-        </h3>
-        {campaign.description && (
-          <p className="line-clamp-2 text-xs text-muted-foreground">
-            {campaign.description}
-          </p>
+        </div>
+
+        {nothingToShow && !index.unavailable && (
+          <div className="rounded-3xl border border-dashed border-black/10 bg-white/60 px-6 py-16 text-center dark:border-white/10 dark:bg-white/[0.03]">
+            <BookOpen className="mx-auto h-8 w-8 text-[#17382f]/30 dark:text-white/25" />
+            <h2 className="mt-4 text-lg font-semibold text-[#17382f] dark:text-white">
+              {hasFilters
+                ? "Nothing matches those filters"
+                : "No offers published yet"}
+            </h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-black/55 dark:text-white/55">
+              {hasFilters
+                ? "Try clearing a filter or picking a different branch."
+                : "New catalogues appear here as soon as they're published."}
+            </p>
+          </div>
         )}
-        <p className="pt-1 text-xs text-muted-foreground">
-          {campaign.catalogue_count} catalogue
-          {campaign.catalogue_count === 1 ? "" : "s"}
-          {campaign.end_date && (
-            <>
-              {" · "}
-              {expired ? "Ended " : "Ends "}
-              {formatEndDate(campaign.end_date)}
-            </>
-          )}
-          {" · "}
-          <span className="ml-1 inline-flex items-center gap-1 font-medium text-primary">
-            {expired ? "View" : "Open"}
-            <ArrowRight className="h-3 w-3" />
-          </span>
-        </p>
-      </div>
-    </Link>
+
+        {catalogues.length > 0 && (
+          <section className="mb-14">
+            <SectionHeading
+              title="Latest catalogues"
+              subtitle={`${catalogues.length} flyer${catalogues.length === 1 ? "" : "s"} available`}
+            />
+            <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-4">
+              {catalogues.map((c) => (
+                <CatalogueCard key={c.slug} catalogue={c} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {campaigns.length > 0 && (
+          <section>
+            <SectionHeading
+              title="Campaigns"
+              subtitle={`${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"}`}
+            />
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {campaigns.map((c) => (
+                <CampaignCard key={c.slug} campaign={c} />
+              ))}
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
   );
-}
-
-
-function Pill({
-  tone,
-  icon: Icon,
-  label,
-}: {
-  tone: "rose" | "sky" | "gold" | "dark";
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-        tone === "rose" && "bg-rose-600/95 text-white",
-        tone === "sky" && "bg-sky-600/95 text-white",
-        tone === "gold" && "bg-pug-gold-500/95 text-pug-green-800",
-        tone === "dark" && "bg-foreground/85 text-background",
-      )}
-    >
-      <Icon className="h-2.5 w-2.5" />
-      {label}
-    </span>
-  );
-}
-
-
-function formatEndDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
 }
