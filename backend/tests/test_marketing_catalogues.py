@@ -391,7 +391,14 @@ class TestPublicLanding:
         assert "featured-killer" in slugs_featured
         assert "featured-killer" in slugs_killer
         assert "draft-empty" not in slugs_all  # no ready catalogue
-        assert "Doha" in body["branches"]
+        # ``branches`` is the branch picker, sourced from the divisions
+        # table rather than scraped from campaign text labels. This
+        # fixture creates no division, so the picker is empty even
+        # though a campaign carries the legacy branch text "Doha" —
+        # see ``test_branch_picker_lists_divisions`` for the populated
+        # case. Sourcing it this way means a branch stays reachable in
+        # a week when it happens to run no campaign of its own.
+        assert body["branches"] == []
 
         get_settings.cache_clear()
 

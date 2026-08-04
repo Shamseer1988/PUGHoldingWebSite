@@ -110,7 +110,48 @@ def _strip_optional(value: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-class DivisionCreate(BaseModel):
+class DivisionStorefrontFields(BaseModel):
+    """Contact + social block shown on the public branch page.
+
+    Shared by create and update so the two can't drift. Every field is
+    optional — a branch can go live with just a name and fill the rest
+    in later; the public page renders only what's populated.
+    """
+
+    hero_image_url: Optional[str] = Field(default=None, max_length=500)
+    address: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=255)
+    whatsapp: Optional[str] = Field(default=None, max_length=64)
+    opening_hours: Optional[str] = None
+    maps_url: Optional[str] = Field(default=None, max_length=2048)
+    facebook_url: Optional[str] = Field(default=None, max_length=2048)
+    instagram_url: Optional[str] = Field(default=None, max_length=2048)
+    tiktok_url: Optional[str] = Field(default=None, max_length=2048)
+    youtube_url: Optional[str] = Field(default=None, max_length=2048)
+    snapchat_url: Optional[str] = Field(default=None, max_length=2048)
+    x_url: Optional[str] = Field(default=None, max_length=2048)
+
+    @field_validator(
+        "maps_url",
+        "facebook_url",
+        "instagram_url",
+        "tiktok_url",
+        "youtube_url",
+        "snapchat_url",
+        "x_url",
+    )
+    @classmethod
+    def _check_links(cls, v: Optional[str]) -> Optional[str]:
+        return _optional_url(v)
+
+    @field_validator("address", "opening_hours", "phone", "email", "whatsapp")
+    @classmethod
+    def _strip_contact(cls, v: Optional[str]) -> Optional[str]:
+        return _strip_optional(v)
+
+
+class DivisionCreate(DivisionStorefrontFields):
     """Admin → POST /admin/marketing/divisions.
 
     ``slug`` is optional — omitted, it's derived from ``name``
@@ -126,6 +167,7 @@ class DivisionCreate(BaseModel):
     logo_url: Optional[str] = Field(default=None, max_length=500)
     fallback_url: Optional[str] = Field(default=None, max_length=2048)
     is_active: bool = True
+    is_public: bool = True
     sort_order: int = 0
 
     # Auto-create the division's first QR code. Defaults on so the
@@ -158,13 +200,18 @@ class DivisionCreate(BaseModel):
         return _optional_url(v)
 
 
-class DivisionUpdate(BaseModel):
+class DivisionUpdate(DivisionStorefrontFields):
     """Admin → PATCH /admin/marketing/divisions/{id}.
 
     The division slug *is* editable — unlike a QR slug it appears
     nowhere in printed artwork; it only seeds new QR slugs at creation
     time. Renaming a division therefore never disturbs codes already
     in the field.
+
+    Note the slug DOES appear in the public branch URL
+    (``/offers/{slug}``), so changing it breaks inbound links to that
+    page — but not the QR codes, which resolve through ``/q/{slug}``
+    and are re-pointed server-side.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -176,6 +223,7 @@ class DivisionUpdate(BaseModel):
     logo_url: Optional[str] = Field(default=None, max_length=500)
     fallback_url: Optional[str] = Field(default=None, max_length=2048)
     is_active: Optional[bool] = None
+    is_public: Optional[bool] = None
     sort_order: Optional[int] = None
 
     @field_validator("name")
@@ -349,7 +397,24 @@ class DivisionRead(BaseModel):
     logo_url: Optional[str]
     fallback_url: Optional[str]
     is_active: bool
+    is_public: bool
     sort_order: int
+
+    # Storefront block
+    hero_image_url: Optional[str]
+    address: Optional[str]
+    phone: Optional[str]
+    email: Optional[str]
+    whatsapp: Optional[str]
+    opening_hours: Optional[str]
+    maps_url: Optional[str]
+    facebook_url: Optional[str]
+    instagram_url: Optional[str]
+    tiktok_url: Optional[str]
+    youtube_url: Optional[str]
+    snapchat_url: Optional[str]
+    x_url: Optional[str]
+
     created_at: datetime
     updated_at: datetime
     qr_codes: List[QrCodeRead] = []

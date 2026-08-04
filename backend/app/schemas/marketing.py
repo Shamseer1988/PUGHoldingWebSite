@@ -25,6 +25,11 @@ class CampaignCreate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=8000)
     banner_image_url: Optional[str] = Field(default=None, max_length=500)
     theme_color: Optional[str] = Field(default=None, max_length=16)
+    # Structured branch targeting. ``None`` = all branches — the
+    # campaign appears on every branch's storefront. ``branch`` below
+    # is the legacy free-text label, retained so existing rows and
+    # integrations keep working; new writes should set division_id.
+    division_id: Optional[int] = None
     branch: Optional[str] = Field(default=None, max_length=120)
     start_date: Optional[date] = None
     end_date: Optional[date] = None
@@ -64,6 +69,11 @@ class CampaignUpdate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=8000)
     banner_image_url: Optional[str] = Field(default=None, max_length=500)
     theme_color: Optional[str] = Field(default=None, max_length=16)
+    # See CampaignCreate.division_id. Sentinel note: because this is a
+    # PATCH schema, ``None`` means "unchanged" for every other field —
+    # to move a campaign back to all-branches the endpoint accepts
+    # ``division_id: 0`` and maps it to NULL.
+    division_id: Optional[int] = None
     branch: Optional[str] = Field(default=None, max_length=120)
     start_date: Optional[date] = None
     end_date: Optional[date] = None
@@ -104,6 +114,10 @@ class CampaignRead(BaseModel):
     description: Optional[str]
     banner_image_url: Optional[str]
     theme_color: Optional[str]
+    division_id: Optional[int] = None
+    # Resolved from the FK by the endpoint so list rows can print the
+    # branch name without the client joining anything.
+    division_name: Optional[str] = None
     branch: Optional[str]
     start_date: Optional[date]
     end_date: Optional[date]
@@ -134,6 +148,9 @@ class CatalogueCreate(BaseModel):
     title: str
     description: Optional[str] = None
     campaign_id: Optional[int] = None
+    # Branch targeting independent of the campaign — same campaign can
+    # run group-wide while each branch gets its own flyer.
+    division_id: Optional[int] = None
     is_active: bool = True
     is_featured: bool = False
     sort_order: int = 0
@@ -148,6 +165,8 @@ class CatalogueUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     campaign_id: Optional[int] = None
+    # See CatalogueCreate.division_id. ``0`` clears it to all-branches.
+    division_id: Optional[int] = None
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
     sort_order: Optional[int] = None
@@ -173,6 +192,8 @@ class CatalogueRead(BaseModel):
 
     id: int
     campaign_id: Optional[int]
+    division_id: Optional[int] = None
+    division_name: Optional[str] = None
     slug: str
     title: str
     description: Optional[str]
@@ -205,6 +226,29 @@ class CatalogueDetail(CatalogueRead):
 # ---------------------------------------------------------------------------
 
 
+class BranchSummary(BaseModel):
+    """One entry in the public branch picker."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    slug: str
+    name: str
+    city: Optional[str] = None
+
+
+class BranchSocialLinks(BaseModel):
+    """Only the populated links — the footer renders what it's given."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    facebook: Optional[str] = None
+    instagram: Optional[str] = None
+    tiktok: Optional[str] = None
+    youtube: Optional[str] = None
+    snapchat: Optional[str] = None
+    x: Optional[str] = None
+
+
 class OffersIndexCampaign(BaseModel):
     """One row in the public /offers landing list — campaign card."""
 
@@ -232,9 +276,12 @@ class OffersIndexCampaign(BaseModel):
 
 
 class OffersIndexCatalogue(BaseModel):
-    """One row in the public /offers landing list — catalogue card,
-    rendered for active+ready catalogues that aren't attached to any
-    campaign yet (so they don't disappear from the public surface)."""
+    """One catalogue tile on the landing / branch page.
+
+    Rendered for every active + ready catalogue, whether or not it's
+    attached to a campaign — an unattached flyer is still a flyer, and
+    hiding it was what left the landing looking empty.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -243,6 +290,13 @@ class OffersIndexCatalogue(BaseModel):
     description: Optional[str]
     cover_image_url: Optional[str]
     page_count: int
+    # Branch label for the tile's chip. ``None`` = all branches.
+    branch_name: Optional[str] = None
+    is_featured: bool = False
+    # Drives the "NEW" badge — the client compares against its own
+    # clock rather than the server pre-computing a boolean that would
+    # go stale in the CDN cache.
+    created_at: Optional[datetime] = None
 
 
 class OffersIndex(BaseModel):
@@ -258,7 +312,7 @@ class OffersIndex(BaseModel):
     # always shows up — even if its parent campaign is inactive, has
     # the wrong date range, or wasn't created at all.
     all_catalogues: List[OffersIndexCatalogue] = Field(default_factory=list)
-    branches: List[str] = Field(default_factory=list)
+    branches: List[BranchSummary] = Field(default_factory=list)
 
 
 class CampaignPublicDetail(BaseModel):
@@ -388,3 +442,41 @@ class ReconcileCountersResult(BaseModel):
     catalogues_updated: int
     total_view_count_before: int
     total_view_count_after: int
+
+# ---------------------------------------------------------------------------
+# Branch storefronts (public /offers/{branch-slug})
+# ---------------------------------------------------------------------------
+
+
+class BranchPage(BaseModel):
+    """Payload for ``/offers/{branch-slug}`` — the storefront page.
+
+    Carries the branch identity (header), its contact block (footer),
+    and every campaign + catalogue targeted at it. "Targeted at it"
+    deliberately includes all-branch content: a shopper standing in Al
+    Khor should see the group-wide flyer as well as the Al Khor one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    name: str
+    city: Optional[str] = None
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    hero_image_url: Optional[str] = None
+
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    whatsapp: Optional[str] = None
+    opening_hours: Optional[str] = None
+    maps_url: Optional[str] = None
+    social: BranchSocialLinks = Field(default_factory=BranchSocialLinks)
+
+    campaigns: List[OffersIndexCampaign] = Field(default_factory=list)
+    catalogues: List[OffersIndexCatalogue] = Field(default_factory=list)
+    # Sibling branches, so the storefront can offer a "switch branch"
+    # control without a second request.
+    other_branches: List[BranchSummary] = Field(default_factory=list)
+

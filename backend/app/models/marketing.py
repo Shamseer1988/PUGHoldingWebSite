@@ -62,10 +62,13 @@ class OfferCampaign(Base):
     """A marketing campaign that groups one or more catalogues.
 
     The public ``/offers/{slug}`` route renders the campaign banner +
-    description + every active catalogue inside it. ``branch`` is a
-    free-text label ("Doha", "Lusail", "All branches") because the
-    site doesn't yet have a normalised branches table — when it does
-    this can become an FK.
+    description + every active catalogue inside it.
+
+    Branch targeting lives in ``division_id`` (FK to
+    ``marketing_divisions``); NULL means the campaign runs across all
+    branches. ``branch`` is the older free-text label that predates the
+    branches table — still read as a fallback so pre-migration rows
+    keep their targeting, but new writes should set the FK.
     """
 
     __tablename__ = "offer_campaigns"
@@ -81,7 +84,18 @@ class OfferCampaign(Base):
     banner_image_url: Mapped[Optional[str]] = mapped_column(String(500))
     theme_color: Mapped[Optional[str]] = mapped_column(String(16))  # "#17382f"
 
-    # Targeting
+    # Targeting.
+    #
+    # ``division_id`` is the structured branch link: NULL means "all
+    # branches" (the campaign shows on every branch page), a value means
+    # it's exclusive to that branch. ``branch`` is the legacy free-text
+    # label, kept because existing rows carry it and old campaigns
+    # shouldn't lose their targeting on migration. New writes set
+    # ``division_id``; the public layer prefers it and falls back to the
+    # text when it's NULL.
+    division_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("marketing_divisions.id", ondelete="SET NULL"), index=True
+    )
     branch: Mapped[Optional[str]] = mapped_column(String(120), index=True)
 
     # Active-window
@@ -135,6 +149,18 @@ class OfferCampaign(Base):
         order_by="Catalogue.sort_order.asc(), Catalogue.created_at.desc()",
     )
 
+    # ``lazy="joined"`` because every serializer reads ``division_name``:
+    # a LEFT JOIN onto a tiny branch table beats an N+1 lazy load per
+    # row on the admin list and the public landing.
+    division: Mapped[Optional["MarketingDivision"]] = relationship(
+        "MarketingDivision", lazy="joined"
+    )
+
+    @property
+    def division_name(self) -> Optional[str]:
+        """Branch name, or ``None`` when the campaign targets all branches."""
+        return self.division.name if self.division is not None else None
+
 
 class Catalogue(Base):
     """One uploaded PDF that the viewer renders page-by-page.
@@ -157,6 +183,15 @@ class Catalogue(Base):
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Branch targeting, independent of the campaign's own targeting.
+    # The same campaign often runs group-wide while each branch gets its
+    # own flyer — so a catalogue must be able to name a branch even when
+    # its parent campaign is set to "all branches". NULL = inherit the
+    # campaign's targeting (or all branches for a standalone catalogue).
+    division_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("marketing_divisions.id", ondelete="SET NULL"), index=True
+    )
 
     # Source PDF
     pdf_url: Mapped[Optional[str]] = mapped_column(String(500))
@@ -229,6 +264,14 @@ class Catalogue(Base):
     campaign: Mapped[Optional["OfferCampaign"]] = relationship(
         "OfferCampaign", back_populates="catalogues"
     )
+    division: Mapped[Optional["MarketingDivision"]] = relationship(
+        "MarketingDivision", lazy="joined"
+    )
+
+    @property
+    def division_name(self) -> Optional[str]:
+        """Branch name, or ``None`` when the catalogue targets all branches."""
+        return self.division.name if self.division is not None else None
     pages: Mapped[List["CataloguePage"]] = relationship(
         "CataloguePage",
         back_populates="catalogue",

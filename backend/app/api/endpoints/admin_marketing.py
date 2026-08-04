@@ -63,6 +63,7 @@ from app.auth.permissions import (
 )
 from app.core.database import get_db
 from app.models.auth import User
+from app.models.marketing_qr import MarketingDivision
 from app.models.marketing import (
     CATALOGUE_PENDING,
     Catalogue,
@@ -187,8 +188,74 @@ def _catalogue_counts(db: Session, campaign_ids: list[int]) -> dict[int, int]:
     return {cid: int(n) for cid, n in rows}
 
 
+# ---------------------------------------------------------------------------
+# Branch (division) targeting helpers
+# ---------------------------------------------------------------------------
+
+
+# ``0`` is the client's "clear this back to all branches" sentinel. A
+# PATCH schema can't distinguish "field omitted" from "field set to
+# null" — both arrive as ``None`` — so the API takes 0 to mean NULL.
+DIVISION_CLEAR_SENTINEL = 0
+
+
+def _resolve_division_id(
+    db: Session, value: Optional[int]
+) -> tuple[bool, Optional[int]]:
+    """Validate an incoming ``division_id``.
+
+    Returns ``(should_write, resolved_value)``:
+
+      * ``(False, None)``  — field omitted, leave the row alone.
+      * ``(True, None)``   — explicit clear (sentinel 0) → all branches.
+      * ``(True, id)``     — targeted at a real, existing division.
+
+    A non-existent id is a 400 rather than a silent NULL: quietly
+    widening a campaign from one branch to all of them is the kind of
+    mistake that publishes the wrong prices to the wrong store.
+    """
+    if value is None:
+        return (False, None)
+    if value == DIVISION_CLEAR_SENTINEL:
+        return (True, None)
+    exists = db.execute(
+        select(MarketingDivision.id).where(MarketingDivision.id == value)
+    ).first()
+    if exists is None:
+        raise HTTPException(
+            status_code=400, detail=f"Division {value} does not exist."
+        )
+    return (True, value)
+
+
+def _assert_slug_free_of_division(db: Session, slug: Optional[str]) -> None:
+    """Reject a campaign slug that would shadow a branch storefront.
+
+    Both live under ``/offers/{slug}`` and the public route resolves
+    campaigns first, so a campaign called "al-khor" would make the Al
+    Khor branch page unreachable — including for every QR code that
+    falls back to it. Cheaper to block at write time than to debug a
+    branch page that silently stopped existing.
+    """
+    if not slug:
+        return
+    clash = db.execute(
+        select(MarketingDivision.slug).where(MarketingDivision.slug == slug)
+    ).first()
+    if clash is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{slug}' is already a branch page URL (/offers/{slug}). "
+                "Pick a different campaign slug so the branch page stays reachable."
+            ),
+        )
+
+
 def _serialize_campaign(
-    c: OfferCampaign, *, catalogue_counts: Optional[dict[int, int]] = None
+    c: OfferCampaign,
+    *,
+    catalogue_counts: Optional[dict[int, int]] = None,
 ) -> CampaignRead:
     return CampaignRead(
         id=c.id,
@@ -197,6 +264,8 @@ def _serialize_campaign(
         description=c.description,
         banner_image_url=c.banner_image_url,
         theme_color=c.theme_color,
+        division_id=c.division_id,
+        division_name=c.division_name,
         branch=c.branch,
         start_date=c.start_date,
         end_date=c.end_date,
@@ -266,12 +335,16 @@ def create_campaign(
             status_code=409, detail=f"A campaign with slug '{payload.slug}' already exists."
         )
 
+    _assert_slug_free_of_division(db, payload.slug)
+    _, division_id = _resolve_division_id(db, payload.division_id)
+
     row = OfferCampaign(
         slug=payload.slug,
         title=payload.title.strip(),
         description=(payload.description or "").strip() or None,
         banner_image_url=payload.banner_image_url or None,
         theme_color=payload.theme_color,
+        division_id=division_id,
         branch=(payload.branch or "").strip() or None,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -332,6 +405,16 @@ def update_campaign(
         ).scalar_one_or_none()
         if conflict is not None:
             raise HTTPException(status_code=409, detail="Slug already in use.")
+        _assert_slug_free_of_division(db, updates["slug"])
+
+    # Branch targeting — translate the clear-sentinel and reject ids
+    # that don't exist before the generic setattr loop writes them.
+    if "division_id" in updates:
+        should_write, resolved = _resolve_division_id(db, updates["division_id"])
+        if should_write:
+            updates["division_id"] = resolved
+        else:
+            updates.pop("division_id")
 
     changed: list[str] = []
     for key, value in updates.items():
@@ -424,6 +507,9 @@ def upload_catalogue(
     title: str = Form(...),
     description: Optional[str] = Form(default=None),
     campaign_id: Optional[int] = Form(default=None),
+    # Branch targeting, independent of the campaign's. Omitted / 0 =
+    # all branches. See ``_resolve_division_id``.
+    division_id: Optional[int] = Form(default=None),
     is_active: bool = Form(default=True),
     is_featured: bool = Form(default=False),
     sort_order: int = Form(default=0),
@@ -456,6 +542,7 @@ def upload_catalogue(
         )
     if campaign_id is not None:
         _campaign_or_404(db, campaign_id)
+    _, resolved_division_id = _resolve_division_id(db, division_id)
 
     # Read the upload synchronously (this endpoint is ``def``, so
     # FastAPI runs it on the threadpool).
@@ -470,6 +557,7 @@ def upload_catalogue(
 
     row = Catalogue(
         campaign_id=campaign_id,
+        division_id=resolved_division_id,
         slug=slug_norm,
         title=title.strip(),
         description=(description or "").strip() or None,
@@ -560,6 +648,12 @@ def update_catalogue(
         updates["slug"] = slug_norm
     if "campaign_id" in updates and updates["campaign_id"] is not None:
         _campaign_or_404(db, updates["campaign_id"])
+    if "division_id" in updates:
+        should_write, resolved = _resolve_division_id(db, updates["division_id"])
+        if should_write:
+            updates["division_id"] = resolved
+        else:
+            updates.pop("division_id")
 
     changed: list[str] = []
     for key, value in updates.items():

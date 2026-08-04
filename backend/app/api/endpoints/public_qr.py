@@ -81,6 +81,22 @@ def _device_bucket(user_agent: str) -> str:
     return "desktop"
 
 
+def _branch_page_url(division: MarketingDivision) -> Optional[str]:
+    """Public branch storefront URL — ``https://site/offers/{slug}``.
+
+    Only when the branch is flagged public; a division that exists
+    purely for QR routing has no page to land on.
+    """
+    if not division.is_public:
+        return None
+    from app.core.config import get_settings
+
+    base = (get_settings().public_site_url or "").rstrip("/")
+    if not base:
+        return None
+    return f"{base}/offers/{division.slug}"
+
+
 def _resolve_destination(
     db: Session, row: MarketingQrCode
 ) -> Optional[str]:
@@ -91,6 +107,13 @@ def _resolve_destination(
     closing a branch shouldn't require disabling each of its codes by
     hand — but the division's own fallback still applies, so scans at
     a closed branch can be sent to a "this store has moved" page.
+
+    The branch storefront sits at the end of the chain as an automatic
+    last resort: a code with no link set lands the shopper on that
+    branch's own offers page rather than a 404. That page is always
+    relevant to whoever scanned it — they're standing in the store —
+    so it's a better default than anything an admin would have to
+    remember to configure.
     """
     division = db.get(MarketingDivision, row.division_id)
     division_active = division.is_active if division is not None else False
@@ -99,8 +122,12 @@ def _resolve_destination(
         return row.target_url
     if row.fallback_url:
         return row.fallback_url
-    if division is not None and division.fallback_url:
-        return division.fallback_url
+    if division is not None:
+        if division.fallback_url:
+            return division.fallback_url
+        branch_page = _branch_page_url(division)
+        if branch_page:
+            return branch_page
     return None
 
 

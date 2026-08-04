@@ -56,6 +56,7 @@ from app.schemas.marketing_qr import (
     DivisionCreate,
     DivisionListResponse,
     DivisionRead,
+    DivisionStorefrontFields,
     DivisionUpdate,
     QrCodeAnalytics,
     QrCodeCreate,
@@ -102,6 +103,15 @@ TARGET_TYPE_DIVISION = "marketing_division"
 # (roughly 6.8" at 300 DPI); anything larger is wasted bytes because
 # the underlying module grid doesn't gain detail.
 ALLOWED_QR_SIZES = (512, 1024, 2048)
+
+# Storefront columns copied verbatim between payload and row. Derived
+# from the schema rather than hand-listed so a new field added to
+# ``DivisionStorefrontFields`` flows through create AND update without
+# a second edit here — the class that owns the shape stays the source
+# of truth.
+_STOREFRONT_FIELDS: tuple[str, ...] = tuple(
+    DivisionStorefrontFields.model_fields.keys()
+)
 
 
 # ---------------------------------------------------------------------------
@@ -296,8 +306,12 @@ def create_division(
         logo_url=payload.logo_url,
         fallback_url=payload.fallback_url,
         is_active=payload.is_active,
+        is_public=payload.is_public,
         sort_order=payload.sort_order,
         created_by_id=actor.id,
+        # Storefront block — set via **dict so adding a field to
+        # ``DivisionStorefrontFields`` doesn't need a line here too.
+        **{f: getattr(payload, f) for f in _STOREFRONT_FIELDS},
     )
     db.add(row)
     db.flush()  # populate row.id
@@ -388,8 +402,17 @@ def update_division(
         changes["slug"] = (row.slug, payload.slug)
         row.slug = payload.slug
 
-    for field in ("name", "city", "description", "logo_url", "fallback_url",
-                  "is_active", "sort_order"):
+    for field in (
+        "name",
+        "city",
+        "description",
+        "logo_url",
+        "fallback_url",
+        "is_active",
+        "is_public",
+        "sort_order",
+        *_STOREFRONT_FIELDS,
+    ):
         new_value = getattr(payload, field)
         if new_value is not None and new_value != getattr(row, field):
             changes[field] = (getattr(row, field), new_value)

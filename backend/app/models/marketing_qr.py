@@ -112,6 +112,42 @@ class MarketingDivision(Base):
     # Division-level dead-end guard — see class docstring.
     fallback_url: Mapped[Optional[str]] = mapped_column(Text)
 
+    # --- Public branch page (``/offers/{slug}``) -------------------------
+    # A division doubles as a customer-facing storefront: its own offers
+    # page listing the campaigns and catalogues targeted at this branch.
+    # That page is the natural fallback for the branch's QR codes, which
+    # is why these live here rather than in a separate "store profile"
+    # table — one row per branch, one place to edit it.
+
+    # Hero banner across the top of the branch page.
+    hero_image_url: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # Footer contact block.
+    address: Mapped[Optional[str]] = mapped_column(Text)
+    phone: Mapped[Optional[str]] = mapped_column(String(64))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
+    whatsapp: Mapped[Optional[str]] = mapped_column(String(64))
+    # Free text rather than structured open/close times — branches run
+    # split shifts and Ramadan hours that no simple schema survives.
+    opening_hours: Mapped[Optional[str]] = mapped_column(Text)
+    maps_url: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Social links. Stored as separate columns (not a JSON blob) so the
+    # admin form is a plain set of inputs and the public payload needs
+    # no parsing.
+    facebook_url: Mapped[Optional[str]] = mapped_column(Text)
+    instagram_url: Mapped[Optional[str]] = mapped_column(Text)
+    tiktok_url: Mapped[Optional[str]] = mapped_column(Text)
+    youtube_url: Mapped[Optional[str]] = mapped_column(Text)
+    snapchat_url: Mapped[Optional[str]] = mapped_column(Text)
+    x_url: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Whether ``/offers/{slug}`` renders publicly. A branch can exist
+    # for QR routing before its storefront page is ready to show.
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true", index=True
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true", index=True
     )

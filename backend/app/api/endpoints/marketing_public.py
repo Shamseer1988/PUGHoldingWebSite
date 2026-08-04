@@ -23,6 +23,7 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
+from app.models.marketing_qr import MarketingDivision
 from app.models.marketing import (
     CATALOGUE_READY,
     Catalogue,
@@ -31,6 +32,9 @@ from app.models.marketing import (
     OfferCampaign,
 )
 from app.schemas.marketing import (
+    BranchPage,
+    BranchSocialLinks,
+    BranchSummary,
     CampaignPublicDetail,
     CatalogueDetail,
     CatalogueViewLog,
@@ -151,20 +155,99 @@ def _to_index_card(
 # ---------------------------------------------------------------------------
 
 
+
+def _catalogue_card(c: Catalogue) -> OffersIndexCatalogue:
+    """Map a Catalogue row to its public tile."""
+    return OffersIndexCatalogue(
+        slug=c.slug,
+        title=c.title,
+        description=c.description,
+        cover_image_url=c.cover_image_url,
+        page_count=c.page_count,
+        branch_name=c.division_name,
+        is_featured=c.is_featured,
+        created_at=c.created_at,
+    )
+
+
+def _branch_options(db: Session) -> list[BranchSummary]:
+    """Every publicly-visible branch, for the picker.
+
+    Sourced from the divisions table rather than distinct campaign
+    labels: the picker should list branches that *exist*, so a shopper
+    can reach a branch page even in a week when that branch happens to
+    have no campaign of its own.
+    """
+    rows = (
+        db.execute(
+            select(MarketingDivision)
+            .where(
+                MarketingDivision.is_active.is_(True),
+                MarketingDivision.is_public.is_(True),
+            )
+            .order_by(
+                MarketingDivision.sort_order.asc(),
+                MarketingDivision.name.asc(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        BranchSummary(slug=d.slug, name=d.name, city=d.city) for d in rows
+    ]
+
+
+def _visible_to_branch(division_id: Optional[int]):
+    """Rows targeted at ``division_id`` OR at all branches.
+
+    The OR is the important half: a group-wide campaign belongs on
+    every branch page. Filtering strictly by branch would hide the
+    main weekly flyer from every store.
+    """
+    return or_(
+        OfferCampaign.division_id == division_id,
+        OfferCampaign.division_id.is_(None),
+    )
+
+
+def _catalogue_visible_to_branch(division_id: Optional[int]):
+    """Catalogue equivalent of :func:`_visible_to_branch`."""
+    return or_(
+        Catalogue.division_id == division_id,
+        Catalogue.division_id.is_(None),
+    )
+
+
 @router.get("", response_model=OffersIndex)
 def list_offers(
     db: Session = Depends(get_db),
-    branch: Optional[str] = Query(default=None, max_length=120),
+    branch: Optional[str] = Query(
+        default=None,
+        max_length=200,
+        description="Branch slug (preferred) or legacy free-text branch label.",
+    ),
     q: Optional[str] = Query(default=None, max_length=200),
+    killer: bool = Query(default=False, description="Only killer offers"),
+    featured: bool = Query(default=False, description="Only featured"),
+    flash: bool = Query(default=False, description="Only flash sales"),
+    include_expired: bool = Query(
+        default=True, description="Set false to hide finished campaigns"
+    ),
 ) -> OffersIndex:
     """Landing payload for the public ``/offers`` page.
 
-    Returns four bucketed lists (featured, killer, flash, all) plus
-    the distinct branch list for the filter chips. Inactive and
-    not-yet-started campaigns are excluded; **expired** campaigns
-    are included with ``is_expired = true`` so the UI can badge
-    them and old share links still resolve.
+    Returns the bucketed carousels (featured / killer / flash), the
+    full campaign list, every ready catalogue, and the branch picker
+    options.
+
+    Expired campaigns are included by default and badged client-side —
+    old share links shouldn't 404, and last month's flyer is still
+    interesting. ``include_expired=false`` powers the "Active only"
+    filter chip.
     """
+    division = _lookup_branch(db, branch)
+
     stmt = (
         select(OfferCampaign)
         .where(_publishable_campaign_clause())
@@ -174,7 +257,17 @@ def list_offers(
         )
     )
     if branch:
-        stmt = stmt.where(OfferCampaign.branch == branch)
+        if division is not None:
+            # Structured match, plus all-branch campaigns, plus the
+            # legacy text label so pre-migration rows still filter.
+            stmt = stmt.where(
+                or_(
+                    _visible_to_branch(division.id),
+                    func.lower(OfferCampaign.branch) == division.name.lower(),
+                )
+            )
+        else:
+            stmt = stmt.where(OfferCampaign.branch == branch)
     if q:
         needle = f"%{q.strip().lower()}%"
         stmt = stmt.where(
@@ -183,35 +276,39 @@ def list_offers(
                 func.lower(OfferCampaign.description).like(needle),
             )
         )
+    if killer:
+        stmt = stmt.where(OfferCampaign.is_killer_offer.is_(True))
+    if featured:
+        stmt = stmt.where(OfferCampaign.is_featured.is_(True))
+    if flash:
+        stmt = stmt.where(OfferCampaign.is_flash_sale.is_(True))
 
-    campaigns = db.execute(stmt).scalars().all()
+    campaigns = db.execute(stmt).scalars().unique().all()
     ids = [c.id for c in campaigns]
     counts = _ready_catalogue_count_lookup(db, ids)
     covers = _cover_image_lookup(db, ids)
 
     cards = [_to_index_card(c, counts, covers) for c in campaigns]
-    # Only surface campaigns that have at least one ready catalogue —
-    # an empty campaign is a draft, not something the public should
-    # land on. Admins can flip is_active=false to fully hide instead.
+    # A campaign with no rendered catalogue is a draft, not something
+    # to land a customer on.
     cards = [c for c in cards if c.catalogue_count > 0]
+    if not include_expired:
+        cards = [c for c in cards if not c.is_expired]
 
-    # Sort active campaigns first, expired ones at the bottom. Keeps
-    # the page's first scroll-fold on what's actually live without
-    # losing the historical record below it.
+    # Active first, expired at the bottom — keeps the first fold on
+    # what's live without losing the archive.
     cards.sort(key=lambda c: (c.is_expired, 0))
 
-    # Highlighted carousels are for CURRENT promos only — surfacing
-    # an expired flash sale would mislead the customer. ``all_campaigns``
-    # keeps everything (expired included, badged in the UI).
-    featured = [c for c in cards if c.is_featured and not c.is_expired]
-    killer = [c for c in cards if c.is_killer_offer and not c.is_expired]
-    flash = [c for c in cards if c.is_flash_sale and not c.is_expired]
+    # Highlighted carousels are for CURRENT promos only; an expired
+    # flash sale would mislead.
+    featured_cards = [c for c in cards if c.is_featured and not c.is_expired]
+    killer_cards = [c for c in cards if c.is_killer_offer and not c.is_expired]
+    flash_cards = [c for c in cards if c.is_flash_sale and not c.is_expired]
 
-    # Every active+ready catalogue — regardless of campaign attachment.
-    # The previous "standalone only" filter caused the landing to look
-    # empty whenever a campaign existed but had the wrong date window
-    # or was set inactive. Surfacing every catalogue here means the
-    # landing always has content as long as one catalogue has rendered.
+    # Every active+ready catalogue, independent of campaign attachment.
+    # This is what guarantees the landing has content whenever a flyer
+    # has rendered — a catalogue with no campaign, or whose campaign
+    # has the wrong date window, still reaches the customer.
     catalogue_stmt = (
         select(Catalogue)
         .where(
@@ -225,6 +322,10 @@ def list_offers(
         )
         .limit(48)
     )
+    if branch and division is not None:
+        catalogue_stmt = catalogue_stmt.where(
+            _catalogue_visible_to_branch(division.id)
+        )
     if q:
         needle = f"%{q.strip().lower()}%"
         catalogue_stmt = catalogue_stmt.where(
@@ -234,28 +335,139 @@ def list_offers(
             )
         )
     all_catalogues = [
-        OffersIndexCatalogue(
-            slug=c.slug,
-            title=c.title,
-            description=c.description,
-            cover_image_url=c.cover_image_url,
-            page_count=c.page_count,
-        )
-        for c in db.execute(catalogue_stmt).scalars()
+        _catalogue_card(c) for c in db.execute(catalogue_stmt).scalars().unique()
     ]
 
-    # Branch facet — pull every distinct branch from the surfaced
-    # campaign set so the filter only shows options that actually
-    # have content.
-    branches = sorted({c.branch for c in cards if c.branch})
-
     return OffersIndex(
-        featured=featured[:8],
-        killer_offers=killer[:8],
-        flash_sales=flash[:8],
+        featured=featured_cards[:8],
+        killer_offers=killer_cards[:8],
+        flash_sales=flash_cards[:8],
         all_campaigns=cards,
         all_catalogues=all_catalogues,
-        branches=branches,
+        branches=_branch_options(db),
+    )
+
+
+def _lookup_branch(
+    db: Session, branch: Optional[str]
+) -> Optional[MarketingDivision]:
+    """Resolve a branch filter value to a division row, if it is one.
+
+    Accepts the slug (what the picker sends) and falls back to a
+    case-insensitive name match so a hand-typed or legacy label still
+    resolves. ``None`` when the value matches no branch — the caller
+    then treats it as a legacy free-text filter.
+    """
+    if not branch:
+        return None
+    cleaned = branch.strip().lower()
+    return db.execute(
+        select(MarketingDivision).where(
+            or_(
+                MarketingDivision.slug == cleaned,
+                func.lower(MarketingDivision.name) == cleaned,
+            )
+        )
+    ).scalars().first()
+
+
+@router.get("/branches", response_model=list[BranchSummary])
+def list_branches(db: Session = Depends(get_db)) -> list[BranchSummary]:
+    """Public branch picker options.
+
+    Declared before ``/{slug}`` so the literal path wins the route
+    match — otherwise "branches" would be read as a campaign slug.
+    """
+    return _branch_options(db)
+
+
+@router.get("/branch/{slug}", response_model=BranchPage)
+def get_branch_page(slug: str, db: Session = Depends(get_db)) -> BranchPage:
+    """Storefront payload for one branch.
+
+    This is where a QR code with no target sends its scans, so it must
+    always be worth landing on: it lists the branch's own campaigns
+    AND the group-wide ones, so the page has content even for a branch
+    that runs no exclusive promotions.
+    """
+    cleaned = (slug or "").strip().lower()
+    division = db.execute(
+        select(MarketingDivision).where(MarketingDivision.slug == cleaned)
+    ).scalars().first()
+    if division is None or not division.is_active or not division.is_public:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    campaign_rows = (
+        db.execute(
+            select(OfferCampaign)
+            .where(
+                _publishable_campaign_clause(),
+                or_(
+                    _visible_to_branch(division.id),
+                    func.lower(OfferCampaign.branch) == division.name.lower(),
+                ),
+            )
+            .order_by(
+                OfferCampaign.sort_order.asc(), desc(OfferCampaign.created_at)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    ids = [c.id for c in campaign_rows]
+    counts = _ready_catalogue_count_lookup(db, ids)
+    covers = _cover_image_lookup(db, ids)
+    cards = [_to_index_card(c, counts, covers) for c in campaign_rows]
+    cards = [c for c in cards if c.catalogue_count > 0]
+    cards.sort(key=lambda c: (c.is_expired, 0))
+
+    catalogues = (
+        db.execute(
+            select(Catalogue)
+            .where(
+                Catalogue.is_active.is_(True),
+                Catalogue.processing_status == CATALOGUE_READY,
+                _catalogue_visible_to_branch(division.id),
+            )
+            .order_by(
+                Catalogue.is_featured.desc(),
+                Catalogue.sort_order.asc(),
+                desc(Catalogue.created_at),
+            )
+            .limit(48)
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+
+    others = [b for b in _branch_options(db) if b.slug != division.slug]
+
+    return BranchPage(
+        slug=division.slug,
+        name=division.name,
+        city=division.city,
+        description=division.description,
+        logo_url=division.logo_url,
+        hero_image_url=division.hero_image_url,
+        address=division.address,
+        phone=division.phone,
+        email=division.email,
+        whatsapp=division.whatsapp,
+        opening_hours=division.opening_hours,
+        maps_url=division.maps_url,
+        social=BranchSocialLinks(
+            facebook=division.facebook_url,
+            instagram=division.instagram_url,
+            tiktok=division.tiktok_url,
+            youtube=division.youtube_url,
+            snapchat=division.snapchat_url,
+            x=division.x_url,
+        ),
+        campaigns=cards,
+        catalogues=[_catalogue_card(c) for c in catalogues],
+        other_branches=others,
     )
 
 

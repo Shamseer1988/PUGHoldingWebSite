@@ -394,9 +394,33 @@ def test_inactive_division_disables_its_codes_but_keeps_fallback(
     assert r.headers["location"] == "https://pug.qa/branches"
 
 
-def test_no_target_and_no_fallback_is_404(client: TestClient, seed_auth):
+def test_no_target_falls_back_to_the_branch_storefront(
+    client: TestClient, seed_auth
+):
+    """The end of the fallback chain is the branch's own offers page.
+
+    A code with nothing configured still lands the shopper somewhere
+    relevant — they're standing in that branch — rather than 404ing on
+    signage that's already printed.
+    """
     headers = _auth(client, seed_auth["password"])
     division = _make_division(client, headers, name="Al Khor")
+    qr = division["qr_codes"][0]
+    r = client.get(f"{PUBLIC}/{qr['slug']}", follow_redirects=False)
+    assert r.status_code == 302, r.text
+    assert r.headers["location"].endswith(f"/offers/{division['slug']}")
+
+
+def test_non_public_division_with_no_target_is_404(
+    client: TestClient, seed_auth
+):
+    """No storefront to fall back to → the chain genuinely ends.
+
+    ``is_public=false`` means the branch has no customer-facing page,
+    so the automatic fallback must not invent one.
+    """
+    headers = _auth(client, seed_auth["password"])
+    division = _make_division(client, headers, name="Al Khor", is_public=False)
     qr = division["qr_codes"][0]
     r = client.get(f"{PUBLIC}/{qr['slug']}", follow_redirects=False)
     assert r.status_code == 404, r.text
@@ -512,3 +536,95 @@ def test_public_resolver_needs_no_auth(client: TestClient, seed_auth):
     # No Authorization header at all.
     r = client.get(f"{PUBLIC}/{qr['slug']}", follow_redirects=False)
     assert r.status_code == 302, r.text
+
+
+# ---------------------------------------------------------------------------
+# Branch storefront (public /offers/branch/{slug})
+# ---------------------------------------------------------------------------
+
+
+PUBLIC_OFFERS = "/api/v1/offers"
+
+
+def test_branch_page_carries_identity_and_contact(client: TestClient, seed_auth):
+    """The storefront payload feeds the page header + footer."""
+    headers = _auth(client, seed_auth["password"])
+    division = _make_division(
+        client,
+        headers,
+        name="Paris Hyper Market Al Attiya",
+        city="Industrial Area",
+        address="Street 12, Industrial Area, Doha, Qatar",
+        phone="+974 4000 0000",
+        instagram_url="https://instagram.com/parishypermarket",
+        facebook_url="https://facebook.com/parishypermarket",
+    )
+
+    r = client.get(f"{PUBLIC_OFFERS}/branch/{division['slug']}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Paris Hyper Market Al Attiya"
+    assert body["city"] == "Industrial Area"
+    assert body["address"].startswith("Street 12")
+    assert body["social"]["instagram"] == "https://instagram.com/parishypermarket"
+    assert body["social"]["facebook"] == "https://facebook.com/parishypermarket"
+    # Unset socials come back as null rather than being omitted, so the
+    # client can render a stable set of slots.
+    assert body["social"]["tiktok"] is None
+
+
+def test_branch_page_lists_sibling_branches(client: TestClient, seed_auth):
+    """Powers the "switch branch" control without a second request."""
+    headers = _auth(client, seed_auth["password"])
+    a = _make_division(client, headers, name="Al Attiya")
+    _make_division(client, headers, name="Al Khor")
+    _make_division(client, headers, name="Al Wakra")
+
+    body = client.get(f"{PUBLIC_OFFERS}/branch/{a['slug']}").json()
+    slugs = {b["slug"] for b in body["other_branches"]}
+    assert slugs == {"al-khor", "al-wakra"}
+    assert a["slug"] not in slugs
+
+
+def test_branch_page_404s_when_not_public(client: TestClient, seed_auth):
+    headers = _auth(client, seed_auth["password"])
+    d = _make_division(client, headers, name="Backoffice Only", is_public=False)
+    assert client.get(f"{PUBLIC_OFFERS}/branch/{d['slug']}").status_code == 404
+
+
+def test_branch_page_404s_for_unknown_slug(client: TestClient):
+    assert client.get(f"{PUBLIC_OFFERS}/branch/nope-not-here").status_code == 404
+
+
+def test_branch_picker_lists_divisions(client: TestClient, seed_auth):
+    """The picker comes from divisions, not scraped campaign labels.
+
+    A branch with zero campaigns must still be reachable — that's the
+    whole point of sourcing this from the branches table.
+    """
+    headers = _auth(client, seed_auth["password"])
+    _make_division(client, headers, name="Al Khor", city="Al Khor")
+    _make_division(client, headers, name="Hidden", is_public=False)
+
+    body = client.get(PUBLIC_OFFERS).json()
+    picker = {b["slug"]: b for b in body["branches"]}
+    assert "al-khor" in picker
+    assert picker["al-khor"]["name"] == "Al Khor"
+    assert picker["al-khor"]["city"] == "Al Khor"
+    # Non-public branches must not be advertised.
+    assert "hidden" not in picker
+
+    # Same list is available standalone for clients that only need it.
+    standalone = client.get(f"{PUBLIC_OFFERS}/branches").json()
+    assert {b["slug"] for b in standalone} == set(picker)
+
+
+def test_branches_route_is_not_read_as_a_campaign_slug(client: TestClient):
+    """Regression: ``/offers/branches`` must not hit ``/offers/{slug}``.
+
+    Both are single-segment paths, so the literal has to be declared
+    first or the picker endpoint 404s as a missing campaign.
+    """
+    r = client.get(f"{PUBLIC_OFFERS}/branches")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
