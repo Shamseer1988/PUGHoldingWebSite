@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileArchive, Link2, Wrench } from "lucide-react";
+import { FileArchive, Link2, QrCode, Wrench } from "lucide-react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 
@@ -27,6 +27,14 @@ const TOOLS: ToolCard[] = [
       "Create branded short links on pug.qa/go/… Track clicks and disable links without rebuilding the campaign asset.",
     icon: Link2,
     accent: "text-emerald-700 dark:text-emerald-300 bg-emerald-500/15",
+  },
+  {
+    href: "/admin/marketing/qr-codes",
+    title: "Branch QR Codes",
+    description:
+      "One permanent QR per branch on pug.qa/q/… Print it once, then re-point it at a catalogue, campaign or social post any time.",
+    icon: QrCode,
+    accent: "text-sky-700 dark:text-sky-300 bg-sky-500/15",
   },
 ];
 

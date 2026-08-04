@@ -152,6 +152,17 @@ const nextConfig = {
         source: "/go/:slug([A-Za-z0-9_-]{3,32})",
         destination: `${apiBase}/go/:slug`,
       },
+      // Branch QR codes — ``/q/{slug}`` resolves to the backend, which
+      // 302s to whatever that code currently points at. This is the
+      // URL printed on in-store signage, so the rewrite must stay:
+      // removing it breaks physical assets that can't be recalled.
+      // Wider than the ``/go/`` pattern (64 vs 32) because QR slugs
+      // are readable branch names, and case-insensitive for the same
+      // reason short links are — a code printed in CAPS still works.
+      {
+        source: "/q/:slug([A-Za-z0-9_-]{3,64})",
+        destination: `${apiBase}/q/:slug`,
+      },
       {
         source: "/:filename(google[a-zA-Z0-9_-]{4,64}\\.html)",
         destination: `${apiBase}/public/seo/verify/:filename`,

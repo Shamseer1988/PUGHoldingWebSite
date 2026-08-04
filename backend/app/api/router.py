@@ -10,6 +10,7 @@ from app.api.endpoints import (
     admin_cms,
     admin_email_settings,
     admin_marketing,
+    admin_marketing_qr,
     admin_recruitment_settings,
     admin_seo,
     admin_short_urls,
@@ -31,6 +32,7 @@ from app.api.endpoints import (
     hr_scorecards,
     public,
     public_assessments,
+    public_qr,
     public_short_urls,
     websocket,
 )
@@ -49,8 +51,10 @@ api_router.include_router(admin_backup.router)
 api_router.include_router(admin_storage.router)
 api_router.include_router(admin_marketing.router)
 api_router.include_router(admin_short_urls.router)
+api_router.include_router(admin_marketing_qr.router)
 api_router.include_router(marketing_public.router)
 api_router.include_router(public_short_urls.router)
+api_router.include_router(public_qr.router)
 api_router.include_router(public_assessments.router)
 api_router.include_router(hr_auth.router)
 api_router.include_router(hr_dashboard.router)

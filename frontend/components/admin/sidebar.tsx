@@ -22,6 +22,7 @@ import {
   Megaphone,
   Menu as MenuIcon,
   MessageSquareQuote,
+  QrCode,
   Search,
   Send,
   Settings,
@@ -56,6 +57,7 @@ const PERM_MARKETING_DASHBOARD = "marketing:dashboard:view";
 const PERM_MARKETING_CAMPAIGNS_READ = "marketing:campaigns:read";
 const PERM_MARKETING_CATALOGUES_READ = "marketing:catalogues:read";
 const PERM_MARKETING_SHORT_URLS_READ = "marketing:short_urls:read";
+const PERM_MARKETING_QR_CODES_READ = "marketing:qr_codes:read";
 
 
 interface NavGroup {
@@ -215,6 +217,12 @@ const NAV: NavGroup[] = [
         href: "/admin/marketing/catalogues",
         icon: BookOpen,
         requiresAnyPermission: [PERM_MARKETING_CATALOGUES_READ],
+      },
+      {
+        label: "QR Codes",
+        href: "/admin/marketing/qr-codes",
+        icon: QrCode,
+        requiresAnyPermission: [PERM_MARKETING_QR_CODES_READ],
       },
       {
         label: "Tools",

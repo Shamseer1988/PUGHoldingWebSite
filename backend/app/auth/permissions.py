@@ -112,6 +112,8 @@ PERM_MARKETING_CATALOGUES_READ = "marketing:catalogues:read"
 PERM_MARKETING_CATALOGUES_MANAGE = "marketing:catalogues:manage"
 PERM_MARKETING_SHORT_URLS_READ = "marketing:short_urls:read"
 PERM_MARKETING_SHORT_URLS_MANAGE = "marketing:short_urls:manage"
+PERM_MARKETING_QR_CODES_READ = "marketing:qr_codes:read"
+PERM_MARKETING_QR_CODES_MANAGE = "marketing:qr_codes:manage"
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +198,14 @@ MARKETING_PERMISSIONS: Tuple[Tuple[str, str], ...] = (
     (PERM_MARKETING_CATALOGUES_MANAGE, "Upload, edit and reprocess catalogues"),
     (PERM_MARKETING_SHORT_URLS_READ, "Browse short URLs and click counters (read-only)"),
     (PERM_MARKETING_SHORT_URLS_MANAGE, "Create, edit and delete branded short URLs"),
+    (
+        PERM_MARKETING_QR_CODES_READ,
+        "Browse divisions, branch QR codes and scan analytics (read-only)",
+    ),
+    (
+        PERM_MARKETING_QR_CODES_MANAGE,
+        "Create divisions and QR codes, and re-point QR target links",
+    ),
 )
 
 MARKETING_PERMISSION_KEYS = frozenset(k for k, _ in MARKETING_PERMISSIONS)
@@ -205,6 +215,7 @@ _MARKETING_READ_ONLY = (
     PERM_MARKETING_CAMPAIGNS_READ,
     PERM_MARKETING_CATALOGUES_READ,
     PERM_MARKETING_SHORT_URLS_READ,
+    PERM_MARKETING_QR_CODES_READ,
 )
 
 
@@ -470,6 +481,10 @@ __all__ = [
     "PERM_MARKETING_CAMPAIGNS_MANAGE",
     "PERM_MARKETING_CATALOGUES_READ",
     "PERM_MARKETING_CATALOGUES_MANAGE",
+    "PERM_MARKETING_SHORT_URLS_READ",
+    "PERM_MARKETING_SHORT_URLS_MANAGE",
+    "PERM_MARKETING_QR_CODES_READ",
+    "PERM_MARKETING_QR_CODES_MANAGE",
     "MARKETING_PERMISSIONS",
     "MARKETING_PERMISSION_KEYS",
     "MARKETING_ROLES",

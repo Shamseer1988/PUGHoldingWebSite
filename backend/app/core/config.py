@@ -59,6 +59,18 @@ class Settings(BaseSettings):
     # (port 8000) because that won't resolve from a phone scan.
     public_site_url: str = Field(default="http://localhost:3000")
 
+    # Branded short domain used for scan/click links — ``/go/{slug}``
+    # (URL shortener) and ``/q/{slug}`` (branch QR codes). Kept
+    # separate from ``public_site_url`` because these links are
+    # printed on signage and flyers where a short host matters, and
+    # because the QR artwork must encode a stable domain regardless of
+    # which host an admin happened to be signed into when they
+    # generated it. Mirror of the frontend's
+    # ``NEXT_PUBLIC_SHORT_URL_BASE`` — keep the two in step, or a
+    # printed code won't match what the admin UI displayed. Falls back
+    # to ``public_site_url`` when left blank.
+    short_url_base: str = Field(default="https://pug.qa")
+
     # --- Security ---
     # Phase A-3: ``secret_key`` is now Optional with a None default. A
     # boot-time validator below refuses to load Settings when the env
