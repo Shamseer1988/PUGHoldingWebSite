@@ -1,23 +1,24 @@
-import Link from "next/link";
-import { ArrowLeft, Tag } from "lucide-react";
-
-
-
 /**
  * Layout for the public Offers / Catalogue surface.
  *
  * Intentionally lives OUTSIDE the ``(public)`` route group so it
  * doesn't inherit the site navbar / footer / floating AI button —
- * the viewer needs a full-bleed, immersive feel so the catalogue
- * pages occupy the whole viewport.
+ * these pages need a full-bleed, immersive feel so the flyer occupies
+ * the whole viewport.
  *
- * Keeps a minimal top bar so the customer can find their way back to
- * the rest of the site.
+ * Deliberately chrome-free: no top bar, no footer.
  *
- * The footer is NOT here: branch storefronts render their own
+ * The top bar used to carry "Back to site" / "Offers & Catalogues". It
+ * cost a sticky strip of every phone screen on a surface whose visitors
+ * arrive by scanning a code in-store — they came for the flyer, not to
+ * navigate the corporate site. Removing it also lets the branch hero
+ * banner start immediately below the browser chrome.
+ *
+ * The footer isn't here either: branch storefronts render their own
  * (that store's address, hours and socials), and a layout-level footer
- * stacked a second one underneath it on mobile. Pages that want the
- * slim group footer import ``OffersFooter`` directly.
+ * stacked a second one underneath it. Pages that want the slim group
+ * footer — which carries the "Main site" link — import ``OffersFooter``
+ * directly.
  */
 export default function OffersLayout({
   children,
@@ -26,27 +27,7 @@ export default function OffersLayout({
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/85 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-foreground/80 transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Back to site</span>
-          </Link>
-          <Link
-            href="/offers"
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground"
-          >
-            <Tag className="h-3 w-3" />
-            <span>Offers &amp; Catalogues</span>
-          </Link>
-        </div>
-      </header>
-
       <div className="flex-1">{children}</div>
-
     </div>
   );
 }
