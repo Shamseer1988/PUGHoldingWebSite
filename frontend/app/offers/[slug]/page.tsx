@@ -7,6 +7,7 @@ import type { Catalogue } from "@/lib/admin/marketing-types";
 import { resolveAssetUrl } from "@/lib/public-api";
 import { getBranchPage, getCampaignBySlug } from "@/lib/public-offers";
 import { BranchStorefront } from "@/app/offers/branch-storefront";
+import { OffersFooter } from "@/app/offers/offers-footer";
 import { cn } from "@/lib/utils";
 
 
@@ -88,7 +89,8 @@ export default async function CampaignDetailPage({ params }: PageProps) {
   const expired = campaign.is_expired;
 
   return (
-    <main className="min-h-screen bg-background">
+    <>
+      <main className="min-h-screen bg-background">
       {/* Banner */}
       <section
         className="relative overflow-hidden border-b border-border/60"
@@ -216,7 +218,10 @@ export default async function CampaignDetailPage({ params }: PageProps) {
           </div>
         )}
       </section>
-    </main>
+      </main>
+
+      <OffersFooter />
+    </>
   );
 }
 

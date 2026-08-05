@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Tag } from "lucide-react";
 
 
+
 /**
  * Layout for the public Offers / Catalogue surface.
  *
@@ -11,16 +12,18 @@ import { ArrowLeft, Tag } from "lucide-react";
  * pages occupy the whole viewport.
  *
  * Keeps a minimal top bar so the customer can find their way back to
- * the rest of the site, and a slim brand-matched footer below.
- * Both apply to ``/offers``, ``/offers/[slug]`` (campaign detail) and
- * ``/offers/catalogues/[slug]`` (page-flip viewer) automatically.
+ * the rest of the site.
+ *
+ * The footer is NOT here: branch storefronts render their own
+ * (that store's address, hours and socials), and a layout-level footer
+ * stacked a second one underneath it on mobile. Pages that want the
+ * slim group footer import ``OffersFooter`` directly.
  */
 export default function OffersLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const year = new Date().getFullYear();
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-30 border-b border-border/60 bg-background/85 backdrop-blur">
@@ -44,48 +47,6 @@ export default function OffersLayout({
 
       <div className="flex-1">{children}</div>
 
-      {/* Slim brand-matched footer. Deliberately lighter than the
-          site-wide one — the offers surface stays focused on the
-          catalogues; a verbose footer would compete for attention. */}
-      <footer className="border-t border-border/60 bg-pug-green-900 text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="space-y-0.5">
-            <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-pug-gold-300">
-              <Tag className="h-3 w-3" />
-              Paris United Group · Offers
-            </p>
-            <p className="text-xs text-white/70">
-              &copy; {year} Paris United Group Holding. All rights reserved.
-            </p>
-          </div>
-          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/80">
-            <Link
-              href="/"
-              className="transition-colors hover:text-pug-gold-300"
-            >
-              Main site
-            </Link>
-            <Link
-              href="/about"
-              className="transition-colors hover:text-pug-gold-300"
-            >
-              About PUG
-            </Link>
-            <Link
-              href="/contact"
-              className="transition-colors hover:text-pug-gold-300"
-            >
-              Contact
-            </Link>
-            <Link
-              href="/privacy-policy"
-              className="transition-colors hover:text-pug-gold-300"
-            >
-              Privacy
-            </Link>
-          </nav>
-        </div>
-      </footer>
     </div>
   );
 }

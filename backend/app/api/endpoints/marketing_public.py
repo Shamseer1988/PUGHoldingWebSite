@@ -381,6 +381,58 @@ def list_branches(db: Session = Depends(get_db)) -> list[BranchSummary]:
     return _branch_options(db)
 
 
+@router.get("/branch/{slug}/location-qr.png")
+def branch_location_qr(slug: str, db: Session = Depends(get_db)) -> Response:
+    """Branded QR encoding this branch's map link.
+
+    Sits next to the address on the storefront so the page works as a
+    shareable artifact: screenshot it, print it, put it on a poster,
+    and the code still opens directions. Encodes ``maps_url``
+    directly rather than routing through ``/q/`` — a map link is a
+    fixed physical fact about the store, not marketing content anyone
+    will want to re-point later, so the indirection would buy nothing.
+
+    404s when the branch has no map link; the page only renders the
+    image when ``maps_url`` is set, so this is the defensive case.
+    """
+    from app.core.config import get_settings
+    from app.services.qr_codes import build_catalogue_qr
+
+    cleaned = (slug or "").strip().lower()
+    division = db.execute(
+        select(MarketingDivision).where(MarketingDivision.slug == cleaned)
+    ).scalars().first()
+    if (
+        division is None
+        or not division.is_active
+        or not division.is_public
+        or not division.maps_url
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    png = build_catalogue_qr(
+        division.maps_url,
+        logo_bytes=_division_logo_bytes(get_settings(), division),
+        size_px=512,
+    )
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            # Public and long-lived: a branch's map link effectively
+            # never changes, and this is served to every visitor.
+            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        },
+    )
+
+
+def _division_logo_bytes(settings, division: MarketingDivision):
+    """Centre badge for the location QR — reuses the admin resolver."""
+    from app.api.endpoints.admin_marketing_qr import _resolve_division_logo_bytes
+
+    return _resolve_division_logo_bytes(settings, division)
+
+
 @router.get("/branch/{slug}", response_model=BranchPage)
 def get_branch_page(slug: str, db: Session = Depends(get_db)) -> BranchPage:
     """Storefront payload for one branch.

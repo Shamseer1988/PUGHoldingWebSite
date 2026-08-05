@@ -43,6 +43,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 import { CampaignCard, CatalogueCard, SectionHeading } from "./offer-cards";
+import { OffersFooter } from "./offers-footer";
 
 type FlagFilter = "killer" | "featured" | "flash" | "expired";
 
@@ -363,6 +364,8 @@ export function OffersLanding({ index, initialBranch, initialQuery }: Props) {
           </section>
         )}
       </main>
+
+      <OffersFooter />
     </div>
   );
 }

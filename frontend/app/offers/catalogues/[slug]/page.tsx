@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { OffersFooter } from "@/app/offers/offers-footer";
+
 import { CatalogueViewer } from "@/app/offers/catalogues/[slug]/catalogue-viewer";
 import { getCatalogueBySlug } from "@/lib/public-offers";
 
@@ -43,5 +45,10 @@ export async function generateMetadata({
 export default async function CataloguePage({ params }: PageProps) {
   const catalogue = await getCatalogueBySlug(params.slug);
   if (!catalogue) notFound();
-  return <CatalogueViewer catalogue={catalogue} />;
+  return (
+    <>
+      <CatalogueViewer catalogue={catalogue} />
+      <OffersFooter />
+    </>
+  );
 }

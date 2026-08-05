@@ -628,3 +628,51 @@ def test_branches_route_is_not_read_as_a_campaign_slug(client: TestClient):
     r = client.get(f"{PUBLIC_OFFERS}/branches")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+def test_branch_location_qr_encodes_the_maps_link(client: TestClient, seed_auth):
+    """The footer QR must open directions, not the branch page.
+
+    A map link is a fixed physical fact about the store, so it's
+    encoded directly rather than routed through /q/ — there is nothing
+    to re-point later.
+    """
+    import io
+
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    headers = _auth(client, seed_auth["password"])
+    maps = "https://maps.app.goo.gl/abc123"
+    d = _make_division(client, headers, name="Al Attiya", maps_url=maps)
+
+    r = client.get(f"{PUBLIC_OFFERS}/branch/{d['slug']}/location-qr.png")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "image/png"
+    # Public + long-lived: served to every visitor, effectively static.
+    assert "public" in r.headers["cache-control"]
+
+    img = np.array(Image.open(io.BytesIO(r.content)).convert("RGB"))[:, :, ::-1]
+    decoded, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+    assert decoded == maps, f"expected the maps link, got {decoded!r}"
+
+
+def test_branch_location_qr_404s_without_a_maps_link(client: TestClient, seed_auth):
+    headers = _auth(client, seed_auth["password"])
+    d = _make_division(client, headers, name="No Map Branch")
+    r = client.get(f"{PUBLIC_OFFERS}/branch/{d['slug']}/location-qr.png")
+    assert r.status_code == 404, r.text
+
+
+def test_branch_location_qr_404s_for_non_public_branch(client: TestClient, seed_auth):
+    headers = _auth(client, seed_auth["password"])
+    d = _make_division(
+        client,
+        headers,
+        name="Private",
+        is_public=False,
+        maps_url="https://maps.app.goo.gl/x",
+    )
+    r = client.get(f"{PUBLIC_OFFERS}/branch/{d['slug']}/location-qr.png")
+    assert r.status_code == 404, r.text
