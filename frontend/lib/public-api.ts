@@ -23,6 +23,7 @@ import type {
   SitePageKey,
   SiteSettings,
 } from "@/lib/admin/types";
+import { rethrowIfDynamicServerError } from "@/lib/dynamic-bailout";
 import { env } from "@/lib/env";
 
 interface FetchOptions {
@@ -80,6 +81,10 @@ async function fetchPublic<T>(
     }
     return (await response.json()) as T;
   } catch (error) {
+    // Next's "this page can't be static" signal looks like a failed
+    // fetch here. Let it through so Next marks the route dynamic —
+    // swallowing it would render the page with null data instead.
+    rethrowIfDynamicServerError(error);
     console.error(`[public-api] ${url} fetch failed:`, error);
     return null;
   }

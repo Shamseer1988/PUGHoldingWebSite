@@ -14,6 +14,7 @@ import type {
   Catalogue,
   CatalogueDetail,
 } from "@/lib/admin/marketing-types";
+import { rethrowIfDynamicServerError } from "@/lib/dynamic-bailout";
 import { env } from "@/lib/env";
 
 
@@ -143,6 +144,9 @@ async function fetchPublic<T>(
     }
     return (await response.json()) as T;
   } catch (err) {
+    // See the note in lib/dynamic-bailout.ts — this is control flow
+    // from Next, not a fetch failure.
+    rethrowIfDynamicServerError(err);
     console.error(`[public-offers] ${url} failed:`, err);
     return null;
   }

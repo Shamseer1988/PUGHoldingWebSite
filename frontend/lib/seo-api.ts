@@ -10,6 +10,7 @@
  * The endpoints these wrap are all cacheable at the edge — the data
  * changes only when an admin edits SEO settings, which is rare.
  */
+import { rethrowIfDynamicServerError } from "@/lib/dynamic-bailout";
 import { env } from "@/lib/env";
 
 export interface PublicVerificationMeta {
@@ -92,6 +93,7 @@ export async function getPublicSeoHead(): Promise<PublicSeoHeadFeed> {
     if (!res.ok) return EMPTY_FEED;
     return (await res.json()) as PublicSeoHeadFeed;
   } catch (err) {
+    rethrowIfDynamicServerError(err);
     console.error("getPublicSeoHead failed:", err);
     return EMPTY_FEED;
   }
